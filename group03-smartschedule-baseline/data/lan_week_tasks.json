@@ -1,0 +1,78 @@
+[
+  {
+    "task_id": "ESSAY-1",
+    "title": "Viết phần thân bài tiểu luận (Essay body)",
+    "duration_min": 60,
+    "deadline_day": "Wednesday",
+    "deadline_time": "23:59",
+    "due": "2026-11-04T23:59:00+07:00",
+    "priority": 3,
+    "grade_weight": "10-19",
+    "category": "ASSIGNMENT",
+    "is_splittable": true,
+    "min_chunk_min": 45,
+    "depends_on": [],
+    "cognitive_load": 3
+  },
+  {
+    "task_id": "DSA-CODE",
+    "title": "DSA: Cài đặt module cây cân bằng",
+    "duration_min": 90,
+    "deadline_day": "Wednesday",
+    "deadline_time": "18:00",
+    "due": "2026-11-04T18:00:00+07:00",
+    "priority": 4,
+    "grade_weight": "20-29",
+    "category": "ASSIGNMENT",
+    "is_splittable": false,
+    "min_chunk_min": 60,
+    "depends_on": [],
+    "cognitive_load": 3
+  },
+  {
+    "task_id": "DSA-REP",
+    "title": "DSA: Viết báo cáo phân tích độ phức tạp",
+    "duration_min": 60,
+    "deadline_day": "Thursday",
+    "deadline_time": "23:59",
+    "due": "2026-11-05T23:59:00+07:00",
+    "priority": 4,
+    "grade_weight": "20-29",
+    "category": "ASSIGNMENT",
+    "is_splittable": false,
+    "min_chunk_min": 45,
+    "depends_on": ["DSA-CODE"],
+    "cognitive_load": 2
+  },
+  {
+    "task_id": "CALC-1",
+    "title": "Giải đề thi mẫu Giải tích (Calculus past paper)",
+    "duration_min": 90,
+    "deadline_day": "Next Monday",
+    "deadline_time": "09:00",
+    "due": "2026-11-09T09:00:00+07:00",
+    "priority": 5,
+    "grade_weight": "30+",
+    "category": "EXAM",
+    "is_splittable": true,
+    "min_chunk_min": 45,
+    "depends_on": [],
+    "cognitive_load": 3
+  },
+  {
+    "task_id": "CLUB-FORM",
+    "title": "Điền biểu mẫu đăng ký sự kiện CLB",
+    "duration_min": 30,
+    "deadline_day": "Tuesday",
+    "deadline_time": "17:00",
+    "due": "2026-11-03T17:00:00+07:00",
+    "priority": 2,
+    "grade_weight": "<10",
+    "category": "DEADLINE",
+    "is_splittable": false,
+    "min_chunk_min": 30,
+    "depends_on": [],
+    "cognitive_load": 1
+  }
+]
+

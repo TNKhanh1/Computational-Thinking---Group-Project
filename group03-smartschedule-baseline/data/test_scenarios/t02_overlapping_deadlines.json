@@ -1,0 +1,82 @@
+{
+  "scenario_id": "T02",
+  "name": "T02 - Nhiều task có deadline trùng nhau (Overlapping Deadlines)",
+  "description": "Nhiều bài tập quan trọng có cùng hạn chót Thứ Ba 18:00. Kiểm tra quy tắc ưu tiên Deadline -> Priority.",
+  "expected_status": "SUCCESS",
+  "commitments": {
+    "student_id": "TEST_T02",
+    "planning_week_start": "2026-11-02T00:00:00+07:00",
+    "now": "2026-11-02T06:30:00+07:00",
+    "sleep_schedule": {
+      "daily_start_time": "23:30",
+      "daily_end_time": "06:30",
+      "is_hard_lock": true
+    },
+    "fixed_events": [
+      {
+        "event_id": "CLASS_MON",
+        "title": "Lớp học chiều Thứ Hai",
+        "day_of_week": "Monday",
+        "start_time": "13:00",
+        "end_time": "17:00",
+        "category": "ACADEMIC_CLASS"
+      },
+      {
+        "event_id": "CLASS_TUE",
+        "title": "Lớp học sáng Thứ Ba",
+        "day_of_week": "Tuesday",
+        "start_time": "08:00",
+        "end_time": "11:30",
+        "category": "ACADEMIC_CLASS"
+      },
+      {
+        "event_id": "MEAL_LUNCH",
+        "title": "Ăn trưa",
+        "day_of_week": "ALL",
+        "start_time": "12:00",
+        "end_time": "12:45",
+        "category": "MEAL"
+      }
+    ]
+  },
+  "tasks": [
+    {
+      "task_id": "T02-LOW",
+      "title": "Đọc tài liệu tham khảo (Ưu tiên thấp)",
+      "duration_min": 60,
+      "deadline_day": "Tuesday",
+      "deadline_time": "18:00",
+      "priority": 1,
+      "is_splittable": false
+    },
+    {
+      "task_id": "T02-HIGH",
+      "title": "Ôn thi giữa kỳ Đại số tuyến tính (Ưu tiên cao nhất)",
+      "duration_min": 180,
+      "deadline_day": "Tuesday",
+      "deadline_time": "18:00",
+      "priority": 5,
+      "is_splittable": true,
+      "min_chunk_min": 60
+    },
+    {
+      "task_id": "T02-MED",
+      "title": "Nộp bài tập nhóm Vật lý đại cương (Ưu tiên vừa)",
+      "duration_min": 90,
+      "deadline_day": "Tuesday",
+      "deadline_time": "18:00",
+      "priority": 3,
+      "is_splittable": false
+    },
+    {
+      "task_id": "T02-CRIT",
+      "title": "Hoàn thiện code Lab bắt buộc (Ưu tiên cao)",
+      "duration_min": 90,
+      "deadline_day": "Tuesday",
+      "deadline_time": "18:00",
+      "priority": 4,
+      "is_splittable": false
+    }
+  ]
+}
+

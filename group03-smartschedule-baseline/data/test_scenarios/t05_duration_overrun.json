@@ -1,0 +1,69 @@
+{
+  "scenario_id": "T05",
+  "name": "T05 - Task thực tế làm lâu hơn dự tính (+30% Duration Overrun)",
+  "description": "Kiểm tra kịch bản khi sinh viên ước tính thiếu thời gian (T05-A dự kiến 120p nhưng thực tế tốn 165p, tăng +37.5%). Vì Baseline V0 không có hệ số đệm (Buffer x1.2/x1.35), các task phía sau bị đẩy lùi dây chuyền.",
+  "expected_status": "SUCCESS",
+  "overrun_config": {
+    "task_id": "T05-A",
+    "extra_minutes": 45,
+    "overrun_pct": 30.0
+  },
+  "commitments": {
+    "student_id": "TEST_T05",
+    "planning_week_start": "2026-11-02T00:00:00+07:00",
+    "now": "2026-11-02T06:30:00+07:00",
+    "sleep_schedule": {
+      "daily_start_time": "23:30",
+      "daily_end_time": "06:30",
+      "is_hard_lock": true
+    },
+    "fixed_events": [
+      {
+        "event_id": "CLASS_MON",
+        "title": "Lớp học chiều Thứ Hai",
+        "day_of_week": "Monday",
+        "start_time": "13:00",
+        "end_time": "17:00",
+        "category": "ACADEMIC_CLASS"
+      },
+      {
+        "event_id": "MEAL_LUNCH",
+        "title": "Ăn trưa",
+        "day_of_week": "ALL",
+        "start_time": "12:00",
+        "end_time": "12:45",
+        "category": "MEAL"
+      }
+    ]
+  },
+  "tasks": [
+    {
+      "task_id": "T05-A",
+      "title": "Lập trình bài tập C++ (Ước tính 90p, thực tế lố giờ)",
+      "duration_min": 90,
+      "deadline_day": "Monday",
+      "deadline_time": "18:00",
+      "priority": 5,
+      "is_splittable": false
+    },
+    {
+      "task_id": "T05-B",
+      "title": "Ôn tập Cấu trúc dữ liệu",
+      "duration_min": 90,
+      "deadline_day": "Monday",
+      "deadline_time": "22:00",
+      "priority": 4,
+      "is_splittable": false
+    },
+    {
+      "task_id": "T05-C",
+      "title": "Hoàn thành bài tập Xác suất thống kê",
+      "duration_min": 90,
+      "deadline_day": "Tuesday",
+      "deadline_time": "12:00",
+      "priority": 3,
+      "is_splittable": false
+    }
+  ]
+}
+

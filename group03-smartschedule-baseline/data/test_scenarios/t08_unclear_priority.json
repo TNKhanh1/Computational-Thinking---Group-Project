@@ -1,0 +1,47 @@
+{
+  "scenario_id": "T08",
+  "name": "T08 - Nhiều task có cùng mức độ ưu tiên & hạn chót (Tie-Breaking FIFO Order)",
+  "description": "Kiểm tra tính tất định (Pure Determinism) khi các task có cùng hạn chót và cùng độ ưu tiên: Thuật toán phá vỡ thế cân bằng (tie-break) theo đúng thứ tự danh sách nhập vào (FIFO).",
+  "expected_status": "SUCCESS",
+  "commitments": {
+    "student_id": "TEST_T08",
+    "planning_week_start": "2026-11-02T00:00:00+07:00",
+    "now": "2026-11-02T06:30:00+07:00",
+    "sleep_schedule": {
+      "daily_start_time": "23:30",
+      "daily_end_time": "06:30",
+      "is_hard_lock": true
+    },
+    "fixed_events": []
+  },
+  "tasks": [
+    {
+      "task_id": "T08-FIRST",
+      "title": "Công việc nhập thứ 1 (Cùng hạn T3 23:59, Cùng ưu tiên 3)",
+      "duration_min": 60,
+      "deadline_day": "Tuesday",
+      "deadline_time": "23:59",
+      "priority": 3,
+      "is_splittable": false
+    },
+    {
+      "task_id": "T08-SECOND",
+      "title": "Công việc nhập thứ 2 (Cùng hạn T3 23:59, Cùng ưu tiên 3)",
+      "duration_min": 60,
+      "deadline_day": "Tuesday",
+      "deadline_time": "23:59",
+      "priority": 3,
+      "is_splittable": false
+    },
+    {
+      "task_id": "T08-THIRD",
+      "title": "Công việc nhập thứ 3 (Cùng hạn T3 23:59, Cùng ưu tiên 3)",
+      "duration_min": 60,
+      "deadline_day": "Tuesday",
+      "deadline_time": "23:59",
+      "priority": 3,
+      "is_splittable": false
+    }
+  ]
+}
+

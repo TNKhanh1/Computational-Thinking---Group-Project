@@ -1,0 +1,139 @@
+{
+  "scenario_id": "T04",
+  "name": "T04 - Sự kiện đột xuất 2 tiếng chèn vào lịch đã xếp (Event Disruption & Local Repair)",
+  "description": "Đang có lịch tuần chuẩn của Minh, phát sinh cuộc họp đột xuất 2 tiếng vào sáng Thứ Hai 07:30–09:30. So sánh Full Rebuild và Local Repair (M4) để đo chỉ số ổn định lịch trình (Schedule Stability >= 90%).",
+  "expected_status": "SUCCESS",
+  "disruption": {
+    "event_id": "URGENT_MEETING_MON",
+    "title": "Họp khẩn cấp Ban chủ nhiệm CLB",
+    "day_of_week": "Monday",
+    "start_time": "07:30",
+    "end_time": "09:30",
+    "now_day": "Monday",
+    "now_time": "07:00"
+  },
+  "commitments": {
+    "student_id": "TEST_T04_MINH",
+    "planning_week_start": "2026-11-02T00:00:00+07:00",
+    "now": "2026-11-02T06:30:00+07:00",
+    "sleep_schedule": {
+      "daily_start_time": "23:30",
+      "daily_end_time": "06:30",
+      "is_hard_lock": true
+    },
+    "fixed_events": [
+      {
+        "event_id": "CLASS_MWF",
+        "title": "Lớp học chính khóa (T2/T4/T6)",
+        "day_of_week": ["Monday", "Wednesday", "Friday"],
+        "start_time": "13:00",
+        "end_time": "17:00",
+        "category": "ACADEMIC_CLASS"
+      },
+      {
+        "event_id": "CLASS_TTH",
+        "title": "Lớp học chính khóa (T3/T5)",
+        "day_of_week": ["Tuesday", "Thursday"],
+        "start_time": "08:00",
+        "end_time": "11:00",
+        "category": "ACADEMIC_CLASS"
+      },
+      {
+        "event_id": "MEAL_BREAKFAST",
+        "title": "Ăn sáng",
+        "day_of_week": "ALL",
+        "start_time": "07:00",
+        "end_time": "07:30",
+        "category": "MEAL"
+      },
+      {
+        "event_id": "MEAL_LUNCH",
+        "title": "Ăn trưa",
+        "day_of_week": "ALL",
+        "start_time": "12:00",
+        "end_time": "12:45",
+        "category": "MEAL"
+      },
+      {
+        "event_id": "MEAL_DINNER",
+        "title": "Ăn tối",
+        "day_of_week": "ALL",
+        "start_time": "18:30",
+        "end_time": "19:15",
+        "category": "MEAL"
+      }
+    ]
+  },
+  "tasks": [
+    {
+      "task_id": "MATH-1",
+      "title": "Ôn tập Quiz Toán giữa kỳ",
+      "duration_min": 120,
+      "deadline_day": "Wednesday",
+      "deadline_time": "13:00",
+      "priority": 5,
+      "is_splittable": true,
+      "min_chunk_min": 45
+    },
+    {
+      "task_id": "LAB-1",
+      "title": "Viết báo cáo thí nghiệm Lab",
+      "duration_min": 60,
+      "deadline_day": "Tuesday",
+      "deadline_time": "23:59",
+      "priority": 3,
+      "is_splittable": false
+    },
+    {
+      "task_id": "PRJ-1",
+      "title": "Đồ án: Lập trình tính năng A",
+      "duration_min": 120,
+      "deadline_day": "Sunday",
+      "deadline_time": "23:59",
+      "priority": 5,
+      "is_splittable": true,
+      "min_chunk_min": 45
+    },
+    {
+      "task_id": "PRJ-2",
+      "title": "Đồ án: Lập trình tính năng B",
+      "duration_min": 120,
+      "deadline_day": "Sunday",
+      "deadline_time": "23:59",
+      "priority": 5,
+      "is_splittable": true,
+      "min_chunk_min": 45
+    },
+    {
+      "task_id": "PRJ-3",
+      "title": "Đồ án: Kiểm thử & sửa lỗi",
+      "duration_min": 120,
+      "deadline_day": "Sunday",
+      "deadline_time": "23:59",
+      "priority": 5,
+      "is_splittable": true,
+      "min_chunk_min": 45,
+      "depends_on": ["PRJ-1", "PRJ-2"]
+    },
+    {
+      "task_id": "PRJ-4",
+      "title": "Đồ án: Viết báo cáo tổng kết",
+      "duration_min": 180,
+      "deadline_day": "Sunday",
+      "deadline_time": "23:59",
+      "priority": 5,
+      "is_splittable": true,
+      "min_chunk_min": 45
+    },
+    {
+      "task_id": "PRJ-5",
+      "title": "Đồ án: Thiết kế slide thuyết trình",
+      "duration_min": 60,
+      "deadline_day": "Sunday",
+      "deadline_time": "23:59",
+      "priority": 5,
+      "is_splittable": false
+    }
+  ]
+}
+

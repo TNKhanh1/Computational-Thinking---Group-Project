@@ -1,0 +1,50 @@
+{
+  "scenario_id": "T10",
+  "name": "T10 - Task có hạn chót ở tuần tiếp theo (Cross-Week Deadline Horizon)",
+  "description": "Một kỳ thi lớn có hạn chót vào Thứ Hai tuần kế tiếp lúc 09:00 (2026-11-09T09:00:00+07:00, slot > 672). Thuật toán ưu tiên xếp các bài tập hạn trong tuần hiện tại trước, sau đó phân bổ khối lượng ôn tập của tuần sau vào các khoảng trống còn dư trong tuần hiện tại.",
+  "expected_status": "SUCCESS",
+  "commitments": {
+    "student_id": "TEST_T10",
+    "planning_week_start": "2026-11-02T00:00:00+07:00",
+    "now": "2026-11-02T06:30:00+07:00",
+    "sleep_schedule": {
+      "daily_start_time": "23:30",
+      "daily_end_time": "06:30",
+      "is_hard_lock": true
+    },
+    "fixed_events": [
+      {
+        "event_id": "CLASS_MWF",
+        "title": "Lớp học chính khóa",
+        "day_of_week": ["Monday", "Wednesday", "Friday"],
+        "start_time": "13:00",
+        "end_time": "17:00",
+        "category": "ACADEMIC_CLASS"
+      }
+    ]
+  },
+  "tasks": [
+    {
+      "task_id": "T10-THIS-WEEK",
+      "title": "Bài tập tuần này (Hạn Thứ Tư 23:59)",
+      "duration_min": 90,
+      "deadline_day": "Wednesday",
+      "deadline_time": "23:59",
+      "due": "2026-11-04T23:59:00+07:00",
+      "priority": 4,
+      "is_splittable": false
+    },
+    {
+      "task_id": "T10-NEXT-WEEK-EXAM",
+      "title": "Ôn thi giữa kỳ Giải tích (Hạn Thứ Hai tuần sau 09:00)",
+      "duration_min": 240,
+      "deadline_day": "Next Monday",
+      "deadline_time": "09:00",
+      "due": "2026-11-09T09:00:00+07:00",
+      "priority": 5,
+      "is_splittable": true,
+      "min_chunk_min": 60
+    }
+  ]
+}
+

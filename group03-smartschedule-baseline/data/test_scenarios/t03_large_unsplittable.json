@@ -1,0 +1,65 @@
+{
+  "scenario_id": "T03",
+  "name": "T03 - Task lớn (180p) nhưng chỉ có các khoảng trống ngắn (Fragmented Free Gaps)",
+  "description": "Trước hạn chót Thứ Hai 21:00 có tổng cộng 240p rảnh nhưng bị chia cắt thành các đoạn tối đa 90p. Task 180p không cho cắt nhỏ (is_splittable=False) sẽ báo NO_SCHEDULE_FOUND; task 180p cho cắt nhỏ sẽ chia 90+90p và xếp thành công.",
+  "expected_status": "NO_SCHEDULE_FOUND",
+  "commitments": {
+    "student_id": "TEST_T03",
+    "planning_week_start": "2026-11-02T00:00:00+07:00",
+    "now": "2026-11-02T06:30:00+07:00",
+    "sleep_schedule": {
+      "daily_start_time": "23:30",
+      "daily_end_time": "06:30",
+      "is_hard_lock": true
+    },
+    "fixed_events": [
+      {
+        "event_id": "BLOCK_1",
+        "title": "Ca học sáng 1",
+        "day_of_week": "Monday",
+        "start_time": "08:00",
+        "end_time": "10:30",
+        "category": "ACADEMIC_CLASS"
+      },
+      {
+        "event_id": "BLOCK_2",
+        "title": "Họp cố vấn học tập",
+        "day_of_week": "Monday",
+        "start_time": "12:00",
+        "end_time": "15:30",
+        "category": "MEETING"
+      },
+      {
+        "event_id": "BLOCK_3",
+        "title": "Thực hành phòng máy",
+        "day_of_week": "Monday",
+        "start_time": "17:00",
+        "end_time": "21:00",
+        "category": "ACADEMIC_CLASS"
+      }
+    ]
+  },
+  "tasks": [
+    {
+      "task_id": "T03-SPLITTABLE",
+      "title": "Đồ án có thể chia nhỏ (180p -> 90p + 90p)",
+      "duration_min": 180,
+      "deadline_day": "Monday",
+      "deadline_time": "17:00",
+      "priority": 5,
+      "is_splittable": true,
+      "min_chunk_min": 45
+    },
+    {
+      "task_id": "T03-UNSPLITTABLE",
+      "title": "Thi thử trực tuyến nguyên khối 180p (Không được ngắt quãng)",
+      "duration_min": 180,
+      "deadline_day": "Monday",
+      "deadline_time": "21:00",
+      "priority": 4,
+      "is_splittable": false,
+      "min_chunk_min": 180
+    }
+  ]
+}
+

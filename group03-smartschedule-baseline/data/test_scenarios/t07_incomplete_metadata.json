@@ -1,0 +1,55 @@
+{
+  "scenario_id": "T07",
+  "name": "T07 - Nhập thiếu thông tin thuộc tính (Incomplete Metadata & Fallback Defaults)",
+  "description": "Sinh viên nhập task thiếu hạn chót (deadline_day = null), thiếu priority hoặc chỉ truyền grade_weight. Hệ thống tiền xử lý gán giá trị mặc định minh bạch và xếp lịch an toàn.",
+  "expected_status": "SUCCESS",
+  "commitments": {
+    "student_id": "TEST_T07",
+    "planning_week_start": "2026-11-02T00:00:00+07:00",
+    "now": "2026-11-02T06:30:00+07:00",
+    "sleep_schedule": {
+      "daily_start_time": "23:30",
+      "daily_end_time": "06:30",
+      "is_hard_lock": true
+    },
+    "fixed_events": [
+      {
+        "event_id": "CLASS_MON",
+        "title": "Lớp học chiều Thứ Hai",
+        "day_of_week": "Monday",
+        "start_time": "13:00",
+        "end_time": "17:00",
+        "category": "ACADEMIC_CLASS"
+      }
+    ]
+  },
+  "tasks": [
+    {
+      "task_id": "T07-KNOWN",
+      "title": "Bài tập có đầy đủ thông tin",
+      "duration_min": 60,
+      "deadline_day": "Tuesday",
+      "deadline_time": "18:00",
+      "priority": 4,
+      "is_splittable": false
+    },
+    {
+      "task_id": "T07-NO-DEADLINE",
+      "title": "Đọc sách chuyên ngành (Không nhập hạn chót)",
+      "duration_min": 60,
+      "deadline_day": null,
+      "deadline_time": null,
+      "is_splittable": false
+    },
+    {
+      "task_id": "T07-GRADE-WEIGHT-ONLY",
+      "title": "Bài tập lớn chỉ nhập tỷ trọng điểm (30%+ -> Tự suy ra Priority 5)",
+      "duration_min": 90,
+      "deadline_day": "Wednesday",
+      "grep_weight": "30+",
+      "grade_weight": "30+",
+      "is_splittable": true
+    }
+  ]
+}
+

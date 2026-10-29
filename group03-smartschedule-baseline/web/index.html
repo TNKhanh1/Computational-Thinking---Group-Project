@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SmartSchedule Baseline (V0) — Technical Benchmark Workbench | Group 03</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+    body {
+      font-family: 'Be Vietnam Pro', system-ui, -apple-system, sans-serif;
+      background-color: #F1F5F9;
+      color: #0F172A;
+    }
+    .mono {
+      font-family: 'JetBrains Mono', monospace;
+      font-variant-numeric: tabular-nums;
+    }
+    /* Custom scrollbar for grid and queues */
+    ::-webkit-scrollbar {
+      width: 7px;
+      height: 7px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #F1F5F9;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #CBD5E1;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #94A3B8;
+    }
+    /* Slot colors strictly adhering to baseline_plan.md §7.6 */
+    .slot-sleep {
+      background-color: #334155;
+      color: #CBD5E1;
+      background-image: repeating-linear-gradient(
+        45deg,
+        rgba(255,255,255,0.04),
+        rgba(255,255,255,0.04) 6px,
+        transparent 6px,
+        transparent 12px
+      );
+    }
+    .slot-occupied-class {
+      background-color: #E11D48;
+      color: #FFFFFF;
+    }
+    .slot-occupied-meal {
+      background-color: #D97706;
+      color: #FFFFFF;
+    }
+    .slot-occupied-disruption {
+      background-color: #9333EA;
+      color: #FFFFFF;
+    }
+    .slot-block {
+      background-color: #059669;
+      color: #FFFFFF;
+    }
+    .slot-block-moved {
+      background-color: #2563EB;
+      color: #FFFFFF;
+    }
+    .slot-block-diff {
+      background-color: #0D9488;
+      color: #FFFFFF;
+      outline: 2px dashed #FACC15;
+      outline-offset: -2px;
+    }
+    .slot-free {
+      background-color: #F8FAFC;
+      color: #64748B;
+    }
+    .slot-free:hover {
+      background-color: #E2E8F0;
+    }
+    .grid-cell {
+      transition: filter 0.1s ease, transform 0.08s ease;
+    }
+    .grid-cell:hover {
+      filter: brightness(1.08);
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+  <!-- TOP HEADER BAR -->
+  <header class="bg-slate-900 text-white border-b border-slate-700 sticky top-0 z-30 shadow-md">
+    <div class="max-w-[1800px] mx-auto px-4 py-2.5 flex flex-wrap items-center justify-between gap-3">
+      <!-- Brand Title -->
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-lg bg-emerald-600 flex items-center justify-center font-bold text-lg shadow-inner">⚡</div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="font-bold text-base tracking-tight">SMARTSCHEDULE BASELINE (V0) — BENCHMARK WORKBENCH</h1>
+            <span class="px-2 py-0.5 text-[11px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 rounded-full mono">672 SLOTS · PURE DETERMINISTIC</span>
+          </div>
+          <p class="text-xs text-slate-400">CSC10014 Computational Thinking · FIT-HCMUS · Group 03 (The Seven Dwarfs)</p>
+        </div>
+      </div>
+
+      <!-- Preset & Scenario Quick Loaders -->
+      <div class="flex flex-wrap items-center gap-2">
+        <button onclick="loadPreset('minh')" class="px-3 py-1.5 text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white rounded-md transition shadow-sm flex items-center gap-1.5" title="Nạp dữ liệu mẫu chuẩn: Tuần của Minh (9 tasks, 196 SLEEP + 132 OCCUPIED + 344 FREE)">
+          <span>📂</span> Mẫu: Tuần Của Minh
+        </button>
+        <button onclick="loadPreset('lan')" class="px-3 py-1.5 text-xs font-semibold bg-slate-700 hover:bg-slate-600 text-slate-100 rounded-md transition flex items-center gap-1.5" title="Nạp dữ liệu mẫu: Tuần bận rộn của Lan">
+          <span>📂</span> Mẫu: Tuần Của Lan
+        </button>
+        <button onclick="loadPreset('empty')" class="px-3 py-1.5 text-xs font-semibold bg-amber-600 hover:bg-amber-500 text-white rounded-md transition flex items-center gap-1.5" title="Khởi tạo Lịch Trống Hoàn Toàn (0 Task, 0 Lịch bận cố định) để tự nhập từ đầu">
+          <span>📄</span> Lịch Trống Hoàn Toàn
+        </button>
+
+        <div class="flex items-center bg-slate-800 border border-slate-600 rounded-md overflow-hidden">
+          <span class="px-2.5 py-1.5 text-xs text-amber-300 font-semibold bg-slate-800/90 border-r border-slate-600">🧪 Kịch bản Test:</span>
+          <select id="scenarioSelect" onchange="onScenarioSelectChange(this.value)" class="bg-slate-800 text-xs text-white px-2.5 py-1.5 focus:outline-none">
+            <option value="">-- Chọn Kịch Bản T01 - T10 --</option>
+          </select>
+        </div>
+
+        <!-- View Mode Toggle (Single Workbench vs Dual-Algorithm Comparison) -->
+        <div class="flex items-center bg-slate-800 p-0.5 rounded-md border border-slate-600">
+          <button id="btnModeSingle" onclick="switchWorkbenchMode('SINGLE')" class="px-2.5 py-1 text-xs font-semibold rounded bg-emerald-600 text-white transition">
+            📅 Bàn Thử Nghiệm 1 Lịch
+          </button>
+          <button id="btnModeCompare" onclick="switchWorkbenchMode('COMPARE')" class="px-2.5 py-1 text-xs font-semibold rounded text-slate-300 hover:text-white transition">
+            ⚖️ So Sánh Song Song 2 Lịch
+          </button>
+        </div>
+
+        <!-- Determinism Verification Button -->
+        <button onclick="runDeterminismCheck()" class="px-2.5 py-1.5 text-xs font-semibold bg-teal-700 hover:bg-teal-600 text-white rounded-md transition flex items-center gap-1" title="Chạy 3 lần liên tiếp và kiểm chứng mã băm SHA-256">
+          <span>🔒</span> Kiểm Chứng Tất Định (3x)
+        </button>
+
+        <!-- Import / Export / Clear -->
+        <label class="px-2.5 py-1.5 text-xs font-medium bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-md cursor-pointer transition">
+          📥 Nhập JSON
+          <input type="file" id="jsonFileInput" accept=".json" class="hidden" onchange="importJsonFile(event)" />
+        </label>
+        <button onclick="exportSchedule('json')" class="px-2.5 py-1.5 text-xs font-medium bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-md transition" title="Tải về schedule_output.json">
+          💾 .JSON
+        </button>
+        <button onclick="exportSchedule('csv')" class="px-2.5 py-1.5 text-xs font-medium bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-md transition" title="Tải về bảng CSV">
+          📊 .CSV
+        </button>
+        <button onclick="exportSchedule('ics')" class="px-2.5 py-1.5 text-xs font-semibold bg-emerald-700 hover:bg-emerald-600 text-white rounded-md transition" title="Tải về file iCalendar (.ics) nhập vào Google/Apple Calendar">
+          📅 Xuất .ICS
+        </button>
+        <button onclick="clearAllData()" class="px-2.5 py-1.5 text-xs font-medium bg-rose-900/70 hover:bg-rose-800 text-rose-200 border border-rose-700 rounded-md transition">
+          🔄 Xóa Sạch
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ACTIVE SCENARIO DESCRIPTION BANNER -->
+  <div id="scenarioBanner" class="hidden bg-indigo-950 text-indigo-100 border-b border-indigo-800 px-4 py-2 text-xs">
+    <div class="max-w-[1800px] mx-auto flex flex-wrap items-center justify-between gap-2">
+      <div>
+        <span id="scenarioBannerTitle" class="font-bold text-amber-300"></span>
+        <span class="mx-2 text-indigo-400">|</span>
+        <span id="scenarioBannerDesc"></span>
+      </div>
+      <span id="scenarioBannerExpected" class="px-2 py-0.5 rounded bg-indigo-900 border border-indigo-700 mono text-[11px]"></span>
+    </div>
+  </div>
+
+  <!-- MAIN 2-COLUMN WORKBENCH LAYOUT (35% Left Control / 65% Right Grid & KPIs) -->
+  <main class="flex-1 max-w-[1800px] w-full mx-auto px-4 py-4 grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+
+    <!-- ==================== LEFT COLUMN (35% -> 4 of 12 cols): INPUT & CONTROLS ==================== -->
+    <section class="lg:col-span-4 bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col overflow-hidden">
+
+      <!-- 3 Input Control Tabs -->
+      <div class="grid grid-cols-3 border-b border-slate-200 bg-slate-50 text-xs font-semibold">
+        <button id="tabBtnTasks" onclick="switchLeftTab('TASKS')" class="py-2.5 px-2 border-b-2 border-indigo-600 text-indigo-700 bg-white">
+          📝 1. Hàng Đợi Task (<span id="taskCountBadge">0</span>)
+        </button>
+        <button id="tabBtnCommitments" onclick="switchLeftTab('COMMITMENTS')" class="py-2.5 px-2 border-b-2 border-transparent text-slate-600 hover:text-slate-900">
+          🔒 2. Lịch Cố Định & Ngủ
+        </button>
+        <button id="tabBtnDisruption" onclick="switchLeftTab('DISRUPTION')" class="py-2.5 px-2 border-b-2 border-transparent text-slate-600 hover:text-slate-900">
+          ⚡ 3. Test Sự Cố (T04/T05)
+        </button>
+      </div>
+
+      <!-- TAB 1: TASK INGESTION & QUEUE -->
+      <div id="tabPanelTasks" class="p-4 space-y-4">
+        <!-- Quick-Add Syntax Bar (Option C in baseline_plan.md §7.5 & improve_plan.md §6.2) -->
+        <div class="bg-slate-50 p-3 rounded-lg border border-slate-200">
+          <div class="flex items-center justify-between mb-1">
+            <label class="text-[11px] font-bold uppercase tracking-wider text-slate-600">⚡ Nhập Nhanh Cú Pháp Rút Gọn (Regex Quick-Add)</label>
+            <span class="text-[10px] text-slate-400 mono">VD: Toan 120m t4 13:00 p5 ~45</span>
+          </div>
+          <div class="flex gap-1.5">
+            <input id="quickAddInput" type="text" placeholder="Gõ: On tap Toan 120m t4 13:00 p5 ~45 after:PRJ-1 ..."
+              oninput="previewQuickAdd(this.value)"
+              onkeydown="if(event.key==='Enter'){event.preventDefault();applyQuickAdd();}"
+              class="flex-1 text-xs px-2.5 py-1.5 rounded border border-slate-300 focus:outline-none focus:border-indigo-500" />
+            <button onclick="applyQuickAdd()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold rounded transition">
+              Nạp Form
+            </button>
+          </div>
+          <div id="quickAddChips" class="mt-1.5 flex flex-wrap gap-1 empty:hidden"></div>
+        </div>
+
+        <!-- Structured Task Input Form (Option A in baseline_plan.md §7.4 & §7.5) -->
+        <div class="bg-white p-3.5 rounded-lg border border-slate-200 space-y-2.5">
+          <div class="flex items-center justify-between">
+            <h3 id="taskFormHeading" class="text-xs font-bold uppercase tracking-wider text-slate-700">📝 Biểu Mẫu Thông Số Task Chuẩn</h3>
+            <button id="btnCancelEditTask" onclick="resetTaskForm()" class="hidden text-[11px] text-rose-600 hover:underline font-medium">Hủy sửa</button>
+          </div>
+
+          <div class="grid grid-cols-3 gap-2">
+            <div>
+              <label class="block text-[11px] font-medium text-slate-600 mb-0.5">Mã Task (`task_id`)</label>
+              <input id="inpTaskId" type="text" placeholder="MATH-1" class="w-full text-xs px-2.5 py-1.5 rounded border border-slate-300 mono uppercase focus:border-indigo-500 focus:outline-none" />
+            </div>
+            <div class="col-span-2">
+              <label class="block text-[11px] font-medium text-slate-600 mb-0.5">Tên Bài Tập / Công Việc</label>
+              <input id="inpTaskTitle" type="text" placeholder="Ôn tập Quiz Toán giữa kỳ" class="w-full text-xs px-2.5 py-1.5 rounded border border-slate-300 focus:border-indigo-500 focus:outline-none" />
+            </div>
+          </div>
+
+          <!-- Duration with quick buttons & automatic slot calculation -->
+          <div>
+            <div class="flex items-center justify-between mb-0.5">
+              <label class="text-[11px] font-medium text-slate-600">Thời lượng ước tính (`duration_min` - bội số 15p)</label>
+              <span id="slotEquivalentLabel" class="text-[11px] font-semibold text-indigo-600 mono">= 8 slots (2.0 giờ)</span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <input id="inpTaskDuration" type="number" min="15" step="15" value="120" oninput="updateSlotEquivalent()"
+                class="w-24 text-xs px-2.5 py-1.5 rounded border border-slate-300 mono font-semibold focus:border-indigo-500 focus:outline-none" />
+              <button type="button" onclick="adjustDuration(-15)" class="px-2 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded border border-slate-300 font-medium">-15p</button>
+              <button type="button" onclick="adjustDuration(15)" class="px-2 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded border border-slate-300 font-medium">+15p</button>
+              <button type="button" onclick="adjustDuration(30)" class="px-2 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded border border-slate-300 font-medium">+30p</button>
+              <button type="button" onclick="adjustDuration(60)" class="px-2 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded border border-slate-300 font-medium">+60p</button>
+            </div>
+          </div>
+
+          <!-- Deadline Day & Time -->
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="block text-[11px] font-medium text-slate-600 mb-0.5">Hạn chót - Thứ (`deadline_day`)</label>
+              <select id="inpTaskDeadlineDay" class="w-full text-xs px-2 py-1.5 rounded border border-slate-300 bg-white focus:border-indigo-500 focus:outline-none">
+                <option value="Monday">Thứ Hai (Monday)</option>
+                <option value="Tuesday">Thứ Ba (Tuesday)</option>
+                <option value="Wednesday" selected>Thứ Tư (Wednesday)</option>
+                <option value="Thursday">Thứ Năm (Thursday)</option>
+                <option value="Friday">Thứ Sáu (Friday)</option>
+                <option value="Saturday">Thứ Bảy (Saturday)</option>
+                <option value="Sunday">Chủ Nhật (Sunday)</option>
+                <option value="Next Monday">Thứ Hai Tuần Sau (T10)</option>
+                <option value="Next Wednesday">Thứ Tư Tuần Sau (T10)</option>
+                <option value="">Không có hạn chót (Habit/Việc vặt)</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-[11px] font-medium text-slate-600 mb-0.5">Giờ hạn chót (`deadline_time`)</label>
+              <input id="inpTaskDeadlineTime" type="time" value="23:59" class="w-full text-xs px-2.5 py-1.5 rounded border border-slate-300 mono focus:border-indigo-500 focus:outline-none" />
+            </div>
+          </div>
+
+          <!-- Priority & Splittable -->
+          <div class="grid grid-cols-2 gap-2 items-center pt-1">
+            <div>
+              <label class="block text-[11px] font-medium text-slate-600 mb-1">Độ ưu tiên (`priority` 1–5)</label>
+              <div class="flex items-center gap-1" id="priorityRadioGroup">
+                <button type="button" onclick="setPriority(1)" data-prio="1" class="prio-btn flex-1 py-1 text-xs rounded border border-slate-300 font-semibold">1</button>
+                <button type="button" onclick="setPriority(2)" data-prio="2" class="prio-btn flex-1 py-1 text-xs rounded border border-slate-300 font-semibold">2</button>
+                <button type="button" onclick="setPriority(3)" data-prio="3" class="prio-btn flex-1 py-1 text-xs rounded border border-slate-300 font-semibold">3</button>
+                <button type="button" onclick="setPriority(4)" data-prio="4" class="prio-btn flex-1 py-1 text-xs rounded border border-slate-300 font-semibold">4</button>
+                <button type="button" onclick="setPriority(5)" data-prio="5" class="prio-btn flex-1 py-1 text-xs rounded border bg-indigo-600 text-white border-indigo-600 font-semibold">5</button>
+              </div>
+              <input type="hidden" id="inpTaskPriority" value="5" />
+            </div>
+
+            <div>
+              <label class="flex items-center gap-1.5 text-xs font-medium text-slate-700 cursor-pointer mb-1">
+                <input id="inpTaskSplittable" type="checkbox" checked class="rounded text-indigo-600 focus:ring-0" />
+                <span>Cho phép cắt nhỏ (`is_splittable`)</span>
+              </label>
+              <div class="flex items-center gap-1.5">
+                <span class="text-[11px] text-slate-500">Nhỏ nhất:</span>
+                <input id="inpTaskMinChunk" type="number" min="15" max="90" step="15" value="45" class="w-16 text-xs px-2 py-1 rounded border border-slate-300 mono" />
+                <span class="text-[11px] text-slate-500">phút</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Dependency (depends_on) -->
+          <div>
+            <label class="block text-[11px] font-medium text-slate-600 mb-0.5">Task phụ thuộc phải xong trước (`depends_on` - phân cách bằng dấu phẩy)</label>
+            <input id="inpTaskDependsOn" type="text" placeholder="VD: PRJ-1, PRJ-2 (Để trống nếu không có)" class="w-full text-xs px-2.5 py-1.5 rounded border border-slate-300 mono focus:border-indigo-500 focus:outline-none" />
+          </div>
+
+          <button id="btnSaveTask" onclick="saveTaskFromForm()" class="w-full py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-md shadow-sm transition flex items-center justify-center gap-1.5">
+            <span>➕</span> Thêm Task Vào Hàng Đợi
+          </button>
+        </div>
+
+        <!-- Task Queue List -->
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-700">📋 Hàng Đợi Task Hiện Tại (Queue)</h3>
+            <span id="queueTotalSummary" class="text-[11px] text-slate-500 mono">0 tasks · 0 phút</span>
+          </div>
+          <div id="taskQueueContainer" class="space-y-1.5 max-h-[290px] overflow-y-auto pr-1"></div>
+        </div>
+      </div>
+
+      <!-- TAB 2: HARD CONSTRAINTS (SLEEP & FIXED COMMITMENTS) -->
+      <div id="tabPanelCommitments" class="hidden p-4 space-y-4">
+        <!-- Protected Sleep Window (H2/H5) -->
+        <div class="bg-slate-800 text-white p-3.5 rounded-lg space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold uppercase tracking-wider text-indigo-300">🌙 Khung Giờ Ngủ Bảo Vệ Cứng (H2 / SLEEP)</span>
+            <span class="px-2 py-0.5 text-[10px] bg-indigo-500/30 border border-indigo-400/40 rounded font-semibold">HARD LOCK</span>
+          </div>
+          <p class="text-[11px] text-slate-300">Thuật toán tuyệt đối không bao giờ xếp bài tập đè lên khung giờ ngủ này.</p>
+          <div class="grid grid-cols-2 gap-2 pt-1">
+            <div>
+              <label class="block text-[11px] text-slate-300 mb-0.5">Bắt đầu ngủ mỗi đêm</label>
+              <input id="inpSleepStart" type="time" value="23:30" onchange="updateSleepFromUI()" class="w-full text-xs px-2.5 py-1.5 rounded bg-slate-900 border border-slate-600 text-white mono" />
+            </div>
+            <div>
+              <label class="block text-[11px] text-slate-300 mb-0.5">Thức dậy mỗi sáng</label>
+              <input id="inpSleepEnd" type="time" value="06:30" onchange="updateSleepFromUI()" class="w-full text-xs px-2.5 py-1.5 rounded bg-slate-900 border border-slate-600 text-white mono" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Add Fixed Commitment Form (H1) -->
+        <div class="bg-slate-50 p-3.5 rounded-lg border border-slate-200 space-y-2.5">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-700">🟥 Thêm Lịch Bận Cố Định (Lớp Học / Làm Thêm / Ăn Uống)</h3>
+          <div class="grid grid-cols-3 gap-2">
+            <div>
+              <label class="block text-[11px] text-slate-600 mb-0.5">Mã Sự Kiện</label>
+              <input id="inpEvId" type="text" placeholder="CLASS_MON" class="w-full text-xs px-2 py-1.5 rounded border border-slate-300 mono uppercase" />
+            </div>
+            <div class="col-span-2">
+              <label class="block text-[11px] text-slate-600 mb-0.5">Tên Lịch Cố Định</label>
+              <input id="inpEvTitle" type="text" placeholder="Học Lý thuyết Đồ thị" class="w-full text-xs px-2 py-1.5 rounded border border-slate-300" />
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="block text-[11px] text-slate-600 mb-0.5">Thứ trong tuần</label>
+              <select id="inpEvDay" class="w-full text-xs px-2 py-1.5 rounded border border-slate-300 bg-white">
+                <option value="ALL">Tất cả các ngày (ALL - Ăn uống)</option>
+                <option value="Monday">Thứ Hai (Monday)</option>
+                <option value="Tuesday">Thứ Ba (Tuesday)</option>
+                <option value="Wednesday">Thứ Tư (Wednesday)</option>
+                <option value="Thursday">Thứ Năm (Thursday)</option>
+                <option value="Friday">Thứ Sáu (Friday)</option>
+                <option value="Saturday">Thứ Bảy (Saturday)</option>
+                <option value="Sunday">Chủ Nhật (Sunday)</option>
+                <option value="Monday,Wednesday,Friday">Thứ 2, Thứ 4, Thứ 6</option>
+                <option value="Tuesday,Thursday">Thứ 3, Thứ 5</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-[11px] text-slate-600 mb-0.5">Phân loại</label>
+              <select id="inpEvCategory" class="w-full text-xs px-2 py-1.5 rounded border border-slate-300 bg-white">
+                <option value="ACADEMIC_CLASS">Lớp học (ACADEMIC_CLASS)</option>
+                <option value="MEAL">Ăn uống / Nghỉ (MEAL)</option>
+                <option value="WORK">Làm thêm (WORK)</option>
+                <option value="MEETING">Họp nhóm / CLB (MEETING)</option>
+              </select>
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="block text-[11px] text-slate-600 mb-0.5">Giờ bắt đầu</label>
+              <input id="inpEvStart" type="time" value="13:00" class="w-full text-xs px-2 py-1.5 rounded border border-slate-300 mono" />
+            </div>
+            <div>
+              <label class="block text-[11px] text-slate-600 mb-0.5">Giờ kết thúc</label>
+              <input id="inpEvEnd" type="time" value="17:00" class="w-full text-xs px-2 py-1.5 rounded border border-slate-300 mono" />
+            </div>
+          </div>
+          <button onclick="addFixedEventFromForm()" class="w-full py-1.5 bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold rounded transition">
+            🔒 Khóa Vào Lưới Lịch Cố Định
+          </button>
+        </div>
+
+        <!-- Fixed Events List -->
+        <div>
+          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-700 mb-2">Danh Sách Sự Kiện Đã Khóa (<span id="fixedEventCountBadge">0</span>)</h3>
+          <div id="fixedEventsContainer" class="space-y-1.5 max-h-[260px] overflow-y-auto pr-1"></div>
+        </div>
+      </div>
+
+      <!-- TAB 3: DISRUPTION & OVERRUN SIMULATOR (T04 & T05) -->
+      <div id="tabPanelDisruption" class="hidden p-4 space-y-4">
+        <!-- Disruption Simulator (Scenario T04) -->
+        <div class="bg-amber-50/70 p-3.5 rounded-lg border border-amber-200 space-y-2.5">
+          <div class="flex items-center justify-between">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-amber-900">⚡ Mô Phỏng Sự Kiện Đột Xuất (Kịch bản T04)</h3>
+            <span class="px-1.5 py-0.5 text-[10px] font-bold bg-amber-200 text-amber-900 rounded mono">MODULE M4</span>
+          </div>
+          <p class="text-[11px] text-amber-800">Chèn một sự kiện bận bất ngờ đè lên lịch đã xếp để đo độ ổn định lịch trình ($S_{\text{stability}}$) giữa <b>Local Repair</b> và <b>Full Rebuild</b>.</p>
+
+          <div>
+            <label class="block text-[11px] font-medium text-slate-700 mb-0.5">Tên sự kiện đột xuất</label>
+            <input id="inpDisruptTitle" type="text" value="Họp khẩn cấp Ban chủ nhiệm CLB" class="w-full text-xs px-2.5 py-1.5 rounded border border-slate-300 bg-white" />
+          </div>
+          <div class="grid grid-cols-3 gap-2">
+            <div>
+              <label class="block text-[11px] font-medium text-slate-700 mb-0.5">Thứ</label>
+              <select id="inpDisruptDay" class="w-full text-xs px-2 py-1.5 rounded border border-slate-300 bg-white">
+                <option value="Monday" selected>Thứ Hai</option>
+                <option value="Tuesday">Thứ Ba</option>
+                <option value="Wednesday">Thứ Tư</option>
+                <option value="Thursday">Thứ Năm</option>
+                <option value="Friday">Thứ Sáu</option>
+                <option value="Saturday">Thứ Bảy</option>
+                <option value="Sunday">Chủ Nhật</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-[11px] font-medium text-slate-700 mb-0.5">Từ giờ</label>
+              <input id="inpDisruptStart" type="time" value="07:30" class="w-full text-xs px-2 py-1.5 rounded border border-slate-300 bg-white mono" />
+            </div>
+            <div>
+              <label class="block text-[11px] font-medium text-slate-700 mb-0.5">Đến giờ</label>
+              <input id="inpDisruptEnd" type="time" value="09:30" class="w-full text-xs px-2 py-1.5 rounded border border-slate-300 bg-white mono" />
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-2 pt-1">
+            <button onclick="runDisruptionRepair('LOCAL_INSERTION')" class="py-2 px-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded shadow-sm transition">
+              🛠️ Vá Cục Bộ (Local Repair)
+            </button>
+            <button onclick="runDisruptionRepair('FULL_REBUILD')" class="py-2 px-2 bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold rounded shadow-sm transition">
+              🔄 Xếp Lại Toàn Bộ (Rebuild)
+            </button>
+          </div>
+          <button onclick="runDisruptionComparison()" class="w-full py-2 bg-indigo-700 hover:bg-indigo-600 text-white text-xs font-bold rounded shadow-sm transition">
+            ⚖️ So Sánh Đối Chứng: Local Repair vs Full Rebuild (T04)
+          </button>
+        </div>
+
+        <!-- Task Overrun Simulator (Scenario T05) -->
+        <div class="bg-slate-50 p-3.5 rounded-lg border border-slate-200 space-y-2.5">
+          <div class="flex items-center justify-between">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-700">⏱️ Mô Phỏng Làm Lố Giờ (Kịch bản T05 / UC9)</h3>
+            <span class="px-1.5 py-0.5 text-[10px] font-bold bg-slate-200 text-slate-700 rounded mono">+30% OVERRUN</span>
+          </div>
+          <p class="text-[11px] text-slate-600">Kiểm tra hiện tượng trượt lịch dây chuyền khi task thực tế tốn nhiều thời gian hơn dự kiến ban đầu.</p>
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="block text-[11px] text-slate-600 mb-0.5">Chọn Task bị lố giờ</label>
+              <select id="inpOverrunTaskSelect" class="w-full text-xs px-2 py-1.5 rounded border border-slate-300 bg-white mono"></select>
+            </div>
+            <div>
+              <label class="block text-[11px] text-slate-600 mb-0.5">Thời gian phát sinh thêm</label>
+              <select id="inpOverrunExtraMin" class="w-full text-xs px-2 py-1.5 rounded border border-slate-300 bg-white">
+                <option value="30">+30 phút</option>
+                <option value="45" selected>+45 phút (~30-37%)</option>
+                <option value="60">+60 phút (+50%)</option>
+                <option value="90">+90 phút</option>
+              </select>
+            </div>
+          </div>
+          <button onclick="runTaskOverrunSimulation()" class="w-full py-1.5 bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold rounded transition">
+            ⏱️ Chạy Mô Phỏng Task Lố Giờ
+          </button>
+        </div>
+
+        <!-- Repair / Overrun Diff Log Output -->
+        <div id="repairLogPanel" class="hidden bg-white p-3 rounded-lg border border-slate-200 space-y-2 text-xs"></div>
+      </div>
+
+      <!-- BOTTOM SOLVER SELECTOR & BIG SOLVE BUTTON -->
+      <div class="mt-auto p-4 bg-slate-900 text-white border-t border-slate-800 space-y-3">
+        <div>
+          <label class="block text-[11px] font-bold uppercase tracking-wider text-emerald-400 mb-1.5">⚙️ Bộ Chọn Thuật Toán Baseline (Strategy Pattern)</label>
+          <select id="solverSelect" class="w-full text-xs px-3 py-2 rounded-md bg-slate-800 border border-slate-600 text-white font-medium focus:outline-none focus:border-emerald-400">
+            <option value="GREEDY_EDF_FIRST_FIT" selected>1. Tham lam Earliest Deadline First (EDF + First-Fit) [Chuẩn V0]</option>
+            <option value="GREEDY_LST_BEST_FIT">2. Tham lam Least Slack Time (LST + Best-Fit) [Giảm phân mảnh]</option>
+            <option value="GREEDY_WSPT_SMITH_RULE">3. Tham lam Weighted Shortest Processing Time (WSPT / Smith)</option>
+            <option value="BACKTRACKING_BRANCH_AND_BOUND">4. Vét cạn Quay lui Nhánh-Cận (Backtracking Ground-Truth)</option>
+          </select>
+        </div>
+
+        <button onclick="solveSchedule()" class="w-full py-3 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-bold text-sm rounded-lg shadow-lg transition flex items-center justify-center gap-2 tracking-wide">
+          <span>🚀</span> CHẠY THUẬT TOÁN XẾP LỊCH (SOLVE)
+        </button>
+      </div>
+    </section>
+
+    <!-- ==================== RIGHT COLUMN (65% -> 8 of 12 cols): KPIs, OVERLOAD & 672-SLOT GRID ==================== -->
+    <section class="lg:col-span-8 space-y-4">
+
+      <!-- 1. QUANTITATIVE BENCHMARK KPI CARDS (baseline_plan.md §7.6 item 7) -->
+      <div class="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        <!-- Card 1: Hard Violations -->
+        <div class="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
+          <div class="text-[11px] font-semibold text-slate-500 uppercase">Vi Phạm Cứng (H1–H5)</div>
+          <div class="mt-1 flex items-baseline gap-1.5">
+            <span id="kpiHardViolations" class="text-2xl font-bold mono text-emerald-600">0</span>
+            <span class="text-xs text-slate-500">lỗi</span>
+          </div>
+          <div class="mt-1 text-[11px] text-slate-400">Mục tiêu bắt buộc: = 0</div>
+        </div>
+
+        <!-- Card 2: Deadline Satisfaction Rate -->
+        <div class="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
+          <div class="text-[11px] font-semibold text-slate-500 uppercase">Đạt Hạn Chót (Deadline)</div>
+          <div class="mt-1 flex items-baseline gap-1.5">
+            <span id="kpiDeadlineRate" class="text-2xl font-bold mono text-indigo-600">100.0%</span>
+          </div>
+          <div id="kpiPlacedCount" class="mt-1 text-[11px] text-slate-400">0 / 0 tasks đã xếp</div>
+        </div>
+
+        <!-- Card 3: Execution Latency -->
+        <div class="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
+          <div class="text-[11px] font-semibold text-slate-500 uppercase">Thời Gian Giải (Thực Đo)</div>
+          <div class="mt-1 flex items-baseline gap-1">
+            <span id="kpiExecTime" class="text-2xl font-bold mono text-slate-800">--</span>
+            <span class="text-xs text-slate-500 mono">ms</span>
+          </div>
+          <div class="mt-1 text-[11px] text-slate-400">Mục tiêu: &lt; 2000 ms</div>
+        </div>
+
+        <!-- Card 4: Slot Distribution & Fragmentation -->
+        <div class="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
+          <div class="text-[11px] font-semibold text-slate-500 uppercase">Slot Trống Còn Lại</div>
+          <div class="mt-1 flex items-baseline gap-1.5">
+            <span id="kpiFreeSlots" class="text-2xl font-bold mono text-slate-800">344</span>
+            <span class="text-xs text-slate-500">/ 672 slots</span>
+          </div>
+          <div id="kpiFragmentation" class="mt-1 text-[11px] text-slate-400 mono">Phân mảnh: 0.0%</div>
+        </div>
+
+        <!-- Card 5: Determinism Hash & Stability -->
+        <div class="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
+          <div class="text-[11px] font-semibold text-slate-500 uppercase">Mã Tất Định (SHA-256)</div>
+          <div class="mt-1">
+            <span id="kpiDeterminismHash" class="text-sm font-bold mono px-2 py-0.5 bg-slate-100 text-slate-800 rounded border border-slate-200 inline-block">--------</span>
+          </div>
+          <div id="kpiSolverLabel" class="mt-1.5 text-[10px] font-semibold text-emerald-700 mono truncate">GREEDY_EDF_FIRST_FIT</div>
+        </div>
+      </div>
+
+      <!-- 2. OVERLOAD & UNPLACED WARNING PANEL (Hidden when 100% feasible) -->
+      <div id="overloadAlertBox" class="hidden bg-rose-50 border-2 border-rose-500 rounded-xl p-4 shadow-sm space-y-2.5">
+        <div class="flex items-start justify-between gap-2">
+          <div class="flex items-center gap-2">
+            <span class="text-xl">⚠️</span>
+            <div>
+              <h3 id="overloadTitle" class="text-sm font-bold text-rose-900 uppercase">CẢNH BÁO QUÁ TẢI DUNG LƯỢNG TOÁN HỌC (CAPACITY SHORTAGE)</h3>
+              <p id="overloadSubtitle" class="text-xs text-rose-800 font-medium"></p>
+            </div>
+          </div>
+          <span id="overloadBadge" class="px-2.5 py-1 text-xs font-bold bg-rose-600 text-white rounded-md mono">INFEASIBLE</span>
+        </div>
+
+        <div id="overloadStatsRow" class="grid grid-cols-3 gap-2 bg-white/90 p-2.5 rounded-lg border border-rose-200 text-xs"></div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+          <div>
+            <div class="text-[11px] font-bold uppercase text-rose-900 mb-1">📌 Danh sách Task không thể xếp (`UNPLACED`):</div>
+            <ul id="unplacedTasksList" class="space-y-1 text-xs text-rose-950 list-disc list-inside"></ul>
+          </div>
+          <div>
+            <div class="text-[11px] font-bold uppercase text-rose-900 mb-1">💡 Gợi ý xử lý từ hệ thống (Fail-Safe Options):</div>
+            <ul id="overloadSuggestionsList" class="space-y-1 text-xs text-slate-700 list-disc list-inside"></ul>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. DETERMINISM VERIFICATION BANNER (Shown when user clicks 3x Check) -->
+      <div id="determinismBanner" class="hidden bg-teal-950 text-teal-100 border border-teal-700 rounded-xl p-3.5 text-xs flex flex-wrap items-center justify-between gap-2">
+        <div id="determinismBannerText"></div>
+        <button onclick="document.getElementById('determinismBanner').classList.add('hidden')" class="text-teal-300 hover:text-white font-bold px-2">✕</button>
+      </div>
+
+      <!-- ==================== SINGLE WORKBENCH MODE: 672-SLOT WEEKLY GRID ==================== -->
+      <div id="singleGridPanel" class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <!-- Grid Toolbar & Color Legend -->
+        <div class="p-3.5 border-b border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-3">
+          <div class="flex flex-wrap items-center gap-3">
+            <h2 class="text-sm font-bold text-slate-800">📅 LƯỚI LỊCH BIỂU TUẦN 7 NGÀY (672 SLOTS × 15 PHÚT)</h2>
+            <!-- Color Legend -->
+            <div class="flex flex-wrap items-center gap-2.5 text-[11px] font-medium">
+              <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-sm slot-sleep inline-block"></span> Ngủ bảo vệ (SLEEP)</span>
+              <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-sm slot-occupied-class inline-block"></span> Lớp học/Bận (OCCUPIED)</span>
+              <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-sm slot-occupied-meal inline-block"></span> Ăn uống (MEAL)</span>
+              <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-sm slot-block inline-block"></span> Task đã xếp (BLOCK)</span>
+              <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-sm slot-block-moved inline-block"></span> Task vừa dời (REPAIRED)</span>
+              <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-sm border border-slate-300 bg-slate-50 inline-block"></span> Rảnh (FREE)</span>
+            </div>
+          </div>
+
+          <!-- Grid Resolution & Fold Sleep Controls -->
+          <div class="flex items-center gap-2 text-xs">
+            <label class="flex items-center gap-1.5 cursor-pointer bg-white px-2.5 py-1 rounded border border-slate-300 font-medium text-slate-700">
+              <input id="chkFoldNightSleep" type="checkbox" checked onchange="renderMainGrid()" class="rounded text-indigo-600" />
+              <span>🌙 Thu gọn ngủ đêm (00:00–06:30)</span>
+            </label>
+            <select id="gridResolutionSelect" onchange="renderMainGrid()" class="px-2.5 py-1 rounded border border-slate-300 bg-white font-medium text-slate-700">
+              <option value="1" selected>Độ phân giải: 15 phút (672 slots chuẩn)</option>
+              <option value="2">Độ phân giải: 30 phút (336 ô)</option>
+              <option value="4">Độ phân giải: 60 phút (168 ô)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Selected Block / Slot Inspector Bar -->
+        <div id="slotInspectorBar" class="px-4 py-2 bg-slate-900 text-slate-100 text-xs flex flex-wrap items-center justify-between gap-2 border-b border-slate-800">
+          <div id="inspectorContent" class="flex items-center gap-2">
+            <span class="text-emerald-400 font-bold">💡 Giải thích thuật toán (Why here?):</span>
+            <span class="text-slate-300">Rê chuột hoặc click vào bất kỳ ô màu xanh nào trên lưới lịch để xem chi tiết slot (0..671) và lý do thuật toán chọn vị trí đó.</span>
+          </div>
+          <span id="inspectorSlotBadge" class="mono text-[11px] px-2 py-0.5 rounded bg-slate-800 text-amber-300">Slot: --</span>
+        </div>
+
+        <!-- 7-Day Time Grid Table -->
+        <div class="overflow-x-auto max-h-[680px] overflow-y-auto">
+          <table class="w-full border-collapse table-fixed text-xs">
+            <thead class="bg-slate-100 sticky top-0 z-20 border-b border-slate-300 text-slate-700">
+              <tr>
+                <th class="w-24 py-2 px-2 text-left font-bold border-r border-slate-300 mono">Khung giờ</th>
+                <th class="py-2 px-2 text-center font-bold border-r border-slate-200">Thứ Hai<br><span class="text-[10px] font-normal text-slate-500 mono">Slots 0..95</span></th>
+                <th class="py-2 px-2 text-center font-bold border-r border-slate-200">Thứ Ba<br><span class="text-[10px] font-normal text-slate-500 mono">Slots 96..191</span></th>
+                <th class="py-2 px-2 text-center font-bold border-r border-slate-200">Thứ Tư<br><span class="text-[10px] font-normal text-slate-500 mono">Slots 192..287</span></th>
+                <th class="py-2 px-2 text-center font-bold border-r border-slate-200">Thứ Năm<br><span class="text-[10px] font-normal text-slate-500 mono">Slots 288..383</span></th>
+                <th class="py-2 px-2 text-center font-bold border-r border-slate-200">Thứ Sáu<br><span class="text-[10px] font-normal text-slate-500 mono">Slots 384..479</span></th>
+                <th class="py-2 px-2 text-center font-bold border-r border-slate-200">Thứ Bảy<br><span class="text-[10px] font-normal text-slate-500 mono">Slots 480..575</span></th>
+                <th class="py-2 px-2 text-center font-bold">Chủ Nhật<br><span class="text-[10px] font-normal text-slate-500 mono">Slots 576..671</span></th>
+              </tr>
+            </thead>
+            <tbody id="mainGridTbody" class="divide-y divide-slate-200"></tbody>
+          </table>
+        </div>
+
+        <!-- Placed Blocks Summary Table below Grid -->
+        <div class="p-4 border-t border-slate-200 bg-slate-50">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-700 mb-2">📑 Bảng Kê Chi Tiết Các Khối Công Việc Đã Xếp (`schedule_output.blocks`)</h3>
+          <div class="overflow-x-auto max-h-[240px] overflow-y-auto rounded-lg border border-slate-200 bg-white">
+            <table class="w-full text-left text-xs">
+              <thead class="bg-slate-100 text-slate-600 sticky top-0 border-b border-slate-200">
+                <tr>
+                  <th class="py-2 px-2.5">Block ID</th>
+                  <th class="py-2 px-2.5">Tên Công Việc</th>
+                  <th class="py-2 px-2.5">Phiên</th>
+                  <th class="py-2 px-2.5">Thứ & Giờ</th>
+                  <th class="py-2 px-2.5 mono">Slot Range</th>
+                  <th class="py-2 px-2.5">Thời lượng</th>
+                  <th class="py-2 px-2.5">Hạn chót</th>
+                  <th class="py-2 px-2.5">Lý do xếp lịch (Algorithmic Reason)</th>
+                </tr>
+              </thead>
+              <tbody id="placedBlocksTableBody" class="divide-y divide-slate-100"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ==================== DUAL-ALGORITHM COMPARATIVE VIEW (baseline_plan.md §7.4 Option 3) ==================== -->
+      <div id="compareGridPanel" class="hidden bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-4">
+        <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
+          <div>
+            <h2 class="text-sm font-bold text-slate-800">⚖️ GIAO DIỆN SO SÁNH ĐỐI CHỨNG SONG SONG 2 THUẬT TOÁN (DUAL-ALGORITHM COMPARATIVE VIEW)</h2>
+            <p class="text-xs text-slate-500">Chạy 2 thuật toán trên cùng tập dữ liệu đầu vào để đối sánh thời gian giải, tỷ lệ đạt deadline, độ phân mảnh và vị trí đặt block.</p>
+          </div>
+          <div class="flex flex-wrap items-center gap-2 text-xs">
+            <select id="compareAlgoLeft" class="px-2.5 py-1.5 rounded border border-slate-300 bg-slate-50 font-semibold">
+              <option value="GREEDY_EDF_FIRST_FIT" selected>Trái: EDF + First-Fit (Chuẩn V0)</option>
+              <option value="GREEDY_LST_BEST_FIT">Trái: LST + Best-Fit</option>
+              <option value="GREEDY_WSPT_SMITH_RULE">Trái: WSPT (Smith's Rule)</option>
+              <option value="BACKTRACKING_BRANCH_AND_BOUND">Trái: Backtracking (Vét cạn)</option>
+            </select>
+            <span class="font-bold text-slate-400">VS</span>
+            <select id="compareAlgoRight" class="px-2.5 py-1.5 rounded border border-slate-300 bg-slate-50 font-semibold">
+              <option value="GREEDY_EDF_FIRST_FIT">Phải: EDF + First-Fit</option>
+              <option value="GREEDY_LST_BEST_FIT" selected>Phải: LST + Best-Fit (Giảm phân mảnh)</option>
+              <option value="GREEDY_WSPT_SMITH_RULE">Phải: WSPT (Smith's Rule)</option>
+              <option value="BACKTRACKING_BRANCH_AND_BOUND">Phải: Backtracking (Vét cạn)</option>
+            </select>
+            <button onclick="runDualComparison()" class="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded shadow-sm transition">
+              🚀 Chạy So Sánh
+            </button>
+          </div>
+        </div>
+
+        <!-- Comparison Metrics Summary Table -->
+        <div id="compareMetricsBox" class="bg-slate-50 p-3 rounded-lg border border-slate-200"></div>
+
+        <!-- Side-by-side Schedule Grids -->
+        <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          <div class="border border-slate-200 rounded-lg overflow-hidden">
+            <div id="compareLeftHeader" class="bg-slate-800 text-white px-3 py-2 text-xs font-bold">Thuật toán 1</div>
+            <div class="max-h-[520px] overflow-y-auto">
+              <table class="w-full border-collapse table-fixed text-[11px]">
+                <thead class="bg-slate-100 sticky top-0 border-b border-slate-300">
+                  <tr>
+                    <th class="w-14 py-1 px-1 text-left mono">Giờ</th>
+                    <th class="py-1">T2</th><th class="py-1">T3</th><th class="py-1">T4</th>
+                    <th class="py-1">T5</th><th class="py-1">T6</th><th class="py-1">T7</th><th class="py-1">CN</th>
+                  </tr>
+                </thead>
+                <tbody id="compareLeftTbody" class="divide-y divide-slate-200"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="border border-slate-200 rounded-lg overflow-hidden">
+            <div id="compareRightHeader" class="bg-indigo-900 text-white px-3 py-2 text-xs font-bold">Thuật toán 2</div>
+            <div class="max-h-[520px] overflow-y-auto">
+              <table class="w-full border-collapse table-fixed text-[11px]">
+                <thead class="bg-slate-100 sticky top-0 border-b border-slate-300">
+                  <tr>
+                    <th class="w-14 py-1 px-1 text-left mono">Giờ</th>
+                    <th class="py-1">T2</th><th class="py-1">T3</th><th class="py-1">T4</th>
+                    <th class="py-1">T5</th><th class="py-1">T6</th><th class="py-1">T7</th><th class="py-1">CN</th>
+                  </tr>
+                </thead>
+                <tbody id="compareRightTbody" class="divide-y divide-slate-200"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>
+

@@ -1,0 +1,53 @@
+{
+  "student_id": "LAN_BUSY_WEEK",
+  "planning_week_start": "2026-11-02T00:00:00+07:00",
+  "now": "2026-11-02T06:30:00+07:00",
+  "sleep_schedule": {
+    "daily_start_time": "23:30",
+    "daily_end_time": "06:30",
+    "is_hard_lock": true
+  },
+  "fixed_events": [
+    {
+      "event_id": "LEC_MWF",
+      "title": "Lý thuyết trên giảng đường (T2/T4/T6)",
+      "day_of_week": ["Monday", "Wednesday", "Friday"],
+      "start_time": "07:30",
+      "end_time": "11:30",
+      "category": "ACADEMIC_CLASS"
+    },
+    {
+      "event_id": "LAB_TTH",
+      "title": "Thực hành phòng Lab (T3/T5)",
+      "day_of_week": ["Tuesday", "Thursday"],
+      "start_time": "13:00",
+      "end_time": "17:00",
+      "category": "ACADEMIC_CLASS"
+    },
+    {
+      "event_id": "JOB_TTS",
+      "title": "Đi làm thêm Part-time (T3/T5/T7)",
+      "day_of_week": ["Tuesday", "Thursday", "Saturday"],
+      "start_time": "18:00",
+      "end_time": "22:00",
+      "category": "WORK"
+    },
+    {
+      "event_id": "CLUB_WED",
+      "title": "Sinh hoạt Câu lạc bộ học thuật",
+      "day_of_week": "Wednesday",
+      "start_time": "19:00",
+      "end_time": "20:30",
+      "category": "MEETING"
+    },
+    {
+      "event_id": "MEAL_LUNCH",
+      "title": "Ăn trưa",
+      "day_of_week": "ALL",
+      "start_time": "11:45",
+      "end_time": "12:30",
+      "category": "MEAL"
+    }
+  ]
+}
+

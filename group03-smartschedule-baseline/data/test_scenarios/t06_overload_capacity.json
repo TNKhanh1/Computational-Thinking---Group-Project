@@ -1,0 +1,99 @@
+{
+  "scenario_id": "T06",
+  "name": "T06 - Tổng khối lượng việc vượt quá thời gian rảnh (Capacity Overload)",
+  "description": "Trước hạn chót Thứ Ba 23:59 chỉ có 1365 phút rảnh, nhưng sinh viên cần làm 1470 phút bài tập (Thiếu hụt đúng 105 phút theo ví dụ chuẩn mục §6.2.B và §6.7 của Báo cáo). Hệ thống giữ nguyên giờ ngủ/học, xếp các task ưu tiên cao nhất và xuất báo cáo CAPACITY_SHORTAGE.",
+  "expected_status": "INFEASIBLE_CAPACITY",
+  "commitments": {
+    "student_id": "TEST_T06_OVERLOAD",
+    "planning_week_start": "2026-11-02T00:00:00+07:00",
+    "now": "2026-11-02T06:30:00+07:00",
+    "sleep_schedule": {
+      "daily_start_time": "23:30",
+      "daily_end_time": "06:30",
+      "is_hard_lock": true
+    },
+    "fixed_events": [
+      {
+        "event_id": "CLASS_MON",
+        "title": "Lớp học chiều Thứ Hai (4h)",
+        "day_of_week": "Monday",
+        "start_time": "13:00",
+        "end_time": "17:00",
+        "category": "ACADEMIC_CLASS"
+      },
+      {
+        "event_id": "CLASS_TUE",
+        "title": "Lớp học sáng Thứ Ba (3h)",
+        "day_of_week": "Tuesday",
+        "start_time": "08:00",
+        "end_time": "11:00",
+        "category": "ACADEMIC_CLASS"
+      },
+      {
+        "event_id": "REST_MON_DEADZONE",
+        "title": "Khoảng đệm trước giờ vào lớp T2",
+        "day_of_week": "Monday",
+        "start_time": "12:45",
+        "end_time": "13:00",
+        "category": "MEETING"
+      },
+      {
+        "event_id": "MEAL_BREAKFAST",
+        "title": "Ăn sáng",
+        "day_of_week": "ALL",
+        "start_time": "07:00",
+        "end_time": "07:30",
+        "category": "MEAL"
+      },
+      {
+        "event_id": "MEAL_LUNCH",
+        "title": "Ăn trưa",
+        "day_of_week": "ALL",
+        "start_time": "12:00",
+        "end_time": "12:45",
+        "category": "MEAL"
+      },
+      {
+        "event_id": "MEAL_DINNER",
+        "title": "Ăn tối",
+        "day_of_week": "ALL",
+        "start_time": "18:30",
+        "end_time": "19:15",
+        "category": "MEAL"
+      }
+    ]
+  },
+  "tasks": [
+    {
+      "task_id": "T06-CORE-1",
+      "title": "Đồ án Trọng điểm Phần 1 (Ưu tiên 5 - Cốt lõi)",
+      "duration_min": 480,
+      "deadline_day": "Tuesday",
+      "deadline_time": "23:59",
+      "priority": 5,
+      "is_splittable": true,
+      "min_chunk_min": 45
+    },
+    {
+      "task_id": "T06-CORE-2",
+      "title": "Đồ án Trọng điểm Phần 2 (Ưu tiên 4 - Quan trọng)",
+      "duration_min": 480,
+      "deadline_day": "Tuesday",
+      "deadline_time": "23:59",
+      "priority": 4,
+      "is_splittable": true,
+      "min_chunk_min": 45
+    },
+    {
+      "task_id": "T06-EXTRA-3",
+      "title": "Bài tập mở rộng (Ưu tiên 2 - Quá tải 105 phút)",
+      "duration_min": 510,
+      "deadline_day": "Tuesday",
+      "deadline_time": "23:59",
+      "priority": 2,
+      "is_splittable": true,
+      "min_chunk_min": 45
+    }
+  ]
+}
+

@@ -1,0 +1,49 @@
+{
+  "scenario_id": "T09",
+  "name": "T09 - 2 sinh viên: 1 người dậy sớm (Early Bird) vs 1 người cú đêm (Night Owl)",
+  "description": "Chứng minh giới hạn của Baseline V0 (Zero Behavioral Psychology): Vì không xét nhịp sinh học (Circadian Rhythm), cả 2 sinh viên có cùng lịch học sẽ nhận được kết quả xếp lịch giống hệt nhau (100% cùng hash).",
+  "expected_status": "SUCCESS",
+  "commitments": {
+    "student_id": "TEST_T09_PERSONA",
+    "planning_week_start": "2026-11-02T00:00:00+07:00",
+    "now": "2026-11-02T06:30:00+07:00",
+    "sleep_schedule": {
+      "daily_start_time": "23:30",
+      "daily_end_time": "06:30",
+      "is_hard_lock": true
+    },
+    "fixed_events": [
+      {
+        "event_id": "CLASS_AFTERNOON",
+        "title": "Ca học chiều",
+        "day_of_week": ["Monday", "Wednesday", "Friday"],
+        "start_time": "13:00",
+        "end_time": "17:00",
+        "category": "ACADEMIC_CLASS"
+      }
+    ]
+  },
+  "tasks": [
+    {
+      "task_id": "T09-DEEP-MATH",
+      "title": "Nghiên cứu chứng minh định lý Toán (Deep Work)",
+      "duration_min": 90,
+      "deadline_day": "Wednesday",
+      "deadline_time": "23:59",
+      "priority": 5,
+      "cognitive_load": 3,
+      "is_splittable": false
+    },
+    {
+      "task_id": "T09-SHALLOW-CHORE",
+      "title": "Sắp xếp thư mục tài liệu (Shallow Work)",
+      "duration_min": 45,
+      "deadline_day": "Wednesday",
+      "deadline_time": "23:59",
+      "priority": 5,
+      "cognitive_load": 1,
+      "is_splittable": false
+    }
+  ]
+}
+

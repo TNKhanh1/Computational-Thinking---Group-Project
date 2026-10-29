@@ -1,0 +1,61 @@
+{
+  "student_id": "MINH_FIT_HCMUS",
+  "planning_week_start": "2026-11-02T00:00:00+07:00",
+  "now": "2026-11-02T06:30:00+07:00",
+  "sleep_schedule": {
+    "daily_start_time": "23:30",
+    "daily_end_time": "06:30",
+    "is_hard_lock": true
+  },
+  "fixed_events": [
+    {
+      "event_id": "CLASS_MWF",
+      "title": "Lớp học chính khóa (T2/T4/T6)",
+      "day_of_week": ["Monday", "Wednesday", "Friday"],
+      "start_time": "13:00",
+      "end_time": "17:00",
+      "category": "ACADEMIC_CLASS"
+    },
+    {
+      "event_id": "CLASS_TTH",
+      "title": "Lớp học chính khóa (T3/T5)",
+      "day_of_week": ["Tuesday", "Thursday"],
+      "start_time": "08:00",
+      "end_time": "11:00",
+      "category": "ACADEMIC_CLASS"
+    },
+    {
+      "event_id": "MEETING_THU",
+      "title": "Họp nhóm đồ án",
+      "day_of_week": "Thursday",
+      "start_time": "19:30",
+      "end_time": "20:30",
+      "category": "MEETING"
+    },
+    {
+      "event_id": "MEAL_BREAKFAST",
+      "title": "Ăn sáng",
+      "day_of_week": "ALL",
+      "start_time": "07:00",
+      "end_time": "07:30",
+      "category": "MEAL"
+    },
+    {
+      "event_id": "MEAL_LUNCH",
+      "title": "Ăn trưa & nghỉ trưa",
+      "day_of_week": "ALL",
+      "start_time": "12:00",
+      "end_time": "12:45",
+      "category": "MEAL"
+    },
+    {
+      "event_id": "MEAL_DINNER",
+      "title": "Ăn tối",
+      "day_of_week": "ALL",
+      "start_time": "18:30",
+      "end_time": "19:15",
+      "category": "MEAL"
+    }
+  ]
+}
+

@@ -1,0 +1,93 @@
+{
+  "scenario_id": "T01",
+  "name": "T01 - 5 task bình thường, thời gian rảnh dồi dào (Normal Feasible Week)",
+  "description": "Kiểm tra khả năng xếp 100% các task trước hạn chót và đảm bảo 0 vi phạm ràng buộc cứng (H1-H5).",
+  "expected_status": "SUCCESS",
+  "commitments": {
+    "student_id": "TEST_T01",
+    "planning_week_start": "2026-11-02T00:00:00+07:00",
+    "now": "2026-11-02T06:30:00+07:00",
+    "sleep_schedule": {
+      "daily_start_time": "23:30",
+      "daily_end_time": "06:30",
+      "is_hard_lock": true
+    },
+    "fixed_events": [
+      {
+        "event_id": "CLASS_MWF",
+        "title": "Học Lý thuyết Đồ thị",
+        "day_of_week": ["Monday", "Wednesday", "Friday"],
+        "start_time": "13:00",
+        "end_time": "17:00",
+        "category": "ACADEMIC_CLASS"
+      },
+      {
+        "event_id": "CLASS_TTH",
+        "title": "Học Tư duy Tính toán",
+        "day_of_week": ["Tuesday", "Thursday"],
+        "start_time": "08:00",
+        "end_time": "11:00",
+        "category": "ACADEMIC_CLASS"
+      },
+      {
+        "event_id": "MEAL_LUNCH",
+        "title": "Ăn trưa & nghỉ trưa",
+        "day_of_week": "ALL",
+        "start_time": "12:00",
+        "end_time": "12:45",
+        "category": "MEAL"
+      }
+    ]
+  },
+  "tasks": [
+    {
+      "task_id": "T01-A",
+      "title": "Làm bài tập Giải tích chương 3",
+      "duration_min": 90,
+      "deadline_day": "Tuesday",
+      "deadline_time": "20:00",
+      "priority": 4,
+      "is_splittable": false
+    },
+    {
+      "task_id": "T01-B",
+      "title": "Ôn tập Quiz Toán rời rạc",
+      "duration_min": 120,
+      "deadline_day": "Wednesday",
+      "deadline_time": "12:00",
+      "priority": 5,
+      "is_splittable": true,
+      "min_chunk_min": 45
+    },
+    {
+      "task_id": "T01-C",
+      "title": "Viết báo cáo thực hành Nhập môn lập trình",
+      "duration_min": 60,
+      "deadline_day": "Thursday",
+      "deadline_time": "23:59",
+      "priority": 3,
+      "is_splittable": false
+    },
+    {
+      "task_id": "T01-D",
+      "title": "Lập trình bài tập lớn cấu trúc dữ liệu",
+      "duration_min": 150,
+      "deadline_day": "Saturday",
+      "deadline_time": "23:59",
+      "priority": 5,
+      "is_splittable": true,
+      "min_chunk_min": 45
+    },
+    {
+      "task_id": "T01-E",
+      "title": "Kiểm thử bài tập lớn cấu trúc dữ liệu",
+      "duration_min": 60,
+      "deadline_day": "Sunday",
+      "deadline_time": "18:00",
+      "priority": 4,
+      "is_splittable": false,
+      "depends_on": ["T01-D"]
+    }
+  ]
+}
+
