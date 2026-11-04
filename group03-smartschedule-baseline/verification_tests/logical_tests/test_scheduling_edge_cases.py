@@ -149,3 +149,4 @@ def test_fail_edge_sprint_mode_compression_recovery():
         "[BASELINE LIMITATION] Sprint mode compression recovery is not implemented in V0. "
         "Task missing deadline by 15m was dropped rather than compressed."
     )
+

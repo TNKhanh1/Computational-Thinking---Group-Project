@@ -84,3 +84,4 @@ def test_fuzzing_time_conversions():
             slot = day_time_to_slot(day, t_str, is_end_or_deadline=(t_str in ("23:59", "24:00")))
             assert 0 <= slot <= 672, f"Slot out of bounds for {day} {t_str}: {slot}"
 
+

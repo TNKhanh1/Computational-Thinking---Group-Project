@@ -130,6 +130,7 @@ class TestStudioApp:
         tk.Button(toolbar, text="▶ Run Selected", bg=self.accent_green, fg="#FFFFFF", relief="flat", font=("Segoe UI", 9, "bold"), padx=10, command=self.on_run_selected).pack(side=tk.LEFT, padx=8)
         tk.Button(toolbar, text="🚀 Run Production Tests", bg="#2563EB", fg="#FFFFFF", relief="flat", font=("Segoe UI", 9, "bold"), padx=10, command=self.on_run_production_tests).pack(side=tk.LEFT, padx=4)
         tk.Button(toolbar, text="🚩 Track Improve Plan Gaps", bg=self.accent_amber, fg="#FFFFFF", relief="flat", font=("Segoe UI", 9, "bold"), padx=10, command=self.on_run_gaps).pack(side=tk.LEFT, padx=4)
+        tk.Button(toolbar, text="📊 Run 60/40 Matrix", bg="#0D9488", fg="#FFFFFF", relief="flat", font=("Segoe UI", 9, "bold"), padx=10, command=self.on_run_all_matrix).pack(side=tk.LEFT, padx=4)
 
         self.status_badge = tk.Label(toolbar, text="READY", font=("Segoe UI", 9, "bold"), bg="#3F3F46", fg="#FFFFFF", padx=10, pady=2)
         self.status_badge.pack(side=tk.RIGHT, padx=8)
@@ -176,9 +177,9 @@ class TestStudioApp:
         console_frame = tk.Frame(right_paned, bg=self.bg_panel)
         right_paned.add(console_frame, weight=2)
 
-        tk.Label(console_frame, text="Diagnostic Output Console", font=("Segoe UI", 9, "bold"), fg=self.fg_text, bg=self.bg_panel, anchor="w", padx=8, pady=4).pack(side=tk.TOP, fill=tk.X)
+        tk.Label(console_frame, text="Interpretable Output Console (Running Signal, Phase, File Status)", font=("Segoe UI", 9, "bold"), fg=self.fg_text, bg=self.bg_panel, anchor="w", padx=8, pady=4).pack(side=tk.TOP, fill=tk.X)
 
-        self.console_text = tk.Text(console_frame, bg="#0D0D11", fg="#A3E635", font=("Consolas", 9), wrap="word", state="disabled", padx=8, pady=6)
+        self.console_text = tk.Text(console_frame, bg="#0D0D11", fg="#F4F4F5", font=("Consolas", 10), wrap="word", state="disabled", padx=8, pady=6)
         c_scroll = ttk.Scrollbar(console_frame, orient=tk.VERTICAL, command=self.console_text.yview)
         self.console_text.configure(yscrollcommand=c_scroll.set)
         c_scroll.pack(side=tk.RIGHT, fill=tk.Y)
@@ -282,34 +283,28 @@ class TestStudioApp:
             return
         self.on_save_file()
         rel_path = self.current_file.relative_to(PROJECT_ROOT)
-        cmd = [sys.executable, "-m", "pytest", str(rel_path), "-v", "--tb=short"]
+        cmd = [sys.executable, "-B", "verification_tests/clean_runner.py", "--target", str(rel_path)]
         self._execute_test_cmd(cmd, f"Running: {self.current_file.name}")
 
     def on_run_production_tests(self):
         self.on_save_file()
-        # Runs UI, Arch, Logic, Benchmarks (excludes intentional development failure gaps)
-        cmd = [
-            sys.executable,
-            "-m",
-            "pytest",
-            "verification_tests/ui_tests",
-            "verification_tests/architecture_tests",
-            "verification_tests/logical_tests",
-            "verification_tests/benchmark_tests",
-            "-v",
-            "--tb=short",
-        ]
-        self._execute_test_cmd(cmd, "Running All Production Verification Tests (UI, Arch, Logic, Benchmarks)")
+        cmd = [sys.executable, "-B", "verification_tests/clean_runner.py", "--pass"]
+        self._execute_test_cmd(cmd, "Running Operational Verification Tests")
 
     def on_run_gaps(self):
         self.on_save_file()
-        cmd = [sys.executable, "-m", "pytest", "verification_tests/development_gap_tests", "-v", "--tb=short"]
+        cmd = [sys.executable, "-B", "verification_tests/clean_runner.py", "--gaps"]
         self._execute_test_cmd(cmd, "Tracking Improve Plan Development Gaps (Expected Failures)")
+
+    def on_run_all_matrix(self):
+        self.on_save_file()
+        cmd = [sys.executable, "-B", "verification_tests/clean_runner.py", "--all"]
+        self._execute_test_cmd(cmd, "Running Full 60/40 Verification Matrix")
 
     def _execute_test_cmd(self, cmd: list, title: str):
         self.status_badge.configure(text="RUNNING...", bg=self.accent_amber, fg="#FFFFFF")
         self._clear_console()
-        self._log_console(f"=== {title} ===\n$ {' '.join(cmd)}\n\n")
+        self._log_console(f"[SIGNAL] Initiating test process...\n[TARGET] {title}\n\n")
 
         def run_thread():
             try:
@@ -330,13 +325,12 @@ class TestStudioApp:
         threading.Thread(target=run_thread, daemon=True).start()
 
     def _on_test_finished(self, exit_code: int, output: str):
+        self._clear_console()
         self._log_console(output)
         if exit_code == 0:
             self.status_badge.configure(text="ALL PASSED ✓", bg=self.accent_green, fg="#FFFFFF")
-            self._log_console("\n[SUCCESS] Verification passed cleanly!\n")
         else:
-            self.status_badge.configure(text="FAILURES / GAPS ✗", bg=self.accent_red, fg="#FFFFFF")
-            self._log_console(f"\n[DIAGNOSTIC] Pytest reported exit code {exit_code}.\n")
+            self.status_badge.configure(text="ISSUES / GAPS DETECTED ✗", bg=self.accent_red, fg="#FFFFFF")
 
     def _clear_console(self):
         self.console_text.configure(state="normal")

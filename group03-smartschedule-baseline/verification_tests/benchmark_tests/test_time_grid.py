@@ -77,3 +77,4 @@ def test_sleep_and_fixed_event_locking():
     violations_occ = gm.explain_violation(52, 4)
     assert any("COMMITMENT" in v["code"] for v in violations_occ)
 
+

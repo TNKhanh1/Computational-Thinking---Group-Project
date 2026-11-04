@@ -1,6 +1,6 @@
 @echo off
 chcp 65001 >nul
-title SmartSchedule — Verification Test Studio
+title SmartSchedule - Verification Test Studio
 cd /d "%~dp0"
 
 echo ============================================================================
