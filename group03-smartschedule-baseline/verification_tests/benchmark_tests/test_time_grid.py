@@ -1,5 +1,5 @@
 """
-Unit tests for 672-Slot Discrete Time Grid representation (`src/grid_manager.py` and `src/utils.py`).
+Benchmark Test: 672-Slot Discrete Time Grid representation (`src/grid_manager.py` and `src/utils.py`).
 Verifies:
   - 7 days * 96 slots/day = 672 slots exact math
   - Minh's Week exact slot accounting: 196 SLEEP + 132 OCCUPIED + 344 FREE = 672 slots
@@ -13,7 +13,7 @@ from src.grid_manager import TimeGridManager
 from src.models import CommitmentsProfile
 from src.utils import MINUTES_PER_SLOT, day_time_to_slot, minutes_to_slots, slot_to_day_time
 
-DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
 
 
 def test_slot_conversion_math():
@@ -76,3 +76,4 @@ def test_sleep_and_fixed_event_locking():
     assert not gm.is_range_free(52, 4)
     violations_occ = gm.explain_violation(52, 4)
     assert any("COMMITMENT" in v["code"] for v in violations_occ)
+

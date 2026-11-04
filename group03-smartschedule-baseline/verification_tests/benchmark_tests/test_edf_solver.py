@@ -1,5 +1,5 @@
 """
-Unit tests for Baseline Solvers (`GreedyEDFSolver`, `GreedyLSTSolver`, `GreedyWSPTSolver`, `BacktrackingSolver`)
+Benchmark Test: Solvers (`GreedyEDFSolver`, `GreedyLSTSolver`, `GreedyWSPTSolver`, `BacktrackingSolver`)
 and `LocalRepairEngine` (`LOCAL_INSERTION` vs `FULL_REBUILD` vs `RIPPLE_SHIFT`).
 """
 
@@ -9,7 +9,7 @@ from pathlib import Path
 from src.controller import ScheduleController
 from src.models import CommitmentsProfile, DisruptionEvent, Task
 
-DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
 
 
 def test_3x_determinism_hash_equality():
@@ -46,3 +46,4 @@ def test_local_repair_vs_full_rebuild_stability():
     assert loc.schedule.summary.deadline_satisfaction_rate == 100.0
     assert loc.stability_score >= 90.0
     assert loc.stability_score >= full.stability_score
+

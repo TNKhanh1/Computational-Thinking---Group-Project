@@ -1,5 +1,5 @@
 """
-Unit tests for Hard Constraints H1–H5 and auditor (`src/metrics.py` & `src/controller.py`).
+Benchmark Test: Hard Constraints H1–H5 and auditor (`src/metrics.py` & `src/controller.py`).
 Verifies:
   - H1: Zero overlap with fixed commitments (OCCUPIED)
   - H2: Zero overlap with sleep windows (SLEEP)
@@ -15,7 +15,7 @@ from pathlib import Path
 from src.controller import ScheduleController
 from src.models import CommitmentsProfile, Task
 
-DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
 
 
 def _load_tasks(path: Path):
@@ -103,8 +103,11 @@ def test_dependency_chain_strict_ordering():
 
     blocks_a = [b for b in output.blocks if b.task_id == "DEP-A"]
     blocks_b = [b for b in output.blocks if b.task_id == "DEP-B"]
-    assert len(blocks_a) >= 1 and len(blocks_b) >= 1
 
-    max_end_a = max(b.end_slot for b in blocks_a)
-    min_start_b = min(b.start_slot for b in blocks_b)
-    assert min_start_b >= max_end_a, f"Dependency violated: B started at {min_start_b} before A ended at {max_end_a}"
+    assert len(blocks_a) >= 1
+    assert len(blocks_b) >= 1
+
+    last_a_end = max(b.end_slot for b in blocks_a)
+    first_b_start = min(b.start_slot for b in blocks_b)
+    assert first_b_start >= last_a_end
+

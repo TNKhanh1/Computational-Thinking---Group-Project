@@ -1,5 +1,5 @@
 """
-End-to-End Integration Tests for all 10 Standard Scenarios (T01–T10) and FastAPI Endpoints.
+Benchmark Test: End-to-End Integration Tests for all 10 Standard Scenarios (T01–T10) and FastAPI Endpoints.
 """
 
 import json
@@ -11,7 +11,7 @@ from src.controller import ScheduleController
 from src.models import CommitmentsProfile, Task
 from web.api import app
 
-SCENARIOS_DIR = Path(__file__).resolve().parent.parent / "data" / "test_scenarios"
+SCENARIOS_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "test_scenarios"
 client = TestClient(app)
 
 
@@ -58,7 +58,7 @@ def test_t03_fragmented_slots():
 
 def test_t06_overload_capacity_exact_shortage():
     """
-    Verifies T06 mathematical overload proof from Proposal_Report.pdf §6.7 & baseline_plan.md §6.2.B:
+    Verifies T06 mathematical overload proof:
       - Free capacity before Tuesday 23:59 = 1,365 minutes
       - Total planned task duration before Tuesday 23:59 = 1,470 minutes
       - Exact shortage = 105 minutes -> CAPACITY_SHORTAGE
@@ -144,3 +144,4 @@ def test_fastapi_endpoints_e2e():
     )
     assert res_ics.status_code == 200
     assert "BEGIN:VCALENDAR" in res_ics.text
+
