@@ -457,29 +457,74 @@ def api_natural_language_add(payload: Dict[str, Any] = Body(...)):
 def api_overload_preview(payload: Dict[str, Any] = Body(...)):
     """
     Preview an overload resolution option before applying changes
-    (Improve Plan §6.7 & §7.2).
+    (Improve Plan §6.7 & §7.2 — Feature 002 / F15).
+    Supports both:
+      1. Full What-If simulation when `tasks` (and `commitments`/`profile`) are provided.
+      2. Lightweight block-marking fallback when only `{option_id, schedule}` is provided.
     """
-    option_id = str(payload.get("option_id") or "O1")
-    raw_schedule = payload.get("schedule") or {}
-    blocks = raw_schedule.get("blocks", []) if isinstance(raw_schedule, dict) else []
+    try:
+        option_id = str(payload.get("option_id") or "O1")
+        option_code = payload.get("option_code") or payload.get("code")
+        target_task_id = payload.get("target_task_id") or payload.get("task_id") or payload.get("task")
 
-    # Simulate proposal/dashed state for the selected preview option
-    preview_blocks = []
-    for b in blocks:
-        b_copy = dict(b)
-        b_copy["state"] = "PROPOSED"
-        preview_blocks.append(b_copy)
+        raw_tasks = payload.get("tasks")
+        if isinstance(raw_tasks, list) and len(raw_tasks) > 0:
+            profile, tasks, algorithm, _ = _extract_profile_and_tasks(payload)
+            current_schedule: Optional[ScheduleOutput] = None
+            raw_sched = payload.get("schedule")
+            if isinstance(raw_sched, dict) and "summary" in raw_sched and "solver_used" in raw_sched:
+                try:
+                    current_schedule = ScheduleOutput.model_validate(raw_sched)
+                except Exception:
+                    current_schedule = None
 
-    return {
-        "status": "OK",
-        "preview_mode": True,
-        "option_id": option_id,
-        "blocks": preview_blocks,
-        "changes": [
-            {
-                "action": "PREVIEW_SIMULATION",
-                "option_id": option_id,
-                "description": f"Applied option {option_id} in preview mode.",
+            res = ScheduleController.preview_overload_resolution(
+                profile=profile,
+                tasks=tasks,
+                option_id=option_id,
+                option_code=str(option_code) if option_code else None,
+                target_task_id=str(target_task_id) if target_task_id else None,
+                algorithm=algorithm,
+                current_schedule=current_schedule,
+            )
+            return {
+                "status": "OK",
+                "preview_mode": True,
+                "option_id": res["option_id"],
+                "option_code": res["option_code"],
+                "target_task_id": res["target_task_id"],
+                "option_applied": res["option_applied"],
+                "resolved_tasks": res["resolved_tasks"],
+                "before_summary": res["before_summary"],
+                "after_summary": res["after_summary"],
+                "blocks": res["blocks"],
+                "proposed_block_ids": res["proposed_block_ids"],
+                "changes": res["changes"],
+                "schedule": _enrich_response(res["schedule"]),
             }
-        ],
-    }
+
+        raw_schedule = payload.get("schedule") or {}
+        blocks = raw_schedule.get("blocks", []) if isinstance(raw_schedule, dict) else []
+
+        # Fallback: simulate proposal/dashed state for the selected preview option
+        preview_blocks = []
+        for b in blocks:
+            b_copy = dict(b)
+            b_copy["state"] = "PROPOSED"
+            preview_blocks.append(b_copy)
+
+        return {
+            "status": "OK",
+            "preview_mode": True,
+            "option_id": option_id,
+            "blocks": preview_blocks,
+            "changes": [
+                {
+                    "action": "PREVIEW_SIMULATION",
+                    "option_id": option_id,
+                    "description": f"Applied option {option_id} in preview mode.",
+                }
+            ],
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
