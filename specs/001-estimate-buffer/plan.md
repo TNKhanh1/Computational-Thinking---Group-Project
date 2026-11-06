@@ -17,7 +17,7 @@
 | 3 Controller | `src/controller.py` | `apply_estimate_buffer(profile, tasks)` (idempotent copy). `solve_schedule` applies it and annotates blocks with `ESTIMATE_BUFFER`. `handle_task_overrun` adds overrun to the raw estimate and returns `new_estimate_min`. Repair paths receive buffered tasks. |
 | 4 Web API | `web/api.py` | Read `estimate_habit` from `commitments`, `profile` (Improve Plan contract) or top level. Apply the buffer in `_extract_profile_and_tasks` so every endpoint (repair, export, compare…) sees the same durations. Return `new_estimate_min`. |
 | 4 Web UI | `web/index.html`, `web/app.js` | Habit selector in the task form, "planned X min" preview, "Ước lượng → Dự trù" column, overrun keeps the raw estimate. |
-| 5 Tests | `verification_tests/feature_tests/test_estimate_buffer.py` (new), gap test input fix | Unit + API tests for AC1–AC7. |
+| 5 Tests | `verification_tests/logical_tests/test_estimate_buffer.py` (new, picked up by `clean_runner.py --pass` without changing the runner), gap test input fix | Unit + API tests for AC1–AC7. |
 
 ## Rounding rule (integer form)
 
