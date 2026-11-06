@@ -99,6 +99,9 @@ def test_fail_planning_fallacy_buffer_multiplier():
         planning_week_start="2026-11-02T00:00:00+07:00",
         sleep_schedule=SleepSchedule(daily_start_time="23:30", daily_end_time="06:30"),
         fixed_events=[],
+        # Feature 001 (spec clarification C2): the docstring's precondition estimate_habit='OFTEN'
+        # was missing from the input. The default stays "no buffer" so T01–T10 keep V0 results.
+        estimate_habit="OFTEN",
     )
     task = Task(task_id="T_ESSAY_BUFFER", title="Writing Assignment", duration_min=60, deadline_day="Tuesday", deadline_time="18:00")
 
