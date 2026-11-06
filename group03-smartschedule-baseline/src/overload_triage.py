@@ -94,12 +94,15 @@ class OverloadTriageEngine:
         protected_prereqs = cls.get_protected_prerequisite_ids(tasks)
         task_map: Dict[str, Task] = {t.task_id: t for t in tasks}
 
-        unplaced_ids: List[str] = list(report.unplaced_tasks or [])
+        unplaced_ids: List[str] = []
         if unplaced_tasks:
             for u in unplaced_tasks:
                 uid = str(u.get("task_id", ""))
                 if uid and uid not in unplaced_ids:
                     unplaced_ids.append(uid)
+        for uid in (report.unplaced_tasks or []):
+            if uid and uid not in unplaced_ids:
+                unplaced_ids.append(uid)
 
         bottleneck_slot = report.deadline_slot
         shortage_min = max(0, int(report.shortage_minutes or 0))
@@ -435,7 +438,11 @@ class OverloadTriageEngine:
 
         if resolved_code == "SHORTEN_TASK":
             old_dur = target_task.get_planned_duration_min()
-            if matched_opt and matched_opt.get("new_duration_min"):
+            if (
+                matched_opt
+                and matched_opt.get("task") == target_task.task_id
+                and matched_opt.get("new_duration_min")
+            ):
                 new_dur = int(matched_opt["new_duration_min"])
             else:
                 floor_min = max(15, min(target_task.min_chunk_min, 45))
@@ -443,8 +450,10 @@ class OverloadTriageEngine:
                 new_dur = max(floor_min, old_dur - cut)
             new_dur = max(15, min(old_dur, round_up_to_15(new_dur)))
             target_task.duration_min = new_dur
-            if target_task.min_chunk_min > new_dur:
-                target_task.min_chunk_min = new_dur
+            # Allow flexible 15-minute micro-chunks when shortened to fit tight residual free slots
+            target_task.is_splittable = True
+            target_task.min_chunk_min = 15
+            target_task.max_chunk_min = 15
             reduces_min = old_dur - new_dur
             return cloned_tasks, {
                 "option_id": resolved_id,
