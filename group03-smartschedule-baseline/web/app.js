@@ -23,6 +23,12 @@ const state = {
   editingTaskId: null,
   activeScenario: null,
   workbenchMode: "SINGLE", // 'SINGLE' | 'COMPARE'
+  appMode: "STUDENT", // 'STUDENT' (Clean) | 'LAB' (Benchmark)
+  studentView: "WEEK", // 'WEEK' | 'TODAY' | 'TASKS'
+  todayDay: "Monday",
+  pinnedBlocks: new Map(), // block_id -> ScheduleBlock
+  doneBlocks: new Set(), // block_id
+  taskBufferMap: new Map(), // task_id -> { raw_min, buffered_min }
 };
 
 // ============================================================================
@@ -33,6 +39,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   updateSlotEquivalent();
   await loadScenariosDropdown();
   await loadPreset("minh");
+  switchAppMode("STUDENT");
 });
 
 function pad2(n) {
@@ -78,6 +85,9 @@ async function loadPreset(presetId) {
     state.tasks = Array.isArray(chosen.tasks) ? chosen.tasks : chosen.tasks.tasks || [];
     state.activeScenario = null;
     state.repairedMovedIds.clear();
+    state.pinnedBlocks.clear();
+    state.doneBlocks.clear();
+    state.taskBufferMap.clear();
 
     const sel = document.getElementById("scenarioSelect");
     if (sel) sel.value = "";
@@ -133,6 +143,9 @@ function clearAllData() {
   state.tasks = [];
   state.commitments.fixed_events = [];
   state.repairedMovedIds.clear();
+  state.pinnedBlocks.clear();
+  state.doneBlocks.clear();
+  state.taskBufferMap.clear();
   syncAllLeftPanels();
   solveSchedule();
 }
@@ -551,6 +564,7 @@ async function solveSchedule() {
         commitments: state.commitments,
         tasks: state.tasks,
         algorithm,
+        pinned_blocks: Array.from(state.pinnedBlocks.values()),
       }),
     });
     if (!res.ok) throw new Error(await res.text());
@@ -562,6 +576,7 @@ async function solveSchedule() {
     renderTaskQueue();
     renderMainGrid();
     renderPlacedBlocksTable(schedule);
+    renderStudentViews();
 
     if (state.workbenchMode === "COMPARE") {
       await runDualComparison();
@@ -1174,4 +1189,600 @@ async function importJsonFile(event) {
   } finally {
     event.target.value = "";
   }
+}
+
+// ============================================================================
+// STUDENT APP MODE CONTROLLER (CLEAN, MINIMALIST, USER-FACING)
+// ============================================================================
+
+function switchAppMode(mode) {
+  state.appMode = mode;
+  const btnStudent = document.getElementById("btnAppModeStudent");
+  const btnLab = document.getElementById("btnAppModeLab");
+  const studentLayout = document.getElementById("studentAppLayout");
+  const labLayout = document.getElementById("labWorkbenchLayout");
+  const studentActions = document.getElementById("studentHeaderActions");
+  const labActions = document.getElementById("labHeaderActions");
+  const modeBadge = document.getElementById("headerModeBadge");
+
+  if (mode === "STUDENT") {
+    if (btnStudent) btnStudent.className = "px-3.5 py-1.5 text-xs font-bold rounded-lg bg-indigo-600 text-white shadow transition flex items-center gap-1.5";
+    if (btnLab) btnLab.className = "px-3.5 py-1.5 text-xs font-semibold rounded-lg text-slate-300 hover:text-white transition flex items-center gap-1.5";
+    studentLayout?.classList.remove("hidden");
+    labLayout?.classList.add("hidden");
+    studentActions?.classList.remove("hidden");
+    labActions?.classList.add("hidden");
+    if (modeBadge) {
+      modeBadge.textContent = "STUDENT APP";
+      modeBadge.className = "px-2 py-0.5 text-[10px] font-bold bg-indigo-500/30 text-indigo-300 border border-indigo-400/30 rounded-full mono uppercase";
+    }
+    renderStudentViews();
+  } else {
+    if (btnLab) btnLab.className = "px-3.5 py-1.5 text-xs font-bold rounded-lg bg-emerald-600 text-white shadow transition flex items-center gap-1.5";
+    if (btnStudent) btnStudent.className = "px-3.5 py-1.5 text-xs font-semibold rounded-lg text-slate-300 hover:text-white transition flex items-center gap-1.5";
+    labLayout?.classList.remove("hidden");
+    studentLayout?.classList.add("hidden");
+    labActions?.classList.remove("hidden");
+    studentActions?.classList.add("hidden");
+    if (modeBadge) {
+      modeBadge.textContent = "LAB BENCHMARK";
+      modeBadge.className = "px-2 py-0.5 text-[10px] font-bold bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 rounded-full mono uppercase";
+    }
+    renderMainGrid();
+  }
+}
+
+function switchStudentView(view) {
+  state.studentView = view;
+  const tabs = {
+    WEEK: { btn: "btnStTabWeek", view: "stViewWeek" },
+    TODAY: { btn: "btnStTabToday", view: "stViewToday" },
+    TASKS: { btn: "btnStTabTasks", view: "stViewTasks" },
+  };
+
+  for (const [k, cfg] of Object.entries(tabs)) {
+    const btn = document.getElementById(cfg.btn);
+    const viewEl = document.getElementById(cfg.view);
+    if (k === view) {
+      if (btn) btn.className = "px-3.5 py-1.5 text-xs font-bold rounded-lg bg-white text-indigo-700 shadow-sm transition flex items-center gap-1.5";
+      viewEl?.classList.remove("hidden");
+    } else {
+      if (btn) btn.className = "px-3.5 py-1.5 text-xs font-semibold rounded-lg text-slate-600 hover:text-slate-900 transition flex items-center gap-1.5";
+      viewEl?.classList.add("hidden");
+    }
+  }
+
+  renderStudentViews();
+}
+
+function renderStudentViews() {
+  renderStudentSummary();
+  if (state.studentView === "WEEK") {
+    renderStudentWeekCalendar();
+  } else if (state.studentView === "TODAY") {
+    renderStudentTodayView();
+  } else if (state.studentView === "TASKS") {
+    renderStudentTaskQueue();
+  }
+}
+
+function renderStudentSummary() {
+  const summary = state.currentSchedule?.summary;
+  const tasksCount = state.tasks?.length || 0;
+  const blocksCount = state.currentSchedule?.blocks?.length || 0;
+  const totalMin = (state.currentSchedule?.blocks || []).reduce((acc, b) => acc + (b.duration_min || 0), 0);
+  const totalHours = (totalMin / 60).toFixed(1);
+
+  const elTasks = document.getElementById("stSummaryTasks");
+  const elHours = document.getElementById("stSummaryHours");
+  const elDeadline = document.getElementById("stSummaryDeadline");
+  const elViolations = document.getElementById("stSummaryViolations");
+
+  if (elTasks) elTasks.textContent = `${tasksCount} bài tập (${blocksCount} phiên)`;
+  if (elHours) elHours.textContent = `${totalHours}h học`;
+
+  if (summary) {
+    if (elDeadline) {
+      const rate = summary.deadline_satisfaction_rate ?? 100;
+      elDeadline.textContent = `✓ ${rate.toFixed(0)}% đúng hạn`;
+      elDeadline.className = rate >= 100
+        ? "px-2.5 py-1 text-xs font-semibold bg-emerald-50 text-emerald-700 rounded-full border border-emerald-200"
+        : "px-2.5 py-1 text-xs font-semibold bg-rose-50 text-rose-700 rounded-full border border-rose-200";
+    }
+    if (elViolations) {
+      const v = summary.hard_constraint_violations ?? 0;
+      elViolations.textContent = v === 0 ? "🛡️ 0 vi phạm (H1–H5)" : `⚠️ ${v} vi phạm`;
+      elViolations.className = v === 0
+        ? "px-2.5 py-1 text-xs font-semibold bg-slate-100 text-slate-700 rounded-full border border-slate-200"
+        : "px-2.5 py-1 text-xs font-semibold bg-rose-100 text-rose-800 rounded-full border border-rose-300";
+    }
+  }
+}
+
+function renderStudentWeekCalendar() {
+  if (!state.currentSchedule) return;
+
+  for (let d = 0; d < 7; d++) {
+    const dayName = DAYS_EN[d];
+    const container = document.getElementById(`stDayCards_${d}`);
+    const hoursEl = document.getElementById(`stDayHours_${d}`);
+    if (!container) continue;
+
+    // 1. Collect fixed events
+    const dayFixed = [];
+    for (const ev of state.commitments?.fixed_events || []) {
+      const days = Array.isArray(ev.day_of_week) ? ev.day_of_week : String(ev.day_of_week).split(",").map((s) => s.trim());
+      const matches = days.includes("ALL") || days.includes("all") || days.some((x) => x.toLowerCase().startsWith(dayName.toLowerCase().slice(0, 3)));
+      if (matches) {
+        dayFixed.push({
+          type: "FIXED",
+          category: ev.category || "ACADEMIC_CLASS",
+          title: ev.title,
+          start_time: ev.start_time,
+          end_time: ev.end_time,
+          start_slot: d * 96 + Math.floor((parseInt(ev.start_time.split(":")[0]) * 60 + parseInt(ev.start_time.split(":")[1])) / 15),
+        });
+      }
+    }
+
+    // 2. Collect scheduled blocks
+    const dayBlocks = [];
+    let dayStudyMin = 0;
+    for (const b of state.currentSchedule.blocks || []) {
+      if (b.day === dayName) {
+        dayBlocks.push({
+          type: "BLOCK",
+          block: b,
+          start_time: b.start_time,
+          end_time: b.end_time,
+          start_slot: b.start_slot,
+          duration_min: b.duration_min,
+        });
+        dayStudyMin += b.duration_min;
+      }
+    }
+
+    if (hoursEl) {
+      hoursEl.textContent = `${(dayStudyMin / 60).toFixed(1)}h học`;
+    }
+
+    // Combine and sort chronologically
+    const allEvents = [...dayFixed, ...dayBlocks].sort((a, b) => a.start_slot - b.start_slot);
+
+    if (allEvents.length === 0) {
+      container.innerHTML = `
+        <div class="h-full flex flex-col items-center justify-center py-10 text-center text-slate-400">
+          <span class="text-2xl mb-1">🌿</span>
+          <span class="text-[11px] font-medium">Trống lịch cả ngày</span>
+          <span class="text-[10px] text-slate-400">Nghỉ ngơi hoặc tự ôn tập</span>
+        </div>`;
+      continue;
+    }
+
+    let html = "";
+    for (const ev of allEvents) {
+      if (ev.type === "FIXED") {
+        if (ev.category === "MEAL") {
+          html += `
+            <div class="p-2 rounded-xl bg-amber-50 border border-amber-200/70 text-amber-900 shadow-sm transition hover:shadow">
+              <div class="flex items-center justify-between text-[10px] text-amber-700 font-semibold mb-0.5">
+                <span>🍽️ ĂN & NGHỈ</span>
+                <span class="mono">${ev.start_time} - ${ev.end_time}</span>
+              </div>
+              <div class="font-bold text-xs text-amber-950">${ev.title}</div>
+            </div>`;
+        } else {
+          html += `
+            <div class="p-2.5 rounded-xl bg-slate-100 border border-slate-200 text-slate-800 shadow-sm transition hover:shadow">
+              <div class="flex items-center justify-between text-[10px] text-slate-500 font-semibold mb-1">
+                <span class="flex items-center gap-1">🔒 LỚP HỌC / CỐ ĐỊNH</span>
+                <span class="mono font-bold text-slate-700">${ev.start_time} - ${ev.end_time}</span>
+              </div>
+              <div class="font-bold text-xs text-slate-900">${ev.title}</div>
+            </div>`;
+        }
+      } else {
+        const b = ev.block;
+        const isPinned = state.pinnedBlocks.has(b.block_id);
+        const isDone = state.doneBlocks.has(b.block_id);
+
+        let cardClass = "bg-indigo-50/90 border border-indigo-200/90 text-indigo-950";
+        if (isPinned) cardClass = "bg-amber-50 border-2 border-amber-400 text-amber-950";
+        if (isDone) cardClass = "bg-slate-50 border border-slate-200 text-slate-400 line-through opacity-60";
+
+        html += `
+          <div class="p-2.5 rounded-xl ${cardClass} shadow-sm transition hover:shadow-md flex flex-col justify-between group">
+            <div>
+              <div class="flex items-center justify-between text-[10px] font-semibold mb-1">
+                <span class="mono px-1.5 py-0.5 bg-white/70 rounded text-indigo-800 font-bold">${b.start_time} - ${b.end_time} (${b.duration_min}p)</span>
+                <span class="px-1.5 py-0.5 rounded font-bold ${b.priority >= 4 ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-700'}">P${b.priority}</span>
+              </div>
+              <div class="font-bold text-xs leading-snug mb-1 text-slate-900">
+                ${isPinned ? '📌 ' : ''}${isDone ? '✓ ' : ''}${b.title}
+                ${b.total_chunks > 1 ? `<span class="text-[10px] text-indigo-600 font-normal">(${b.chunk_index}/${b.total_chunks})</span>` : ''}
+              </div>
+              ${b.deadline_str ? `<div class="text-[10px] text-slate-500 mb-1.5 flex items-center gap-1"><span>🎯 Hạn:</span> <span class="font-medium">${b.deadline_str}</span></div>` : ''}
+            </div>
+
+            <!-- Action Buttons on card -->
+            <div class="flex items-center justify-between pt-1 border-t border-slate-200/50 text-[10px] gap-1">
+              <button onclick="togglePinBlock('${b.block_id}')" class="px-1.5 py-0.5 rounded ${isPinned ? 'bg-amber-500 text-white font-bold' : 'bg-white hover:bg-amber-100 text-amber-800 border border-amber-200'} transition flex items-center gap-0.5" title="${isPinned ? 'Bỏ ghim' : 'Ghim cố định không cho dời'}">
+                <span>📌</span> ${isPinned ? 'Đã ghim' : 'Ghim'}
+              </button>
+              <button onclick="toggleDoneBlock('${b.block_id}')" class="px-1.5 py-0.5 rounded ${isDone ? 'bg-emerald-600 text-white font-bold' : 'bg-white hover:bg-emerald-100 text-emerald-800 border border-emerald-200'} transition flex items-center gap-0.5" title="${isDone ? 'Đánh dấu chưa xong' : 'Đánh dấu đã xong'}">
+                <span>✓</span> ${isDone ? 'Xong' : 'Làm xong'}
+              </button>
+              <button onclick="openWhyHereModal('${b.block_id}')" class="px-1.5 py-0.5 rounded bg-white hover:bg-indigo-100 text-indigo-800 border border-indigo-200 transition font-medium" title="Xem lý do thuật toán chọn khung giờ này">
+                💡 Tại sao?
+              </button>
+            </div>
+          </div>`;
+      }
+    }
+
+    container.innerHTML = html;
+  }
+}
+
+function renderStudentTodayView() {
+  const container = document.getElementById("stTodayTimelineContainer");
+  const heroContainer = document.getElementById("stTodayHeroContainer");
+  const pillsContainer = document.getElementById("stTodayDayPills");
+  if (!container || !state.currentSchedule) return;
+
+  // Render Day Pills
+  if (pillsContainer) {
+    pillsContainer.innerHTML = DAYS_EN.map((day, idx) => {
+      const isAct = day === state.todayDay;
+      return `
+        <button onclick="setTodayDay('${day}')" class="px-3 py-1 text-xs font-bold rounded-lg transition ${
+        isAct ? 'bg-indigo-600 text-white shadow' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+      }">
+          ${DAYS_VI[idx]} (${day.slice(0, 3)})
+        </button>`;
+    }).join("");
+  }
+
+  const dayIndex = DAYS_EN.indexOf(state.todayDay);
+
+  // Collect today fixed events
+  const todayFixed = [];
+  for (const ev of state.commitments?.fixed_events || []) {
+    const days = Array.isArray(ev.day_of_week) ? ev.day_of_week : String(ev.day_of_week).split(",").map((s) => s.trim());
+    const matches = days.includes("ALL") || days.includes("all") || days.some((x) => x.toLowerCase().startsWith(state.todayDay.toLowerCase().slice(0, 3)));
+    if (matches) {
+      todayFixed.push({
+        type: "FIXED",
+        category: ev.category || "ACADEMIC_CLASS",
+        title: ev.title,
+        start_time: ev.start_time,
+        end_time: ev.end_time,
+        start_slot: dayIndex * 96 + Math.floor((parseInt(ev.start_time.split(":")[0]) * 60 + parseInt(ev.start_time.split(":")[1])) / 15),
+      });
+    }
+  }
+
+  const todayBlocks = [];
+  for (const b of state.currentSchedule.blocks || []) {
+    if (b.day === state.todayDay) {
+      todayBlocks.push({
+        type: "BLOCK",
+        block: b,
+        start_time: b.start_time,
+        end_time: b.end_time,
+        start_slot: b.start_slot,
+        duration_min: b.duration_min,
+      });
+    }
+  }
+
+  const allEvents = [...todayFixed, ...todayBlocks].sort((a, b) => a.start_slot - b.start_slot);
+
+  // Find next pending study block for hero card
+  const nextStudy = todayBlocks.find((x) => !state.doneBlocks.has(x.block.block_id)) || todayBlocks[0];
+
+  if (heroContainer) {
+    if (nextStudy) {
+      const b = nextStudy.block;
+      const isDone = state.doneBlocks.has(b.block_id);
+      const isPinned = state.pinnedBlocks.has(b.block_id);
+
+      heroContainer.innerHTML = `
+        <div class="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <div class="flex items-center gap-2 mb-2">
+              <span class="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-xs font-bold uppercase tracking-wider">🎯 VIỆC CẦN TẬP TRUNG TIẾP THEO</span>
+              <span class="text-xs text-indigo-200 mono font-semibold">${state.todayDay} Lúc ${b.start_time} – ${b.end_time} (${b.duration_min} phút)</span>
+            </div>
+            <h2 class="text-xl sm:text-2xl font-bold text-white tracking-tight mb-1.5 flex items-center gap-2">
+              ${isPinned ? '📌 ' : ''}${isDone ? '✓ ' : ''}${b.title}
+              ${b.total_chunks > 1 ? `<span class="text-sm font-normal text-indigo-300">(Phiên ${b.chunk_index}/${b.total_chunks})</span>` : ''}
+            </h2>
+            <p class="text-xs text-indigo-200 max-w-2xl leading-relaxed">
+              ${b.deadline_str ? `Hạn chót: <strong>${b.deadline_str}</strong> · ` : ''}Ưu tiên P${b.priority} · ${b.reason || 'Được xếp tự động vào khoảng thời gian trống khả dụng sớm nhất.'}
+            </p>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-2">
+            <button onclick="toggleDoneBlock('${b.block_id}')" class="px-4 py-2 rounded-xl ${isDone ? 'bg-slate-700 text-slate-300' : 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold'} shadow-md transition flex items-center gap-1.5 text-xs">
+              <span>✓</span> ${isDone ? 'Đánh dấu chưa xong' : 'Hoàn Thành Phiên Này'}
+            </button>
+            <button onclick="togglePinBlock('${b.block_id}')" class="px-3.5 py-2 rounded-xl ${isPinned ? 'bg-amber-500 text-white font-bold' : 'bg-indigo-700/80 hover:bg-indigo-600 text-white'} border border-indigo-500/50 transition flex items-center gap-1.5 text-xs">
+              <span>📌</span> ${isPinned ? 'Đã Ghim' : 'Ghim Lịch'}
+            </button>
+            <button onclick="openWhyHereModal('${b.block_id}')" class="px-3.5 py-2 rounded-xl bg-indigo-900/80 hover:bg-indigo-800 text-indigo-200 border border-indigo-700 transition flex items-center gap-1.5 text-xs">
+              <span>💡</span> Tại Sao?
+            </button>
+          </div>
+        </div>`;
+    } else {
+      heroContainer.innerHTML = `
+        <div class="py-2 text-center text-indigo-200">
+          <h2 class="text-lg font-bold text-white mb-1">🎉 Bạn Đã Hoàn Thành Toàn Bộ Phiên Học Hôm Nay!</h2>
+          <p class="text-xs text-indigo-300">Không còn bài tập nào chưa làm trong ngày ${state.todayDay}. Hãy nghỉ ngơi hoặc xem trước bài cho ngày mai.</p>
+        </div>`;
+    }
+  }
+
+  // Render vertical timeline
+  if (allEvents.length === 0) {
+    container.innerHTML = `<div class="py-8 text-center text-slate-400 text-xs">Không có lịch trình nào được xếp trong ngày ${state.todayDay}.</div>`;
+    return;
+  }
+
+  container.innerHTML = allEvents.map((ev) => {
+    if (ev.type === "FIXED") {
+      const isMeal = ev.category === "MEAL";
+      return `
+        <div class="flex items-start gap-3 p-3 rounded-xl ${isMeal ? 'bg-amber-50/70 border border-amber-200' : 'bg-slate-50 border border-slate-200'}">
+          <div class="w-16 text-xs font-bold ${isMeal ? 'text-amber-800' : 'text-slate-600'} mono pt-0.5">${ev.start_time}</div>
+          <div class="flex-1">
+            <span class="text-[10px] font-bold uppercase tracking-wider ${isMeal ? 'text-amber-700' : 'text-slate-500'}">${isMeal ? '🍽️ Nghỉ & Ăn Trưa/Tối' : '🎓 Lịch Học Cố Định Trên Trường'}</span>
+            <div class="text-xs font-bold text-slate-900">${ev.title} (${ev.start_time} – ${ev.end_time})</div>
+          </div>
+          <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-white text-slate-600 border border-slate-200">KHÓA CỨNG</span>
+        </div>`;
+    } else {
+      const b = ev.block;
+      const isDone = state.doneBlocks.has(b.block_id);
+      const isPinned = state.pinnedBlocks.has(b.block_id);
+
+      return `
+        <div class="flex items-start gap-3 p-3.5 rounded-xl border transition ${
+          isDone ? 'bg-slate-50 border-slate-200 opacity-60' : isPinned ? 'bg-amber-50/70 border-amber-300' : 'bg-indigo-50/60 border-indigo-200'
+        }">
+          <div class="w-16 text-xs font-bold text-indigo-900 mono pt-0.5">${b.start_time}</div>
+          <input type="checkbox" ${isDone ? 'checked' : ''} onchange="toggleDoneBlock('${b.block_id}')" class="mt-1 w-4 h-4 text-indigo-600 rounded cursor-pointer" />
+          <div class="flex-1">
+            <div class="flex items-center gap-2 mb-0.5">
+              <span class="text-xs font-bold text-slate-900 ${isDone ? 'line-through text-slate-500' : ''}">${b.title}</span>
+              ${b.total_chunks > 1 ? `<span class="text-[10px] font-medium text-indigo-600">(Phiên ${b.chunk_index}/${b.total_chunks})</span>` : ''}
+              ${isPinned ? '<span class="text-[10px] px-1.5 py-0.2 bg-amber-200 text-amber-900 rounded font-bold">📌 ĐÃ GHIM</span>' : ''}
+            </div>
+            <div class="text-[11px] text-slate-500 flex flex-wrap items-center gap-2">
+              <span>⏱️ ${b.duration_min} phút</span>
+              <span>·</span>
+              <span>🎯 ${b.deadline_str ? `Hạn: ${b.deadline_str}` : 'Habit'}</span>
+              <span>·</span>
+              <span class="text-indigo-700 font-medium">Ưu tiên P${b.priority}</span>
+            </div>
+          </div>
+          <div class="flex items-center gap-1">
+            <button onclick="togglePinBlock('${b.block_id}')" class="p-1.5 rounded hover:bg-white text-slate-600" title="Ghim/Bỏ ghim">📌</button>
+            <button onclick="openWhyHereModal('${b.block_id}')" class="p-1.5 rounded hover:bg-white text-indigo-600" title="Xem lý do xếp">💡</button>
+          </div>
+        </div>`;
+    }
+  }).join("");
+}
+
+function setTodayDay(day) {
+  state.todayDay = day;
+  renderStudentTodayView();
+}
+
+function renderStudentTaskQueue() {
+  const tbody = document.getElementById("stTasksTableBody");
+  if (!tbody) return;
+
+  if (!state.tasks || state.tasks.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="7" class="py-8 text-center text-slate-400">Chưa có công việc nào. Bấm nút "+ Thêm Việc" để bắt đầu!</td></tr>`;
+    return;
+  }
+
+  const placedIds = new Set((state.currentSchedule?.blocks || []).map((b) => b.task_id));
+
+  tbody.innerHTML = state.tasks.map((t) => {
+    const tid = t.task_id || t.id;
+    const isPlaced = placedIds.has(tid);
+    const bufferInfo = state.taskBufferMap.get(tid);
+
+    return `
+      <tr class="hover:bg-slate-50 transition">
+        <td class="py-2.5 px-3 font-semibold text-slate-900 mono">${tid}</td>
+        <td class="py-2.5 px-3 font-bold text-slate-900">${t.title}</td>
+        <td class="py-2.5 px-3">
+          <span class="font-semibold mono">${t.duration_min}p</span>
+          ${bufferInfo ? `<span class="ml-1 text-[10px] text-indigo-600 font-semibold bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200">🛡️ +20%</span>` : ''}
+        </td>
+        <td class="py-2.5 px-3 text-slate-600">${t.deadline_day ? `${t.deadline_day} ${t.deadline_time || ''}` : 'Không hạn chót'}</td>
+        <td class="py-2.5 px-3"><span class="px-2 py-0.5 rounded text-[10px] font-bold ${t.priority >= 4 ? 'bg-indigo-100 text-indigo-800' : 'bg-slate-100 text-slate-700'}">P${t.priority}</span></td>
+        <td class="py-2.5 px-3">
+          ${isPlaced
+            ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">✓ ĐÃ XẾP LỊCH</span>`
+            : `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800">⚠️ CHƯA XẾP ĐƯỢC</span>`
+          }
+        </td>
+        <td class="py-2.5 px-3 text-right">
+          <button onclick="deleteStudentTask('${tid}')" class="text-slate-400 hover:text-rose-600 px-2 py-1 font-bold text-xs" title="Xóa task">✕ Xóa</button>
+        </td>
+      </tr>`;
+  }).join("");
+}
+
+// Student Task Modal controls
+function openStudentTaskModal() {
+  document.getElementById("stTaskModal")?.classList.remove("hidden");
+  document.getElementById("stInpTitle")?.focus();
+  updateStBufferPreview();
+}
+
+function closeStudentTaskModal() {
+  document.getElementById("stTaskModal")?.classList.add("hidden");
+}
+
+function setStDuration(val) {
+  const inp = document.getElementById("stInpDuration");
+  if (inp) inp.value = val;
+  updateStBufferPreview();
+}
+
+function updateStBufferPreview() {
+  const raw = parseInt(document.getElementById("stInpDuration")?.value || "60", 10);
+  const isBuffer = document.getElementById("stInpBuffer")?.checked ?? true;
+  const durPreview = document.getElementById("stDurationPreview");
+  const txtPreview = document.getElementById("stBufferPreviewText");
+
+  if (durPreview) durPreview.textContent = `${raw} phút`;
+
+  if (isBuffer) {
+    const rawBuffered = Math.ceil(raw * 1.2);
+    const planned = Math.ceil(rawBuffered / 15) * 15;
+    if (txtPreview) {
+      txtPreview.innerHTML = `Thời lượng xếp lịch: <strong>${raw}p → ${rawBuffered}p (~${planned}p)</strong> (Thêm 20% đệm an toàn chống vỡ kế hoạch).`;
+    }
+  } else {
+    if (txtPreview) {
+      txtPreview.innerHTML = `Thời lượng xếp lịch: <strong>${raw}p</strong> (Không thêm thời gian đệm).`;
+    }
+  }
+}
+
+async function saveStudentTask() {
+  const title = document.getElementById("stInpTitle")?.value.trim() || "Bài tập mới";
+  const rawDur = parseInt(document.getElementById("stInpDuration")?.value || "60", 10);
+  const isBuffer = document.getElementById("stInpBuffer")?.checked ?? true;
+  const deadlineDay = document.getElementById("stInpDeadlineDay")?.value || null;
+  const deadlineTime = document.getElementById("stInpDeadlineTime")?.value || "23:59";
+  const priority = parseInt(document.getElementById("stInpPriority")?.value || "3", 10);
+  const isSplittable = document.getElementById("stInpSplittable")?.checked ?? true;
+  const dependsOnStr = document.getElementById("stInpDependsOn")?.value.trim() || "";
+
+  // Compute final planned duration with buffer
+  let finalDur = rawDur;
+  if (isBuffer) {
+    finalDur = Math.ceil(Math.ceil(rawDur * 1.2) / 15) * 15;
+  }
+
+  const tid = `TASK_${Date.now().toString().slice(-4)}`;
+  const dependsOn = dependsOnStr ? dependsOnStr.split(",").map((s) => s.trim()).filter(Boolean) : [];
+
+  const newTask = {
+    task_id: tid,
+    title,
+    duration_min: finalDur,
+    deadline_day: deadlineDay,
+    deadline_time: deadlineTime,
+    priority,
+    is_splittable: isSplittable,
+    min_chunk_min: 45,
+    max_chunk_min: 90,
+    depends_on: dependsOn,
+    category: deadlineDay ? "DEADLINE" : "HABIT",
+  };
+
+  if (isBuffer) {
+    state.taskBufferMap.set(tid, { raw_min: rawDur, buffered_min: finalDur });
+  }
+
+  state.tasks.push(newTask);
+  closeStudentTaskModal();
+
+  // Reset modal fields
+  const inpT = document.getElementById("stInpTitle");
+  if (inpT) inpT.value = "";
+  const inpD = document.getElementById("stInpDuration");
+  if (inpD) inpD.value = "60";
+  const inpDep = document.getElementById("stInpDependsOn");
+  if (inpDep) inpDep.value = "";
+
+  syncAllLeftPanels();
+  await solveSchedule();
+}
+
+async function deleteStudentTask(tid) {
+  state.tasks = state.tasks.filter((t) => (t.task_id || t.id) !== tid);
+  state.taskBufferMap.delete(tid);
+  syncAllLeftPanels();
+  await solveSchedule();
+}
+
+// Pin & Done Block Handlers
+async function togglePinBlock(blockId) {
+  if (state.pinnedBlocks.has(blockId)) {
+    state.pinnedBlocks.delete(blockId);
+  } else {
+    const block = (state.currentSchedule?.blocks || []).find((b) => b.block_id === blockId);
+    if (block) {
+      state.pinnedBlocks.set(blockId, block);
+    }
+  }
+  await solveSchedule();
+}
+
+function toggleDoneBlock(blockId) {
+  if (state.doneBlocks.has(blockId)) {
+    state.doneBlocks.delete(blockId);
+  } else {
+    state.doneBlocks.add(blockId);
+  }
+  renderStudentViews();
+}
+
+function openWhyHereModal(blockId) {
+  const block = (state.currentSchedule?.blocks || []).find((b) => b.block_id === blockId);
+  if (!block) return;
+
+  const modal = document.getElementById("stWhyHereModal");
+  const body = document.getElementById("stWhyHereBody");
+  const actions = document.getElementById("stWhyHereActions");
+  if (!modal || !body) return;
+
+  const isPinned = state.pinnedBlocks.has(blockId);
+  const isDone = state.doneBlocks.has(blockId);
+
+  body.innerHTML = `
+    <div class="p-3 bg-indigo-50 border border-indigo-200 rounded-xl space-y-1">
+      <div class="font-bold text-sm text-indigo-950">${block.title} ${block.total_chunks > 1 ? `(Phiên ${block.chunk_index}/${block.total_chunks})` : ''}</div>
+      <div class="text-xs text-indigo-800 font-semibold mono">📅 ${block.day}, ${block.start_time} – ${block.end_time} (${block.duration_min} phút)</div>
+    </div>
+
+    <div class="space-y-2 pt-1">
+      <div class="font-bold text-slate-800 text-xs">Cơ sở toán học thuật toán chọn vị trí này:</div>
+      <ul class="space-y-1.5 list-disc list-inside text-slate-600 text-xs">
+        <li><strong>Thuật toán:</strong> Earliest Deadline First (EDF) + First-Fit.</li>
+        <li><strong>Hạn chót:</strong> ${block.deadline_str || 'Linh hoạt'} (Độ ưu tiên: P${block.priority}).</li>
+        <li><strong>Bảo toàn ràng buộc cứng H1 & H2:</strong> Khe thời gian hoàn toàn tự do, không xâm phạm giờ ngủ (23:30–06:30) hay lớp học.</li>
+        ${block.total_chunks > 1 ? `<li><strong>Cắt nhỏ thông minh (Chunking):</strong> Được cắt thành phiên ${block.duration_min}p để vừa khe trống liên tục.</li>` : ''}
+        <li><strong>Lý do cụ thể:</strong> ${block.reason || 'Đặt vào khe trống sớm nhất khả dụng trước hạn chót.'}</li>
+      </ul>
+    </div>`;
+
+  actions.innerHTML = `
+    <div class="flex items-center gap-2">
+      <button onclick="togglePinBlock('${blockId}'); closeWhyHereModal();" class="px-3 py-1.5 rounded-lg ${isPinned ? 'bg-amber-500 text-white font-bold' : 'bg-slate-100 hover:bg-slate-200 text-slate-800'} text-xs font-semibold transition">
+        <span>📌</span> ${isPinned ? 'Bỏ Ghim' : 'Ghim Phiên Này'}
+      </button>
+      <button onclick="toggleDoneBlock('${blockId}'); closeWhyHereModal();" class="px-3 py-1.5 rounded-lg ${isDone ? 'bg-emerald-600 text-white font-bold' : 'bg-slate-100 hover:bg-slate-200 text-slate-800'} text-xs font-semibold transition">
+        <span>✓</span> ${isDone ? 'Chưa Xong' : 'Đã Hoàn Thành'}
+      </button>
+    </div>
+    <button onclick="closeWhyHereModal()" class="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-bold transition">Đóng</button>
+  `;
+
+  modal.classList.remove("hidden");
+}
+
+function closeWhyHereModal() {
+  document.getElementById("stWhyHereModal")?.classList.add("hidden");
 }
