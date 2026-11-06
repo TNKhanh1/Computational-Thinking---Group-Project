@@ -15,6 +15,7 @@ from src.models import (
     ScheduleOutput,
     Task,
 )
+from src.overload_triage import OverloadTriageEngine
 from src.solvers.backtracking import BacktrackingSolver
 from src.solvers.base_solver import BaseScheduler
 from src.solvers.greedy_edf import GreedyEDFSolver
@@ -59,7 +60,9 @@ class ScheduleController:
         pinned_blocks: Optional[List[ScheduleBlock]] = None,
     ) -> Tuple[ScheduleOutput, TimeGridManager]:
         solver = cls.get_solver(algorithm)
-        return solver.solve(profile, tasks, pinned_blocks=pinned_blocks)
+        out, grid = solver.solve(profile, tasks, pinned_blocks=pinned_blocks)
+        OverloadTriageEngine.enrich_schedule_overload(out, profile, tasks)
+        return out, grid
 
     @classmethod
     def verify_determinism(
@@ -270,4 +273,83 @@ class ScheduleController:
             "before_schedule": before_out,
             "after_schedule": after_out,
         }
+
+    @classmethod
+    def preview_overload_resolution(
+        cls,
+        profile: CommitmentsProfile,
+        tasks: List[Task],
+        option_id: Optional[str] = None,
+        option_code: Optional[str] = None,
+        target_task_id: Optional[str] = None,
+        algorithm: str = "EDF",
+        current_schedule: Optional[ScheduleOutput] = None,
+    ) -> Dict[str, Any]:
+        """
+        Feature 002 (F15 — Improve Plan §6.7 & §7.2):
+        Simulate an overload resolution option (`SKIP_HABIT`, `SHORTEN_TASK`, `ALLOW_SPLIT`, `POSTPONE_LOWEST`)
+        on deep-copied tasks (`INV-3` statelessness) and return the proposed schedule with affected/new
+        blocks marked `state = "PROPOSED"`.
+        """
+        if current_schedule is not None:
+            before_out = current_schedule.model_copy(deep=True)
+            OverloadTriageEngine.enrich_schedule_overload(before_out, profile, tasks)
+        else:
+            before_out, _ = cls.solve_schedule(profile, tasks, algorithm=algorithm)
+
+        shortage_min = 0
+        available_options: List[Dict[str, Any]] = []
+        if before_out.overload is not None:
+            shortage_min = int(before_out.overload.shortage_minutes or 0)
+            available_options = list(before_out.overload.options or [])
+
+        resolved_tasks, applied_change = OverloadTriageEngine.apply_triage_option(
+            profile=profile,
+            tasks=tasks,
+            option_id=option_id,
+            option_code=option_code,
+            target_task_id=target_task_id,
+            shortage_min=shortage_min,
+            available_options=available_options,
+        )
+
+        after_out, _ = cls.solve_schedule(profile, resolved_tasks, algorithm=algorithm)
+
+        before_map = {
+            (b.task_id, b.chunk_index): (b.start_slot, b.end_slot, b.duration_min)
+            for b in before_out.blocks
+        }
+        changed_target_id = str(applied_change.get("task_id", ""))
+        proposed_block_ids: List[str] = []
+
+        for b in after_out.blocks:
+            key = (b.task_id, b.chunk_index)
+            val = (b.start_slot, b.end_slot, b.duration_min)
+            if key not in before_map or before_map[key] != val or b.task_id == changed_target_id:
+                b.state = "PROPOSED"
+                proposed_block_ids.append(b.block_id)
+
+        # If an unplaced task was skipped (`SKIP_HABIT`) and existing blocks stayed in place,
+        # mark all blocks in the preview as PROPOSED so the preview grid clearly shows the proposal state.
+        if not proposed_block_ids and after_out.blocks:
+            for b in after_out.blocks:
+                b.state = "PROPOSED"
+                proposed_block_ids.append(b.block_id)
+
+        return {
+            "status": "OK",
+            "preview_mode": True,
+            "option_id": applied_change.get("option_id", option_id or "O1"),
+            "option_code": applied_change.get("code", option_code or ""),
+            "target_task_id": changed_target_id,
+            "option_applied": applied_change,
+            "resolved_tasks": [t.model_dump() for t in resolved_tasks],
+            "before_summary": before_out.summary.model_dump(),
+            "after_summary": after_out.summary.model_dump(),
+            "blocks": [b.model_dump() for b in after_out.blocks],
+            "proposed_block_ids": proposed_block_ids,
+            "changes": [applied_change],
+            "schedule": after_out,
+        }
+
 
