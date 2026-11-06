@@ -23,6 +23,8 @@ const state = {
   editingTaskId: null,
   activeScenario: null,
   workbenchMode: "SINGLE", // 'SINGLE' | 'COMPARE'
+  overloadUndoStack: [],
+  overloadPreview: null,
 };
 
 // ============================================================================
@@ -78,12 +80,16 @@ async function loadPreset(presetId) {
     state.tasks = Array.isArray(chosen.tasks) ? chosen.tasks : chosen.tasks.tasks || [];
     state.activeScenario = null;
     state.repairedMovedIds.clear();
+    state.overloadUndoStack = [];
+    state.overloadPreview = null;
 
     const sel = document.getElementById("scenarioSelect");
     if (sel) sel.value = "";
     document.getElementById("scenarioBanner")?.classList.add("hidden");
     document.getElementById("determinismBanner")?.classList.add("hidden");
     document.getElementById("repairLogPanel")?.classList.add("hidden");
+    document.getElementById("overloadPreviewBanner")?.classList.add("hidden");
+    document.getElementById("overloadUndoBanner")?.classList.add("hidden");
 
     syncAllLeftPanels();
     await solveSchedule();
@@ -103,6 +109,10 @@ async function onScenarioSelectChange(scenarioId) {
     state.tasks = sc.tasks || [];
     state.activeScenario = sc;
     state.repairedMovedIds.clear();
+    state.overloadUndoStack = [];
+    state.overloadPreview = null;
+    document.getElementById("overloadPreviewBanner")?.classList.add("hidden");
+    document.getElementById("overloadUndoBanner")?.classList.add("hidden");
 
     // Show scenario banner
     const banner = document.getElementById("scenarioBanner");
@@ -133,6 +143,10 @@ function clearAllData() {
   state.tasks = [];
   state.commitments.fixed_events = [];
   state.repairedMovedIds.clear();
+  state.overloadUndoStack = [];
+  state.overloadPreview = null;
+  document.getElementById("overloadPreviewBanner")?.classList.add("hidden");
+  document.getElementById("overloadUndoBanner")?.classList.add("hidden");
   syncAllLeftPanels();
   solveSchedule();
 }
@@ -636,6 +650,88 @@ function renderOverloadBox(schedule) {
     document.getElementById("overloadSuggestionsList").innerHTML = (ov.suggested_actions || [])
       .map((act) => `<li>${act}</li>`)
       .join("");
+
+    // Render Interactive Overload Triage Option Cards (Feature 002 / F15)
+    const optionsGrid = document.getElementById("overloadOptionsGrid");
+    const optionsSec = document.getElementById("overloadOptionsSection");
+    const options = ov.options || [];
+    if (optionsGrid && optionsSec) {
+      if (options.length === 0) {
+        optionsSec.classList.add("hidden");
+      } else {
+        optionsSec.classList.remove("hidden");
+        const codeStyleMap = {
+          SKIP_HABIT: {
+            badgeBg: "bg-emerald-700 text-white",
+            border: "border-emerald-300 bg-white",
+            tag: "ƯU TIÊN SỐ 1 · BỎ QUA HABIT/TỰ CHỌN",
+          },
+          SHORTEN_TASK: {
+            badgeBg: "bg-amber-600 text-white",
+            border: "border-amber-300 bg-white",
+            tag: "CẮT GIẢM THỜI LƯỢNG VỪA KHÍT",
+          },
+          ALLOW_SPLIT: {
+            badgeBg: "bg-sky-700 text-white",
+            border: "border-sky-300 bg-white",
+            tag: "CHIA NHỎ TASK LỚN (45–90P)",
+          },
+          POSTPONE_LOWEST: {
+            badgeBg: "bg-indigo-700 text-white",
+            border: "border-indigo-300 bg-white",
+            tag: "DỜI HẠN CHÓT TASK ƯU TIÊN THẤP",
+          },
+        };
+
+        optionsGrid.innerHTML = options
+          .map((opt) => {
+            const st = codeStyleMap[opt.code] || {
+              badgeBg: "bg-slate-700 text-white",
+              border: "border-slate-300 bg-white",
+              tag: opt.code,
+            };
+            const activePreviewId = state.overloadPreview && state.overloadPreview.option_id;
+            const isSelectedPreview = activePreviewId === opt.id;
+            const ringClass = isSelectedPreview
+              ? "ring-2 ring-amber-400 bg-sky-50 border-sky-500"
+              : st.border;
+            const freesBadge =
+              opt.frees_min > 0
+                ? `<span class="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold mono text-[10px]">+${opt.frees_min}p giải phóng</span>`
+                : `<span class="px-1.5 py-0.5 rounded bg-sky-100 text-sky-800 font-bold mono text-[10px]">Lấp khe trống ngắn</span>`;
+
+            return `
+              <div class="p-3 rounded-lg border ${ringClass} shadow-sm flex flex-col justify-between gap-2 transition">
+                <div class="space-y-1">
+                  <div class="flex flex-wrap items-center justify-between gap-1">
+                    <div class="flex items-center gap-1.5">
+                      <span class="px-1.5 py-0.5 rounded font-bold mono text-[10px] ${st.badgeBg}">${opt.id} · ${opt.code}</span>
+                      <span class="text-[10px] font-bold text-slate-500 uppercase">${st.tag}</span>
+                    </div>
+                    ${freesBadge}
+                  </div>
+                  <div class="text-xs font-semibold text-slate-800 leading-snug">${opt.label || `${opt.code} on ${opt.task}`}</div>
+                </div>
+                <div class="flex items-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    onclick="previewOverloadOption('${opt.id}', '${opt.code}', '${opt.task}')"
+                    class="flex-1 py-1.5 px-2.5 rounded text-[11px] font-bold bg-sky-700 hover:bg-sky-600 text-white shadow-sm transition flex items-center justify-center gap-1">
+                    <span>👁️</span> Xem Trước (Preview)
+                  </button>
+                  <button
+                    type="button"
+                    onclick="applyOverloadOption('${opt.id}', '${opt.code}', '${opt.task}')"
+                    class="flex-1 py-1.5 px-2.5 rounded text-[11px] font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm transition flex items-center justify-center gap-1">
+                    <span>✅</span> Áp Dụng (Apply)
+                  </button>
+                </div>
+              </div>
+            `;
+          })
+          .join("");
+      }
+    }
   }
 
   document.getElementById("unplacedTasksList").innerHTML = (schedule.unplaced_tasks || [])
@@ -644,6 +740,174 @@ function renderOverloadBox(schedule) {
         `<li><strong>[${u.task_id}] ${u.title}</strong> (${u.duration_min}p — Hạn: ${u.deadline || "N/A"}): ${u.reason}</li>`
     )
     .join("");
+}
+
+// ============================================================================
+// INTERACTIVE OVERLOAD PREVIEW, APPLY & 1-CLICK UNDO (FEATURE 002 / F15)
+// ============================================================================
+
+async function previewOverloadOption(optionId, optionCode, taskId) {
+  const algorithm = document.getElementById("solverSelect")?.value || "GREEDY_EDF_FIRST_FIT";
+  const baseSchedule =
+    (state.overloadPreview && state.overloadPreview.originalSchedule) || state.currentSchedule;
+
+  try {
+    const res = await fetch("/api/overload/preview", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        commitments: state.commitments,
+        tasks: state.tasks,
+        algorithm,
+        schedule: baseSchedule,
+        option_id: optionId,
+        option_code: optionCode,
+        target_task_id: taskId,
+      }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+
+    state.overloadPreview = {
+      ...data,
+      originalSchedule: JSON.parse(JSON.stringify(baseSchedule)),
+    };
+    state.currentSchedule = data.schedule;
+
+    // Render KPI cards, main grid (with dashed PROPOSED blocks), and placed blocks table
+    renderKpiCards(data.schedule);
+    // Keep overload box visible showing the original options so the user can compare/switch options
+    renderOverloadBox(baseSchedule);
+    renderMainGrid();
+    renderPlacedBlocksTable(data.schedule);
+
+    // Show Preview Banner with Before vs. After comparison
+    const banner = document.getElementById("overloadPreviewBanner");
+    const titleEl = document.getElementById("overloadPreviewTitle");
+    const metricsEl = document.getElementById("overloadPreviewMetrics");
+    if (banner && titleEl && metricsEl) {
+      const applied = data.option_applied || {};
+      const bSum = data.before_summary || {};
+      const aSum = data.after_summary || {};
+      const propCount = (data.proposed_block_ids || []).length;
+
+      titleEl.textContent = `[${data.option_id} · ${data.option_code}] ${applied.description || ""}`;
+      metricsEl.innerHTML = `
+        <div>
+          <span class="text-sky-300">Số Task xếp được:</span>
+          <strong class="mono text-white ml-1">${bSum.tasks_placed}/${bSum.total_tasks_requested} ➔ <span class="text-emerald-300">${aSum.tasks_placed}/${aSum.total_tasks_requested}</span></strong>
+        </div>
+        <div>
+          <span class="text-sky-300">Tỷ lệ đạt hạn chót:</span>
+          <strong class="mono text-white ml-1">${Number(bSum.deadline_satisfaction_rate || 0).toFixed(1)}% ➔ <span class="text-emerald-300">${Number(aSum.deadline_satisfaction_rate || 0).toFixed(1)}%</span></strong>
+        </div>
+        <div>
+          <span class="text-sky-300">Số Task bị rớt (Unplaced):</span>
+          <strong class="mono text-white ml-1">${bSum.tasks_unplaced} ➔ <span class="text-emerald-300">${aSum.tasks_unplaced}</span></strong>
+        </div>
+        <div>
+          <span class="text-sky-300">Khối PROPOSED (nét đứt):</span>
+          <strong class="mono text-amber-300 ml-1">${propCount} phiên trên lưới</strong>
+        </div>
+      `;
+      banner.classList.remove("hidden");
+    }
+  } catch (err) {
+    console.error("previewOverloadOption failed:", err);
+  }
+}
+
+function cancelOverloadPreview() {
+  if (!state.overloadPreview) return;
+  const orig = state.overloadPreview.originalSchedule;
+  state.overloadPreview = null;
+  document.getElementById("overloadPreviewBanner")?.classList.add("hidden");
+
+  if (orig) {
+    state.currentSchedule = orig;
+    renderKpiCards(orig);
+    renderOverloadBox(orig);
+    renderMainGrid();
+    renderPlacedBlocksTable(orig);
+  }
+}
+
+async function confirmActivePreviewApply() {
+  if (!state.overloadPreview) return;
+  const { option_id, option_code, target_task_id } = state.overloadPreview;
+  await applyOverloadOption(option_id, option_code, target_task_id);
+}
+
+async function applyOverloadOption(optionId, optionCode, taskId) {
+  const algorithm = document.getElementById("solverSelect")?.value || "GREEDY_EDF_FIRST_FIT";
+  const baseSchedule =
+    (state.overloadPreview && state.overloadPreview.originalSchedule) || state.currentSchedule;
+
+  try {
+    let previewData = state.overloadPreview;
+    if (
+      !previewData ||
+      previewData.option_id !== optionId ||
+      previewData.option_code !== optionCode
+    ) {
+      const res = await fetch("/api/overload/preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          commitments: state.commitments,
+          tasks: state.tasks,
+          algorithm,
+          schedule: baseSchedule,
+          option_id: optionId,
+          option_code: optionCode,
+          target_task_id: taskId,
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      previewData = await res.json();
+    }
+
+    // Push current tasks & schedule snapshot onto Undo stack
+    state.overloadUndoStack.push({
+      tasks: JSON.parse(JSON.stringify(state.tasks)),
+      schedule: baseSchedule ? JSON.parse(JSON.stringify(baseSchedule)) : null,
+      appliedOption: previewData.option_applied || { option_id: optionId, code: optionCode },
+    });
+
+    // Commit resolved tasks and clear preview mode
+    state.tasks = previewData.resolved_tasks || state.tasks;
+    state.overloadPreview = null;
+    document.getElementById("overloadPreviewBanner")?.classList.add("hidden");
+
+    syncAllLeftPanels();
+    await solveSchedule();
+
+    // Show 1-Click Undo Banner
+    const undoBanner = document.getElementById("overloadUndoBanner");
+    const undoText = document.getElementById("overloadUndoText");
+    if (undoBanner && undoText) {
+      const appInfo = previewData.option_applied || {};
+      undoText.textContent = `[${appInfo.option_id || optionId} · ${appInfo.code || optionCode}] ${appInfo.description || "Đã áp dụng phương án giải quyết quá tải."} (Lịch tuần hiện đạt ${state.currentSchedule?.summary?.deadline_satisfaction_rate?.toFixed(1) || 100}% hạn chót)`;
+      undoBanner.classList.remove("hidden");
+    }
+  } catch (err) {
+    console.error("applyOverloadOption failed:", err);
+  }
+}
+
+async function undoOverloadResolution() {
+  if (!state.overloadUndoStack || state.overloadUndoStack.length === 0) return;
+  const snapshot = state.overloadUndoStack.pop();
+  state.tasks = snapshot.tasks || [];
+  state.overloadPreview = null;
+
+  document.getElementById("overloadPreviewBanner")?.classList.add("hidden");
+  if (state.overloadUndoStack.length === 0) {
+    document.getElementById("overloadUndoBanner")?.classList.add("hidden");
+  }
+
+  syncAllLeftPanels();
+  await solveSchedule();
 }
 
 // ============================================================================
@@ -744,15 +1008,18 @@ function buildScheduleRowsHTML(schedule, { foldSleep = true, stepSlots = 1, diff
         const prevSlotState = offset > startOffset ? gridStates[slotIdx - stepSlots] : "";
         cellText = prevSlotState !== rawState ? fixedLabelBySlot[slotIdx] || rawState.split(":")[1] : "〃";
       } else if (rawState.startsWith("BLOCK") && block) {
+        const isProposed = block.state === "PROPOSED";
         const isMoved = state.repairedMovedIds.has(block.block_id);
         const isDiff = otherGridStates && otherGridStates[slotIdx] !== rawState;
-        if (isDiff) cellClass = "slot-block-diff";
+        if (isProposed) cellClass = "slot-block-proposed";
+        else if (isDiff) cellClass = "slot-block-diff";
         else if (isMoved) cellClass = "slot-block-moved";
         else cellClass = "slot-block";
 
         const isBlockStart = slotIdx === block.start_slot || offset === startOffset;
         const partBadge = block.total_chunks > 1 ? ` (${block.chunk_index}/${block.total_chunks})` : "";
-        cellText = isBlockStart ? `[${block.task_id}] ${block.title}${partBadge}` : `↳ ${block.task_id}`;
+        const propPrefix = isProposed ? "✨[PROPOSED] " : "";
+        cellText = isBlockStart ? `${propPrefix}[${block.task_id}] ${block.title}${partBadge}` : `↳ ${block.task_id}`;
       }
 
       const inspectData = encodeURIComponent(
@@ -792,8 +1059,13 @@ function inspectSlot(encoded) {
     if (!contentEl) return;
     if (info.block) {
       const b = info.block;
+      const stateBadge =
+        b.state === "PROPOSED"
+          ? `<span class="px-1.5 py-0.5 bg-amber-400 text-slate-950 rounded font-bold mono text-[10px]">PROPOSED PREVIEW</span>`
+          : "";
       contentEl.innerHTML = `
         <span class="px-1.5 py-0.5 bg-emerald-600 text-white rounded font-bold mono text-[10px]">${b.block_id}</span>
+        ${stateBadge}
         <strong class="text-white">${b.title}</strong>
         <span class="text-slate-300 mono">(${b.day} ${b.start_time}–${b.end_time}, ${b.duration_min}p, P${b.priority})</span>
         <span class="text-amber-300 font-medium">→ ${b.reason}</span>
@@ -823,8 +1095,11 @@ function renderPlacedBlocksTable(schedule) {
   tbody.innerHTML = blocks
     .map(
       (b) => `
-      <tr class="hover:bg-slate-50">
-        <td class="py-1.5 px-2.5 font-bold mono text-indigo-700">${b.block_id}</td>
+      <tr class="hover:bg-slate-50 ${b.state === "PROPOSED" ? "bg-sky-50/70" : ""}">
+        <td class="py-1.5 px-2.5 font-bold mono text-indigo-700">
+          ${b.block_id}
+          ${b.state === "PROPOSED" ? `<span class="ml-1 px-1 py-0.5 rounded bg-sky-600 text-white text-[9px] font-bold mono">PROPOSED</span>` : ""}
+        </td>
         <td class="py-1.5 px-2.5 font-semibold text-slate-800">${b.title}</td>
         <td class="py-1.5 px-2.5 mono text-slate-600">${b.chunk_index}/${b.total_chunks}</td>
         <td class="py-1.5 px-2.5 font-semibold text-emerald-700 mono">${b.day} ${b.start_time}–${b.end_time}</td>
