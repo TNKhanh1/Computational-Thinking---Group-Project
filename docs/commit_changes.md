@@ -41,6 +41,33 @@ Dự án SmartSchedule đang ở bước chuyển tiếp quan trọng từ **B�
 
 ## 2. Nhật Ký Chi Tiết Các Thay Đổi Mã Nguồn
 
+### Lần cập nhật 005 — 06/11/2026 | Tính năng 001: Bộ Đệm Ước Lượng Thời Gian (Chống Planning Fallacy)
+- **Người thực hiện:** Nguyễn Trọng Tiến (Thinker 3 — Trừu tượng hóa & Thiết kế thuật toán), có hỗ trợ của Claude Code
+- **Được phê duyệt bởi:** Nguyễn Trọng Tiến (thành viên). Nằm trên branch `feature/estimate-buffer`, chưa merge, cần nhóm review.
+- **Nội dung thay đổi:**
+  1. **Tài liệu spec:** `specs/001-estimate-buffer/` (spec, các quyết định làm rõ C1–C5, plan, tasks, diagram Mermaid).
+  2. **Module mới `src/estimate_buffer.py` (hàm thuần):** `estimate_habit` → hệ số (`RARELY` ×1.00, `SOMETIMES` ×1.10, `OFTEN` ×1.25). Thời gian dự trù = `max(làm_tròn_lên_15(T), làm_tròn_gần_nhất_15(T × hệ số))`, tính bằng số nguyên nên luôn tất định. Làm tròn tới ô *gần nhất* giúp task nhỏ không bị nhân đôi (15p × 1.25 → 15p, không phải 30p).
+  3. **Models:** thêm `CommitmentsProfile.estimate_habit` (mặc định `None` = giữ nguyên V0) và `Task.buffer_multiplier`. `Task.get_planned_duration_min()` dùng công thức mới.
+  4. **Controller:** `apply_estimate_buffer()` trả về *bản sao* task đã gắn hệ số (không sửa input, gọi nhiều lần vẫn cho cùng kết quả). `solve_schedule()` gắn lý do `ESTIMATE_BUFFER` cho block bị kéo dài. Mô phỏng lố giờ cộng thêm vào ước lượng gốc rồi mới áp bộ đệm, trả về `new_estimate_min`.
+  5. **API:** đọc `estimate_habit` từ `commitments`, từ `profile` (hợp đồng Improve Plan) hoặc từ cấp ngoài cùng. Mọi endpoint dùng cùng thời lượng đã đệm.
+  6. **Workbench:** ô chọn "Bạn có hay ước lượng thiếu không?", dòng xem trước "dự trù X phút", cột "ước lượng → dự trù" ở hàng đợi task và bảng block. Mô phỏng lố giờ lưu lại ước lượng gốc (không cộng dồn bộ đệm).
+  7. **Sửa input gap test:** `test_fail_planning_fallacy_buffer_multiplier` được truyền thêm `estimate_habit="OFTEN"` (đúng điều kiện ghi trong docstring). Giữ nguyên tên test; Bảo có thể chuyển test ra khỏi `development_gap_tests/`.
+- **Các file bị tác động:**
+  - `group03-smartschedule-baseline/src/estimate_buffer.py` (Tạo mới)
+  - `src/models.py`, `src/controller.py`, `web/api.py`, `web/app.js`, `web/index.html` (Cập nhật)
+  - `verification_tests/logical_tests/test_estimate_buffer.py` (Tạo mới, 34 test)
+  - `verification_tests/development_gap_tests/test_improve_plan_gaps.py` (Sửa input 1 test)
+  - `specs/001-estimate-buffer/*` (Tạo mới)
+  - **Không đụng tới:** `src/solvers/*`, bộ parse nhập nhanh / ngôn ngữ tự nhiên, `requirements.txt`.
+- **Kiểm thử đã chạy:**
+  - `python -B verification_tests/clean_runner.py --pass` → **84 Passed | 0 Failed** (50 test cũ + 34 test mới).
+  - `python -B verification_tests/clean_runner.py --gaps` → 1 Passed (bộ đệm) | 4 Failed (giờ năng lượng, nghỉ sau Deep, reason code, SKIP_HABIT: vẫn còn mở).
+- **Tác động đến dự án:**
+  - Không chọn `estimate_habit` thì mọi kết quả (T01–T10, các mẫu, mã hash) giống hệt V0.
+  - Người làm solver: không conflict, solver chỉ nhận thời lượng dự trù lớn hơn. Số liệu quá tải giờ tính theo thời gian đã đệm.
+  - Người làm UI: TaskSheet (F06) có thể lấy thẳng `reasons[code=ESTIMATE_BUFFER].planned_min` để hiển thị.
+  - Giới hạn đã biết (ngoài phạm vi): task dưới 15 phút vẫn chiếm trọn 1 ô (lưới D2). Gộp nhiều task siêu nhỏ vào 1 ô cần sửa solver.
+
 ### Lần cập nhật 004 — 04/11/2026 | Danh Mục Thư Viện (`requirements.md`) & Cài Đặt Tự Động 1-Click
 - **Người thực hiện:** Nguyễn Nguyễn Gia Bảo (Builder 3 — Kiến Trúc Hệ Thống & Kiểm Thử Triển Khai)
 - **Được phê duyệt bởi:** Owner / Trưởng nhóm
