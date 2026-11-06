@@ -6,6 +6,24 @@
 const DAYS_EN = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const DAYS_VI = ["Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy", "Chủ Nhật"];
 
+// Feature 001 — Estimate buffer. Mirrors src/estimate_buffer.py (spec 001 FR2/FR3).
+const ESTIMATE_HABIT_MULTIPLIER = { RARELY: 1.0, SOMETIMES: 1.1, OFTEN: 1.25 };
+
+function currentBufferMultiplier() {
+  const habit = (state.commitments && state.commitments.estimate_habit) || "";
+  return ESTIMATE_HABIT_MULTIPLIER[habit] || 1.0;
+}
+
+function plannedMinutesFor(estimateMin, multiplier) {
+  const est = Math.max(0, parseInt(estimateMin || 0, 10));
+  if (est <= 0) return 0;
+  const floorMin = Math.ceil(est / 15) * 15;
+  const pct = Math.round(multiplier * 100);
+  if (pct <= 100) return floorMin;
+  const nearestSlots = Math.floor((est * pct + 750) / 1500);
+  return Math.max(floorMin, nearestSlots * 15);
+}
+
 const state = {
   commitments: {
     student_id: "MINH_YEAR2_CS",
@@ -164,6 +182,7 @@ function switchLeftTab(tabName) {
 }
 
 function syncAllLeftPanels() {
+  syncEstimateHabitUI();
   renderTaskQueue();
   renderFixedEventsList();
   syncSleepUI();
@@ -176,6 +195,38 @@ function updateSlotEquivalent() {
   const hours = (dur / 60).toFixed(1);
   const lbl = document.getElementById("slotEquivalentLabel");
   if (lbl) lbl.textContent = `= ${slots} slots (${hours} giờ)`;
+  updatePlannedDurationLabel();
+}
+
+function updatePlannedDurationLabel() {
+  const lbl = document.getElementById("plannedDurationLabel");
+  if (!lbl) return;
+  const est = Math.max(15, parseInt(document.getElementById("inpTaskDuration")?.value || "120", 10));
+  const mult = currentBufferMultiplier();
+  const planned = plannedMinutesFor(est, mult);
+  lbl.textContent = mult > 1 ? `${est}p → dự trù ${planned}p (×${mult})` : `dự trù ${planned}p`;
+}
+
+function syncEstimateHabitUI() {
+  const sel = document.getElementById("inpEstimateHabit");
+  if (!sel || !state.commitments) return;
+  if (state.commitments.estimate_habit) {
+    sel.value = String(state.commitments.estimate_habit).toUpperCase();
+  } else if (sel.value) {
+    // Keep the student's answer when a preset / scenario replaces the commitments.
+    state.commitments.estimate_habit = sel.value;
+  }
+  updatePlannedDurationLabel();
+}
+
+async function onEstimateHabitChange() {
+  const sel = document.getElementById("inpEstimateHabit");
+  if (!sel) return;
+  if (sel.value) state.commitments.estimate_habit = sel.value;
+  else delete state.commitments.estimate_habit;
+  updatePlannedDurationLabel();
+  renderTaskQueue();
+  await solveSchedule();
 }
 
 function adjustDuration(delta) {
@@ -414,6 +465,7 @@ function renderTaskQueue() {
     .map((t) => {
       const tid = t.task_id || t.id;
       const dur = t.duration_min || t.estimate_min || 60;
+      const plannedDur = plannedMinutesFor(dur, currentBufferMultiplier());
       const dl = t.due ? t.due.slice(0, 16).replace("T", " ") : t.deadline_day ? `${t.deadline_day} ${t.deadline_time || "23:59"}` : "Linh hoạt";
       const isUnplaced = unplacedIds.has(tid);
       const deps = t.depends_on || t.after || [];
@@ -427,7 +479,7 @@ function renderTaskQueue() {
             ${isUnplaced ? `<span class="px-1.5 py-0.5 text-[10px] font-bold bg-rose-600 text-white rounded mono">UNPLACED</span>` : ""}
           </div>
           <div class="text-[11px] text-slate-600 mono flex flex-wrap items-center gap-2">
-            <span>⏱ ${dur}p</span>
+            <span>⏱ ${dur}p${plannedDur > Math.ceil(dur / 15) * 15 ? ` <span class="text-amber-700 font-semibold">→ ${plannedDur}p</span>` : ""}</span>
             <span>📅 ${dl}</span>
             <span>★ P${t.priority || 3}</span>
             <span>${t.is_splittable || t.splittable ? `✂️ Cắt (≥${t.min_chunk_min || 45}p)` : "🧱 Nguyên khối"}</span>
@@ -810,6 +862,24 @@ function inspectSlot(encoded) {
   }
 }
 
+function findBufferReason(b) {
+  return ((b && b.reasons) || []).find((r) => r && r.code === "ESTIMATE_BUFFER") || null;
+}
+
+function formatBlockDuration(b) {
+  const r = findBufferReason(b);
+  if (!r) return `${b.duration_min}p`;
+  if (b.total_chunks > 1) {
+    return `${b.duration_min}p <span class="text-amber-700 font-semibold">(task: ${r.estimate_min}p → ${r.planned_min}p)</span>`;
+  }
+  return `<span class="line-through text-slate-400">${r.estimate_min}p</span> → <span class="text-amber-700 font-bold">${r.planned_min}p</span> <span class="text-[10px] text-amber-700">×${r.multiplier}</span>`;
+}
+
+function bufferReasonText(b) {
+  const r = findBufferReason(b);
+  return r ? `<div class="text-[10px] text-amber-800 font-semibold mt-0.5">⏳ ${r.text}</div>` : "";
+}
+
 function renderPlacedBlocksTable(schedule) {
   const tbody = document.getElementById("placedBlocksTableBody");
   if (!tbody) return;
@@ -829,9 +899,9 @@ function renderPlacedBlocksTable(schedule) {
         <td class="py-1.5 px-2.5 mono text-slate-600">${b.chunk_index}/${b.total_chunks}</td>
         <td class="py-1.5 px-2.5 font-semibold text-emerald-700 mono">${b.day} ${b.start_time}–${b.end_time}</td>
         <td class="py-1.5 px-2.5 mono text-slate-500">[${b.start_slot}..${b.end_slot})</td>
-        <td class="py-1.5 px-2.5 mono">${b.duration_min}p</td>
+        <td class="py-1.5 px-2.5 mono">${formatBlockDuration(b)}</td>
         <td class="py-1.5 px-2.5 mono text-slate-600">${b.deadline_str}</td>
-        <td class="py-1.5 px-2.5 text-slate-600">${b.reason}</td>
+        <td class="py-1.5 px-2.5 text-slate-600">${b.reason}${bufferReasonText(b)}</td>
       </tr>`
     )
     .join("");
@@ -1070,7 +1140,13 @@ async function runTaskOverrunSimulation() {
 
     // Update task duration in local state
     const tObj = state.tasks.find((t) => (t.task_id || t.id) === taskId);
-    if (tObj) tObj.duration_min = data.new_duration_min;
+    const oldEstimate = tObj ? tObj.duration_min || tObj.estimate_min : null;
+    // Feature 001: store the raw estimate, not the buffered planned value (avoids compounding the buffer).
+    if (tObj) tObj.duration_min = data.new_estimate_min ?? data.new_duration_min;
+    const estimateLine =
+      data.new_estimate_min && data.new_estimate_min !== data.new_duration_min
+        ? `<div>• Ước lượng gốc: <span class="mono">${oldEstimate}p ➔ <strong>${data.new_estimate_min}p</strong></span> · bộ đệm áp dụng lại cho thời gian dự trù bên dưới</div>`
+        : "";
 
     state.currentSchedule = data.after_schedule;
     syncAllLeftPanels();
@@ -1084,6 +1160,7 @@ async function runTaskOverrunSimulation() {
     logBox.innerHTML = `
       <div class="font-bold text-slate-800">⏱️ Kết Quả Mô Phỏng Lố Giờ (Kịch bản T05)</div>
       <div class="text-[11px] text-slate-700 space-y-1">
+        ${estimateLine}
         <div>• Task <strong>${data.task_id}</strong> tăng thời lượng: <span class="mono">${data.old_duration_min}p ➔ <strong>${data.new_duration_min}p</strong> (+${extraMin}p)</span></div>
         <div>• Số phiên học phía sau bị trượt dây chuyền: <strong class="mono text-indigo-700">${data.shifted_blocks_count} phiên</strong></div>
       </div>

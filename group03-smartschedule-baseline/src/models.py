@@ -6,8 +6,9 @@ Supports both:
 """
 
 from typing import Any, Dict, List, Optional, Union
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
+from src.estimate_buffer import normalize_habit, planned_duration_min
 from src.utils import (
     MINUTES_PER_SLOT,
     SLOTS_PER_WEEK,
@@ -82,6 +83,15 @@ class CommitmentsProfile(BaseModel):
     now: Optional[str] = Field(default=None, description="Explicit current time (ISO-8601 or Day HH:MM)")
     sleep_schedule: SleepSchedule = Field(default_factory=SleepSchedule)
     fixed_events: List[FixedEvent] = Field(default_factory=list)
+    estimate_habit: Optional[str] = Field(
+        default=None,
+        description="Feature 001: RARELY | SOMETIMES | OFTEN (None = no estimate buffer, V0 behaviour)",
+    )
+
+    @field_validator("estimate_habit", mode="before")
+    @classmethod
+    def validate_estimate_habit(cls, value: Any) -> Optional[str]:
+        return normalize_habit(value)
 
 
 class Task(BaseModel):
@@ -99,6 +109,12 @@ class Task(BaseModel):
     max_chunk_min: int = Field(default=90, ge=15, description="Maximum chunk length in minutes")
     depends_on: List[str] = Field(default_factory=list, description="Prerequisite task_ids that must finish first")
     cognitive_load: Optional[int] = Field(default=None, description="Optional 1..3 load (ignored by pure V0 EDF/LST)")
+    buffer_multiplier: float = Field(
+        default=1.0,
+        ge=1.0,
+        le=2.0,
+        description="Feature 001: estimate buffer set by the controller from profile.estimate_habit",
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -148,10 +164,11 @@ class Task(BaseModel):
 
     def get_planned_duration_min(self) -> int:
         """
-        Baseline V0 Principle §1.1 (Zero Behavioral Psychology):
-        Keep raw estimate T_planned = round_up_to_15(T_estimate), NO x1.2 or x1.35 buffer.
+        T_planned for the solvers.
+        * buffer_multiplier == 1.0 (default): Baseline V0 Principle §1.1, T_planned = round_up_to_15(T_estimate).
+        * Feature 001 (estimate buffer): T_planned = max(round_up_to_15(T), nearest_15(T × multiplier)).
         """
-        return round_up_to_15(self.duration_min)
+        return planned_duration_min(self.duration_min, self.buffer_multiplier)
 
     def get_planned_slots(self) -> int:
         return minutes_to_slots(self.get_planned_duration_min())
