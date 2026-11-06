@@ -1140,8 +1140,13 @@ async function runTaskOverrunSimulation() {
 
     // Update task duration in local state
     const tObj = state.tasks.find((t) => (t.task_id || t.id) === taskId);
+    const oldEstimate = tObj ? tObj.duration_min || tObj.estimate_min : null;
     // Feature 001: store the raw estimate, not the buffered planned value (avoids compounding the buffer).
     if (tObj) tObj.duration_min = data.new_estimate_min ?? data.new_duration_min;
+    const estimateLine =
+      data.new_estimate_min && data.new_estimate_min !== data.new_duration_min
+        ? `<div>• Ước lượng gốc: <span class="mono">${oldEstimate}p ➔ <strong>${data.new_estimate_min}p</strong></span> · bộ đệm áp dụng lại cho thời gian dự trù bên dưới</div>`
+        : "";
 
     state.currentSchedule = data.after_schedule;
     syncAllLeftPanels();
@@ -1155,6 +1160,7 @@ async function runTaskOverrunSimulation() {
     logBox.innerHTML = `
       <div class="font-bold text-slate-800">⏱️ Kết Quả Mô Phỏng Lố Giờ (Kịch bản T05)</div>
       <div class="text-[11px] text-slate-700 space-y-1">
+        ${estimateLine}
         <div>• Task <strong>${data.task_id}</strong> tăng thời lượng: <span class="mono">${data.old_duration_min}p ➔ <strong>${data.new_duration_min}p</strong> (+${extraMin}p)</span></div>
         <div>• Số phiên học phía sau bị trượt dây chuyền: <strong class="mono text-indigo-700">${data.shifted_blocks_count} phiên</strong></div>
       </div>
