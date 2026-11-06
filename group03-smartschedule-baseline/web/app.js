@@ -34,7 +34,35 @@ const state = {
 document.addEventListener("DOMContentLoaded", async () => {
   updateSlotEquivalent();
   await loadScenariosDropdown();
-  await loadPreset("minh");
+  const params = new URLSearchParams(window.location.search);
+  const scParam = params.get("scenario");
+  const presetParam = params.get("preset");
+  if (scParam) {
+    const sel = document.getElementById("scenarioSelect");
+    if (sel) sel.value = scParam.toUpperCase();
+    await onScenarioSelectChange(scParam);
+  } else {
+    await loadPreset(presetParam || "minh");
+  }
+  const previewOpt = params.get("preview");
+  if (previewOpt && state.currentSchedule && state.currentSchedule.overload) {
+    const opts = state.currentSchedule.overload.options || [];
+    const matched = opts.find((o) => o.id === previewOpt || o.code === previewOpt) || opts[0];
+    if (matched) {
+      await previewOverloadOption(matched.id, matched.code, matched.task);
+    }
+  }
+  const applyOpt = params.get("apply");
+  if (applyOpt && state.currentSchedule && state.currentSchedule.overload) {
+    const opts = state.currentSchedule.overload.options || [];
+    const matched = opts.find((o) => o.id === applyOpt || o.code === applyOpt) || opts[0];
+    if (matched) {
+      await applyOverloadOption(matched.id, matched.code, matched.task);
+    }
+  }
+  if (params.get("det") === "1") {
+    await runDeterminismCheck();
+  }
 });
 
 function pad2(n) {

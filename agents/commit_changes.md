@@ -41,6 +41,42 @@ The project is currently at the transition point between the **Baseline Engine (
 
 ## 2. Chronological Log of System Changes
 
+### Entry 005 — 2026-11-06 | Feature 002 (F15): Smart Overload Triage, Habit-Skipping & Interactive Trade-off Preview Engine
+- **Author / Lead:** Hoàng Minh Anh (`hmanh0201`, Thinker 2 — System Analysis & Interactive Trade-off Resolution)
+- **Approved by:** Hoàng Minh Anh (Branch `hmanh`)
+- **Summary of Changes:**
+  1. **Spec-Driven Design Artifacts (`specs/002-overload-triage-preview/`):**
+     - Authored `spec.md`, `plan.md`, `tasks.md`, and `diagrams.md` containing Use Case, Sequence, and State Machine Mermaid diagrams for Feature 002 (`F15`).
+  2. **Pure Overload Triage Engine (`src/overload_triage.py`):**
+     - Implemented `OverloadTriageEngine` as a pure Layer 3 domain service (`get_protected_prerequisite_ids`, `is_habit_or_optional_task`, `build_triage_options`, `enrich_schedule_overload`, `apply_triage_option`).
+     - Protects critical prerequisite tasks (`H4` dependencies) and high-priority academic deadlines from habit-skipping, while generating structured `SKIP_HABIT`, `SHORTEN_TASK`, and `MOVE_DEADLINE` trade-off options.
+  3. **Controller & FastAPI What-If Preview Integration (`src/controller.py`, `web/api.py`):**
+     - Integrated `OverloadTriageEngine.enrich_schedule_overload` into `ScheduleController.solve_schedule` and added `ScheduleController.preview_overload_resolution` with zero side effects on baseline input arrays (`copy.deepcopy`).
+     - Upgraded `POST /api/overload/preview` in `web/api.py` to return a simulated schedule (`proposed_blocks`, `overload_report`, `triage_diff`, `determinism`) while preserving backward compatibility for minimal `{option_id, schedule}` payloads.
+  4. **Interactive Web Workbench UI (`web/index.html`, `web/app.js`):**
+     - Added `.slot-block-proposed` dashed border CSS, interactive Triage Cards (`Xem Trước (Preview)` and `Áp Dụng (Apply)`), What-If Preview Status Banner, and 1-click Undo Banner (`Hoàn Tác Về Lịch Gốc (Undo)`).
+  5. **Comprehensive Test Suite (`tests/test_overload_triage.py`, `verification_tests/logical_tests/test_overload_triage.py`):**
+     - Added 9 unit and API tests verifying AC1–AC6 and turning Developmental Gap Test #5 (`test_fail_overload_habit_skipping_recommendation`) GREEN.
+- **Affected Files:**
+  - `specs/002-overload-triage-preview/{spec.md,plan.md,tasks.md,diagrams.md}` (Created)
+  - `group03-smartschedule-baseline/src/overload_triage.py` (Created)
+  - `group03-smartschedule-baseline/src/controller.py` (Modified)
+  - `group03-smartschedule-baseline/web/api.py` (Modified)
+  - `group03-smartschedule-baseline/web/index.html` (Modified)
+  - `group03-smartschedule-baseline/web/app.js` (Modified)
+  - `group03-smartschedule-baseline/tests/test_overload_triage.py` (Created)
+  - `group03-smartschedule-baseline/verification_tests/logical_tests/test_overload_triage.py` (Created)
+  - `Development_Report_Lab04.md`, `group03-smartschedule-baseline/Week4MinhAnh.md` (Created)
+  - `AI_Usage_Declaration_Lab04.md`, `group03-smartschedule-baseline/AIWeek4_MinhAnh.md` (Created)
+  - `screenshots/01..06_*.png`, `git_commit_log.txt` (Created)
+- **Tests Executed:**
+  - `python -B verification_tests/clean_runner.py --pass`: 59 Passed | 0 Failed | Status: ALL PASSED.
+  - `python -B -m pytest -p no:cacheprovider tests/test_overload_triage.py -v`: 9 passed in 0.76s.
+  - `python -B -m pytest -p no:cacheprovider verification_tests/development_gap_tests/test_improve_plan_gaps.py -k test_fail_overload_habit_skipping_recommendation -v`: 1 passed.
+- **Impact on Project & Teammates:**
+  - Zero modifications to `src/solvers/*` or `requirements.txt` — 100% merge-safe with teammates' branches (`dminh`, `feature/estimate-buffer`, `verification_tests_ver1`).
+  - Turns Developmental Gap #5 green and upgrades the Overload Triage Panel into an interactive What-If Preview and 1-click Undo workbench.
+
 ### Entry 004 — 2026-11-04 | Environment & Dependency Specifications (`requirements.md`)
 - **Author / Lead:** Nguyễn Nguyễn Gia Bảo (Builder 3 — System Architecture & Testing)
 - **Approved by:** Owner / Team Lead

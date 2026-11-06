@@ -1,0 +1,81 @@
+﻿========================================================================
+Commit:  b85c17be189be6555cf04bf08522e20ef14d2041
+Author:  hmanh0201 <minhanhbmt07@gmail.com>
+Date:    Fri Nov 6 16:28:22 2026 +0700
+Subject: docs(lab04): add development report, screenshots, git commit log and AI usage declaration for Lab 04 submission
+
+ AI_Usage_Declaration_Lab04.md                      |  54 +++++
+ Development_Report_Lab04.md                        | 228 +++++++++++++++++++++
+ agents/commit_changes.md                           |  36 ++++
+ docs/commit_changes.md                             |  36 ++++
+ git_commit_log.txt                                 |  81 ++++++++
+ group03-smartschedule-baseline/AIWeek4_MinhAnh.md  |  54 +++++
+ group03-smartschedule-baseline/Week4MinhAnh.md     | 168 +++++++++++++++
+ group03-smartschedule-baseline/web/app.js          |  30 ++-
+ .../01_t06_overload_detected_triage_cards.png      | Bin 0 -> 177034 bytes
+ ...02_t06_preview_shorten_task_proposed_blocks.png | Bin 0 -> 209360 bytes
+ screenshots/03_t06_preview_skip_habit_option.png   | Bin 0 -> 200180 bytes
+ .../04_t06_applied_resolution_with_undo_banner.png | Bin 0 -> 159393 bytes
+ .../05_t03_fragmentation_preview_resolution.png    | Bin 0 -> 165755 bytes
+ .../06_t06_determinism_3x_verified_pass.png        | Bin 0 -> 164653 bytes
+ 14 files changed, 686 insertions(+), 1 deletion(-)
+
+========================================================================
+Commit:  fef8e9d327d05a068e13d2a6cb8e541acf6e9a8c
+Author:  hmanh0201 <minhanhbmt07@gmail.com>
+Date:    Fri Nov 6 16:18:21 2026 +0700
+Subject: test(triage): add comprehensive unit and API tests for overload triage and interactive preview
+
+ .../src/overload_triage.py                         |  17 +-
+ .../tests/test_overload_triage.py                  | 367 +++++++++++++++++++++
+ .../logical_tests/test_overload_triage.py          | 367 +++++++++++++++++++++
+ 3 files changed, 747 insertions(+), 4 deletions(-)
+
+========================================================================
+Commit:  f2eeb6aa90e6339d201504c6bd44c4c9294f7f03
+Author:  hmanh0201 <minhanhbmt07@gmail.com>
+Date:    Fri Nov 6 16:11:37 2026 +0700
+Subject: feat(ui): add interactive overload triage cards, dashed block preview and undo bar in web workbench
+
+ group03-smartschedule-baseline/web/app.js     | 283 +++++++++++++++++++++++++-
+ group03-smartschedule-baseline/web/index.html |  58 +++++-
+ 2 files changed, 336 insertions(+), 5 deletions(-)
+
+========================================================================
+Commit:  ce898545f9331ed84c846c098b965b771ecdb0ba
+Author:  hmanh0201 <minhanhbmt07@gmail.com>
+Date:    Fri Nov 6 16:08:46 2026 +0700
+Subject: feat(api): add interactive overload preview endpoint POST /api/overload/preview in FastAPI
+
+ group03-smartschedule-baseline/web/api.py | 91 +++++++++++++++++++++++--------
+ 1 file changed, 68 insertions(+), 23 deletions(-)
+
+========================================================================
+Commit:  c80c27d324b5ca11eb16ff34c902b7aadc07b745
+Author:  hmanh0201 <minhanhbmt07@gmail.com>
+Date:    Fri Nov 6 16:07:41 2026 +0700
+Subject: feat(controller): integrate overload triage enrichment and what-if preview simulation in ScheduleController
+
+ group03-smartschedule-baseline/src/controller.py | 84 +++++++++++++++++++++++-
+ 1 file changed, 83 insertions(+), 1 deletion(-)
+
+========================================================================
+Commit:  0db418c568c10158e600d54096e93e4717251a40
+Author:  hmanh0201 <minhanhbmt07@gmail.com>
+Date:    Fri Nov 6 16:06:23 2026 +0700
+Subject: feat(triage): implement pure overload triage and habit-skipping option generator in src/overload_triage.py
+
+ .../src/overload_triage.py                         | 511 +++++++++++++++++++++
+ 1 file changed, 511 insertions(+)
+
+========================================================================
+Commit:  38c23ee6ec57d341ccbcb6d07763a5b9baba5a28
+Author:  hmanh0201 <minhanhbmt07@gmail.com>
+Date:    Fri Nov 6 16:02:30 2026 +0700
+Subject: docs(spec): add specification, plan, tasks and Mermaid diagrams for feature 002 overload triage preview
+
+ specs/002-overload-triage-preview/diagrams.md | 131 ++++++++++++++++++++++++++
+ specs/002-overload-triage-preview/plan.md     |  65 +++++++++++++
+ specs/002-overload-triage-preview/spec.md     |  83 ++++++++++++++++
+ specs/002-overload-triage-preview/tasks.md    |  11 +++
+ 4 files changed, 290 insertions(+)

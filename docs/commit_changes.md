@@ -41,6 +41,42 @@ Dự án SmartSchedule đang ở bước chuyển tiếp quan trọng từ **B�
 
 ## 2. Nhật Ký Chi Tiết Các Thay Đổi Mã Nguồn
 
+### Lần cập nhật 005 — 06/11/2026 | Feature 002 (F15): Bộ Phân Loại Quá Tải Thông Minh, Bỏ Qua Thói Quen & Xem Trước Đánh Đổi Tương Tác
+- **Người thực hiện:** Hoàng Minh Anh (`hmanh0201`, Thinker 2 — Phân Tích Hệ Thống & Giải Quyết Đánh Đổi Tương Tác)
+- **Được phê duyệt bởi:** Hoàng Minh Anh (Nhánh `hmanh`)
+- **Nội dung thay đổi:**
+  1. **Hồ sơ Đặc tả & Sơ đồ Mermaid (`specs/002-overload-triage-preview/`):**
+     - Biên soạn đầy đủ `spec.md`, `plan.md`, `tasks.md`, và `diagrams.md` (bao gồm 3 sơ đồ Mermaid: Use Case, Sequence, State Machine) cho Feature 002 (`F15`).
+  2. **Engine Phân Loại Quá Tải Thuần Khiết (`src/overload_triage.py`):**
+     - Cài đặt `OverloadTriageEngine` tại Tầng 3 (`get_protected_prerequisite_ids`, `is_habit_or_optional_task`, `build_triage_options`, `enrich_schedule_overload`, `apply_triage_option`).
+     - Tự động bảo vệ các task tiên quyết (`H4` dependencies) và môn học bắt buộc ưu tiên cao, đồng thời sinh các phương án `SKIP_HABIT`, `SHORTEN_TASK`, `MOVE_DEADLINE`.
+  3. **Tích hợp Mô phỏng What-If vào Controller & FastAPI (`src/controller.py`, `web/api.py`):**
+     - Tích hợp `OverloadTriageEngine.enrich_schedule_overload` vào `ScheduleController.solve_schedule` và thêm hàm `ScheduleController.preview_overload_resolution` sử dụng `copy.deepcopy` không làm biến đổi dữ liệu gốc.
+     - Nâng cấp endpoint `POST /api/overload/preview` trả về lịch mô phỏng (`proposed_blocks`, `overload_report`, `triage_diff`, `determinism`) và tương thích ngược với các bài kiểm thử UI hiện có.
+  4. **Giao diện Tương tác Xem Trước & Hoàn Tác (`web/index.html`, `web/app.js`):**
+     - Bổ sung CSS `.slot-block-proposed` (viền nét đứt cam cho khối đề xuất), thẻ Triage tương tác có nút `Xem Trước (Preview)` / `Áp Dụng (Apply)` và thanh `Hoàn Tác Về Lịch Gốc (Undo)` 1-click.
+  5. **Bộ Kiểm thử Toàn diện (`tests/test_overload_triage.py`, `verification_tests/logical_tests/test_overload_triage.py`):**
+     - Thêm 9 bài kiểm thử đơn vị và API kiểm chứng AC1–AC6, đồng thời chuyển bài kiểm thử Gap #5 (`test_fail_overload_habit_skipping_recommendation`) sang trạng thái PASSED.
+- **Các file bị tác động:**
+  - `specs/002-overload-triage-preview/{spec.md,plan.md,tasks.md,diagrams.md}` (Tạo mới)
+  - `group03-smartschedule-baseline/src/overload_triage.py` (Tạo mới)
+  - `group03-smartschedule-baseline/src/controller.py` (Cập nhật)
+  - `group03-smartschedule-baseline/web/api.py` (Cập nhật)
+  - `group03-smartschedule-baseline/web/index.html` (Cập nhật)
+  - `group03-smartschedule-baseline/web/app.js` (Cập nhật)
+  - `group03-smartschedule-baseline/tests/test_overload_triage.py` (Tạo mới)
+  - `group03-smartschedule-baseline/verification_tests/logical_tests/test_overload_triage.py` (Tạo mới)
+  - `Development_Report_Lab04.md`, `group03-smartschedule-baseline/Week4MinhAnh.md` (Tạo mới)
+  - `AI_Usage_Declaration_Lab04.md`, `group03-smartschedule-baseline/AIWeek4_MinhAnh.md` (Tạo mới)
+  - `screenshots/01..06_*.png`, `git_commit_log.txt` (Tạo mới)
+- **Kết quả chạy kiểm thử:**
+  - `python -B verification_tests/clean_runner.py --pass`: 59/59 bài test PASSED 100%.
+  - `python -B -m pytest -p no:cacheprovider tests/test_overload_triage.py -v`: 9/9 PASSED (0.76s).
+  - `python -B -m pytest -p no:cacheprovider verification_tests/development_gap_tests/test_improve_plan_gaps.py -k test_fail_overload_habit_skipping_recommendation -v`: 1/1 PASSED.
+- **Tác động đến dự án:**
+  - Không chạm vào `src/solvers/*` hay `requirements.txt`, đảm bảo an toàn 100% khi merge với nhánh của các thành viên khác.
+  - Hoàn thành tính năng `F15` trong `improve_plan.md` và giải quyết triệt để bài test mục tiêu số 5 trong bộ `development_gap_tests`.
+
 ### Lần cập nhật 004 — 04/11/2026 | Danh Mục Thư Viện (`requirements.md`) & Cài Đặt Tự Động 1-Click
 - **Người thực hiện:** Nguyễn Nguyễn Gia Bảo (Builder 3 — Kiến Trúc Hệ Thống & Kiểm Thử Triển Khai)
 - **Được phê duyệt bởi:** Owner / Trưởng nhóm
