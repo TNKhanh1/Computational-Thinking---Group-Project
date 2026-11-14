@@ -75,11 +75,11 @@ Giao diện Web và Thuật toán giao tiếp với nhau bằng chuẩn JSON ISO
 
 Để theo dõi tiến độ hoàn thành các tính năng cải tiến trên, nhóm đã viết sẵn 5 bài test chủ đích báo lỗi trong `group03-smartschedule-baseline/verification_tests/development_gap_tests/test_improve_plan_gaps.py`:
 
-1. `test_fail_circadian_energy_matching`: Kiểm tra việc `DEEP` đã được xếp vào buổi tối ($\ge 18:00$) chưa.
-2. `test_fail_rest_break_insertion_after_deep_work`: Kiểm tra đã có khoảng nghỉ 15 phút sau việc 90 phút chưa.
-3. `test_fail_planning_fallacy_buffer_multiplier`: Kiểm tra bài 60 phút đã được xếp đủ 75 phút chưa.
-4. `test_fail_why_popover_structured_reason_codes`: Kiểm tra popup giải thích đã có mã `ENERGY_MATCH` chưa.
-5. `test_fail_overload_habit_skipping_recommendation`: Kiểm tra hộp thoại quá tải đã biết gợi ý `SKIP_HABIT` chưa.
+1. `test_fail_circadian_energy_matching`: Kiểm tra việc `DEEP` đã được xếp vào buổi tối ($\ge 18:00$) chưa (Đang mở).
+2. `test_fail_rest_break_insertion_after_deep_work`: Kiểm tra đã có khoảng nghỉ 15 phút sau việc 90 phút chưa (Đang mở).
+3. `test_fail_planning_fallacy_buffer_multiplier`: Kiểm tra bài 60 phút đã được xếp đủ 75 phút chưa (**✅ ĐÃ HOÀN THÀNH & CHUYỂN XANH qua Feature 001!**).
+4. `test_fail_why_popover_structured_reason_codes`: Kiểm tra popup giải thích đã có mã `ENERGY_MATCH` chưa (Đang mở).
+5. `test_fail_overload_habit_skipping_recommendation`: Kiểm tra hộp thoại quá tải đã biết gợi ý `SKIP_HABIT` chưa (Đang mở).
 
-> 🎯 **Khi các thành viên cài đặt xong các tính năng này ở những tuần tới, 5 bài test này sẽ tự động chuyển từ ĐỎ sang XANH.**
+> 🎯 **Đức Minh và Tiến đã hoàn thành tính năng Chế Độ Sinh Viên (Student Mode) và Bộ đệm ước lượng (Feature 001), đưa bài test số 3 chuyển sang màu XANH!**
 

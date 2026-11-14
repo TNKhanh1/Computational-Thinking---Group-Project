@@ -35,11 +35,39 @@ The project is currently at the transition point between the **Baseline Engine (
 - **Baseline Engine (V0):** Fully functional. Classical CSP solver operating on a 672-slot discrete grid (15 minutes/slot, 7 days/week). Implements greedy Earliest Deadline First (EDF), Least Slack Time (LST), and Weighted Shortest Processing Time (WSPT) algorithms, adhering to hard constraints $H_1$ to $H_5$.
 - **Web Workbench:** Operational at `http://127.0.0.1:8000`. Delivers interactive 672-slot timetable visualization, manual block drag-and-drop validation, and export to `.ics`, `.csv`, and `.json`.
 - **Improve Plan Backlog (V1/V2):** Specifications defined in `Improve_Plan/improve_plan.md` for student-centered features (Circadian energy matching, 15m rest breaks, planning buffer multipliers, sprint mode, habit skipping overload resolution, and ISO-8601 JSON Data Contract).
-- **Verification Infrastructure:** Complete 56-test matrix enforcing architectural purity, heap stability, edge case solvability, and tracking 5 live developmental feature gaps.
+- **Verification Infrastructure:** Expanded to **84 passing automated tests** (50 operational baseline tests + 34 estimate buffer logical tests) and tracking 5 developmental feature gap tests (with `test_fail_planning_fallacy_buffer_multiplier` now PASSING!). Total: 89 tests.
 
 ---
 
 ## 2. Chronological Log of System Changes
+
+### Entry 006 — 2026-11-06 | Student-Facing Minimalist UI & Dual-Mode Architecture
+- **Author / Lead:** Duc Minh (assisted by Antigravity AI — Gemini 3.8 Flash)
+- **Approved by:** Duc Minh (Developer & User Experience Lead)
+- **Summary of Changes:**
+  1. **Dual-Mode Architecture (Toggle Switch):**
+     - Replaced the technical-only header with a global mode switch pill: `[🎓 Chế Độ Sinh Viên (Gọn)]` $\longleftrightarrow$ `[🔬 Chế Độ Lab (Benchmark)]`.
+     - Defaults to **Student Mode** on page load for immediate clean student usability, while keeping the full technical benchmark workbench one click away in **Lab Mode**.
+  2. **Three Student-Centric Calendar Views:**
+     - **View 1: Weekly Smart Calendar (`#stViewWeek`):** Folds 28 nocturnal sleep rows into a single slim bar (`🌙 23:30 – 06:30 (Ngủ) · Bảo vệ`), and aggregates slots into high-contrast modern card blocks (Fixed Classes, Meals, Study Sessions).
+     - **View 2: Today Focus ("Now & Next" — `#stViewToday`):** Prominent hero focus banner detecting the immediate next study block, accompanied by a chronological daily timeline with instant completion checkboxes.
+     - **View 3: Task Queue Manager (`#stViewTasks`):** Clean table displaying status, safety buffer badges (`🛡️ +20%`), deadlines, and quick deletion.
+  3. **Frictionless 3-Field Task Input Modal:**
+     - Captures title, estimated duration (with quick-select chips: 30p, 45p, 60p, 90p, 120p), and deadline dropdown.
+     - Live Planning Fallacy buffer toggle ($\times 1.2$) displaying real-time buffered duration previews ($T_{\text{buffered}} = \lceil \frac{\lceil T_{\text{raw}} \times 1.2 \rceil}{15} \rceil \times 15$).
+     - Advanced options (priorities 1–5, splittability, prerequisites) organized in an accordion drawer.
+  4. **Interactive Block Controls:**
+     - **Block Pinning (📌):** `togglePinBlock` adds block to `state.pinnedBlocks` and passes `pinned_blocks` to `/api/plan`. The solver pre-locks these slots before unpinned placement, guaranteeing pinned study blocks never move.
+     - **Task Check-in (✔️):** `toggleDoneBlock` marks completed tasks with 60% opacity and strikethrough.
+     - **Algorithmic Explainability ("Why here? 💡"):** Modal explaining feasibility, energy alignment, and prerequisite clearance.
+  5. **Shared State & Zero-Interference Contract:** Both modes share `state.commitments`, `state.tasks`, `state.pinnedBlocks`, and `state.currentSchedule` with zero backend solver mutation.
+- **Affected Files:**
+  - `group03-smartschedule-baseline/web/index.html` (Modified: layout, modals, dual-mode containers)
+  - `group03-smartschedule-baseline/web/app.js` (Modified: view switches, renderers, pinning, buffer preview)
+  - `agents/progress/student_mode_ui.md` (Created)
+- **Impact on Project & Teammates:**
+  - Provides a polished, non-technical interface for demoing and daily testing.
+  - Zero disruption to backend solvers or benchmark suites (T01–T10).
 
 ### Entry 005 — 2026-11-06 | Feature 001: Estimate Buffer (Planning-Fallacy Correction)
 - **Author / Lead:** Nguyễn Trọng Tiến (Thinker 3 — Abstraction & Algorithmic Design), assisted by Claude Code
@@ -74,7 +102,7 @@ The project is currently at the transition point between the **Baseline Engine (
 - **Approved by:** Owner / Team Lead
 - **Summary of Changes:**
   1. **Dependency Documentation Catalog (`requirements.md`):**
-     - Authored [`agents/requirements.md`](file:///d:/Projects/Computational-Thinking---Group-Project/agents/requirements.md) (English) and [`docs/requirements.md`](file:///d:/Projects/Computational-Thinking---Group-Project/docs/requirements.md) (Vietnamese) breaking down all 6 dependencies from `requirements.txt` (`fastapi`, `uvicorn`, `pydantic`, `pytest`, `httpx`, `python-dateutil`).
+     - Authored [`agents/requirements.md`](requirements.md) (English) and [`docs/requirements.md`](../docs/requirements.md) (Vietnamese) breaking down all 6 dependencies from `requirements.txt` (`fastapi`, `uvicorn`, `pydantic`, `pytest`, `httpx`, `python-dateutil`).
      - Explicitly mapped each dependency to its permitted architectural layer (e.g. `fastapi` and `uvicorn` strictly in Layer 4, forbidden in Layer 2 solvers and Layer 1 models).
      - Documented Python standard library zero-install utilities (`ast`, `tracemalloc`, `threading`, `tkinter`, `hashlib`).
   2. **Automated Setup Script (`setup_env.bat`):**

@@ -1,7 +1,7 @@
 # SmartSchedule — Kiến Trúc Hệ Thống & Các Ràng Buộc Bất Biến
 
 **Dự án:** SmartSchedule — Trợ Lý Tối Ưu Hóa & Tự Động Xếp Lịch Học Tập  
-**Môn học:** CSC10014 — Tư Duy Tính Toán · FIT-HCMUS (Nhóm 03 — *The Seven Dwarfs*)  
+**Môn học:** CS252 — Tư Duy Tính Toán · FIT-HCMUS (Nhóm 03 — *The Seven Dwarfs*)  
 **Mục tiêu tài liệu:** Bản tóm lược ngắn gọn, trực quan, dễ hiểu nhất về kiến trúc hệ thống để tất cả thành viên trong nhóm và các AI Agent nắm bắt ngay lập tức.  
 
 ---

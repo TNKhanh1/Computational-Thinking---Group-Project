@@ -31,7 +31,7 @@
 
 ## 2. Giải Thích Từng Thư Viện Cần Cài Đặt (`requirements.txt`)
 
-Nội dung file [`requirements.txt`](file:///d:/Projects/Computational-Thinking---Group-Project/group03-smartschedule-baseline/requirements.txt) gồm có 6 thư viện:
+Nội dung file [`requirements.txt`](../group03-smartschedule-baseline/requirements.txt) gồm có 6 thư viện:
 
 ```text
 fastapi>=0.100.0

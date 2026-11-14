@@ -9,24 +9,22 @@
 
 ## 1. Tổng Quan: Ma Trận Kiểm Thử 60/40
 
-Nhóm chúng ta đã xây dựng trọn vẹn **56 bài kiểm thử tự động**, chia thành 2 nhóm theo nguyên lý công nghệ phần mềm thực tế:
+Hệ thống kiểm thử tự động của nhóm hiện đã nâng cấp lên **89 bài test tự động** (trong đó **84 bài test vận hành xanh 100%**):
 
 ```text
-Tổng Cộng: 56 Bài Kiểm Thử Tự Động
-├── ~60% Ca Trung Bình / Kiểm Thử Vận Hành Đang Pass (50 bài):
+Tổng Cộng: 89 Bài Kiểm Thử Tự Động
+├── Các Bài Test Vận Hành (84 bài — XANH 100%):
 │   ├── Kiểm tra giao diện HTML, các API xuất lịch (.ics, .csv, .json)
 │   ├── Kiểm tra toán lưới 672 ô (196 ô ngủ + 132 ô học cố định + 344 ô rảnh)
 │   ├── Kiểm tra tính tất định (chạy 3 lần băm ra mã SHA-256 giống nhau 100%)
 │   ├── Kiểm tra kiến trúc: Solver tuyệt đối không dính mã web hay FastAPI
 │   ├── Kiểm tra rò rỉ bộ nhớ: Chạy 50 lần giải lịch bộ nhớ tăng < 350 KB
-│   └── Kiểm tra 10 kịch bản đối chứng chuẩn của môn học (T01 đến T10)
+│   ├── Kiểm tra 10 kịch bản đối chứng chuẩn của môn học (T01 đến T10)
+│   └── 34 bài test bộ đệm thời gian mới (Feature 001: các hệ số nhân và quy tắc làm tròn)
 │
-└── ~40% Ca Biên Nguy Hiểm & Bài Test Mục Tiêu (6 bài):
-    ├── Đụng độ hạn chót đồng thời: Giữ bài điểm cao (P5), bỏ bài điểm thấp (P1)
-    ├── Phân mảnh cực đoan: 4 tiếng rảnh bị xé vụn thành mười sáu ô 15 phút
-    ├── Tràn viền Chủ Nhật: Việc đêm muộn không được nhảy lọt sang Thứ Hai
-    ├── Đa luồng: 2 sinh viên gửi yêu cầu cùng lúc không bị rò rỉ việc của nhau
-    └── 5 bài test báo lỗi chủ đích để theo dõi tiến độ kế hoạch cải tiến
+└── Các Ca Biên & Bài Test Mục Tiêu (5 bài):
+    ├── 1 BÀI TEST ĐÃ XANH: Đệm thời gian chống ảo tưởng thời gian (Planning Fallacy)
+    └── 4 bài test mục tiêu đang mở: Khớp giờ năng lượng, nghỉ 15p, reason code, hủy habit khi quá tải
 ```
 
 ---

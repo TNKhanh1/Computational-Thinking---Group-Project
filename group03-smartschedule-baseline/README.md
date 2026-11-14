@@ -1,6 +1,6 @@
 # ⚡ SmartSchedule Baseline (V0) — Hệ Thống Tự Động Xếp Lịch Học Tập & Công Việc Cá Nhân
 
-**Môn học:** Tư duy Tính toán (CSC10014) — Khoa Công nghệ Thông tin, Trường ĐH Khoa học Tự nhiên, ĐHQG-HCM (FIT-HCMUS)  
+**Môn học:** Tư duy Tính toán (CS252) — Khoa Công nghệ Thông tin, Trường ĐH Khoa học Tự nhiên, ĐHQG-HCM (FIT-HCMUS)  
 **Nhóm thực hiện:** Group 03 (*The Seven Dwarfs*)  
 **Phiên bản:** **Baseline System (V0)** — Hệ thống Tham chiếu Tất định trên Lưới Thời gian Rời rạc 672 Slots
 
@@ -102,7 +102,7 @@ group03-smartschedule-baseline/
 ### Bước 0: Cài đặt thư viện (Chỉ cần chạy 1 lần đầu)
 Mở Terminal / PowerShell và di chuyển vào thư mục `group03-smartschedule-baseline`:
 ```powershell
-cd d:\Git\test\Computational_Thinking\Computational-Thinking---Group-Project\group03-smartschedule-baseline
+cd group03-smartschedule-baseline
 pip install -r requirements.txt
 ```
 
@@ -170,7 +170,7 @@ Hệ thống nhận **2 nguồn dữ liệu đầu vào chính**:
 Ngoài ra, bạn có thể nhập liệu trực tiếp trên giao diện Web thông qua **Biểu mẫu (Form)**, **Thanh gõ tắt (Quick-Add Regex)**, hoặc bấm nút **📥 Nhập JSON**.
 
 ### 4.1. Cấu trúc File Lịch Cố Định & Giấc Ngủ (`commitments.json`)
-Xem ví dụ mẫu tại [`data/sample_week_commitments.json`](file:///d:/Git/test/Computational_Thinking/Computational-Thinking---Group-Project/group03-smartschedule-baseline/data/sample_week_commitments.json):
+Xem ví dụ mẫu tại [`data/sample_week_commitments.json`](data/sample_week_commitments.json):
 
 ```json
 {
@@ -217,7 +217,7 @@ Xem ví dụ mẫu tại [`data/sample_week_commitments.json`](file:///d:/Git/te
 ---
 
 ### 4.2. Cấu trúc File Danh Sách Công Việc (`tasks.json`)
-Xem ví dụ mẫu tại [`data/sample_week_tasks.json`](file:///d:/Git/test/Computational_Thinking/Computational-Thinking---Group-Project/group03-smartschedule-baseline/data/sample_week_tasks.json):
+Xem ví dụ mẫu tại [`data/sample_week_tasks.json`](data/sample_week_tasks.json):
 
 ```json
 [
