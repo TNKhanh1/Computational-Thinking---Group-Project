@@ -21,6 +21,7 @@ from src.solvers.greedy_edf import GreedyEDFSolver
 from src.solvers.greedy_lst import GreedyLSTSolver
 from src.solvers.greedy_wspt import GreedyWSPTSolver
 from src.solvers.local_repair import LocalRepairEngine
+from src.estimate_buffer import buffer_reason, multiplier_for_habit
 from src.utils import SLOTS_PER_WEEK, day_time_to_slot, iso_to_slot, round_up_to_15
 
 
@@ -59,7 +60,47 @@ class ScheduleController:
         pinned_blocks: Optional[List[ScheduleBlock]] = None,
     ) -> Tuple[ScheduleOutput, TimeGridManager]:
         solver = cls.get_solver(algorithm)
-        return solver.solve(profile, tasks, pinned_blocks=pinned_blocks)
+        buffered_tasks = cls.apply_estimate_buffer(profile, tasks)
+        out, grid = solver.solve(profile, buffered_tasks, pinned_blocks=pinned_blocks)
+        cls.annotate_estimate_buffer(profile, buffered_tasks, out)
+        return out, grid
+
+    # ------------------------------------------------------------------
+    # Feature 001 — Estimate buffer (specs/001-estimate-buffer/spec.md)
+    # ------------------------------------------------------------------
+    @classmethod
+    def apply_estimate_buffer(cls, profile: CommitmentsProfile, tasks: List[Task]) -> List[Task]:
+        """
+        Return copies of `tasks` with `buffer_multiplier` set from `profile.estimate_habit`.
+        * The caller's Task objects are never mutated (INV-3).
+        * Idempotent: the multiplier is *set*, never multiplied again, so calling this twice is safe.
+        * No habit in the profile -> tasks are returned unchanged (exact V0 behaviour).
+        """
+        habit = getattr(profile, "estimate_habit", None)
+        if not habit:
+            return list(tasks)
+        multiplier = multiplier_for_habit(habit)
+        return [t.model_copy(update={"buffer_multiplier": multiplier}, deep=True) for t in tasks]
+
+    @classmethod
+    def annotate_estimate_buffer(
+        cls, profile: CommitmentsProfile, buffered_tasks: List[Task], out: ScheduleOutput
+    ) -> None:
+        """Attach an ESTIMATE_BUFFER reason to every block whose planned time was increased (spec FR5)."""
+        habit = getattr(profile, "estimate_habit", None)
+        if not habit:
+            return
+        task_map = {t.task_id: t for t in buffered_tasks}
+        for block in out.blocks:
+            task = task_map.get(block.task_id)
+            if task is None or task.buffer_multiplier <= 1.0:
+                continue
+            planned = task.get_planned_duration_min()
+            if planned <= round_up_to_15(task.duration_min):
+                continue  # buffer absorbed by grid slack (small tasks): no extra slot was added
+            if any(r.get("code") == "ESTIMATE_BUFFER" for r in block.reasons):
+                continue
+            block.reasons.append(buffer_reason(task.duration_min, planned, task.buffer_multiplier, habit))
 
     @classmethod
     def verify_determinism(
@@ -141,6 +182,7 @@ class ScheduleController:
         disruption: DisruptionEvent,
     ) -> Dict[str, Any]:
         """Compare Local Insertion (M4) vs Full Rebuild on the same disruption event (Scenario T04)."""
+        tasks = cls.apply_estimate_buffer(profile, tasks)
         local_res = LocalRepairEngine.repair_disruption(
             profile, tasks, current_schedule, disruption, mode="LOCAL_INSERTION"
         )
@@ -236,11 +278,14 @@ class ScheduleController:
         Scenario T05 / Use Case UC9: A task takes longer than estimated (e.g. +30% or +extra_minutes).
         Updates the task duration and re-evaluates the schedule to expose ripple shifts or new conflicts.
         """
+        # Feature 001: the overrun is added to the raw estimate, then the buffer is applied again (spec FR7).
+        tasks = cls.apply_estimate_buffer(profile, tasks)
         before_out, _ = cls.solve_schedule(profile, tasks, algorithm=algorithm)
 
         updated_tasks: List[Task] = []
         target_old_min = 0
         target_new_min = 0
+        target_new_estimate = 0
 
         for t in tasks:
             t_copy = t.model_copy(deep=True)
@@ -253,6 +298,7 @@ class ScheduleController:
                 else:
                     raw_new = int(round(t_copy.duration_min * 1.30))
                 t_copy.duration_min = round_up_to_15(raw_new)
+                target_new_estimate = t_copy.duration_min
                 target_new_min = t_copy.get_planned_duration_min()
             updated_tasks.append(t_copy)
 
@@ -266,6 +312,7 @@ class ScheduleController:
             "task_id": task_id,
             "old_duration_min": target_old_min,
             "new_duration_min": target_new_min,
+            "new_estimate_min": target_new_estimate,
             "shifted_blocks_count": shifted_blocks,
             "before_schedule": before_out,
             "after_schedule": after_out,

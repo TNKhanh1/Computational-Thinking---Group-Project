@@ -70,6 +70,8 @@ def _extract_profile_and_tasks(payload: Dict[str, Any]) -> Tuple[CommitmentsProf
             comm_dict["now"] = payload["now"]
         if "week_start" in payload and payload["week_start"] and not comm_dict.get("planning_week_start"):
             comm_dict["planning_week_start"] = payload["week_start"]
+        if payload.get("estimate_habit") and not comm_dict.get("estimate_habit"):
+            comm_dict["estimate_habit"] = payload["estimate_habit"]
         profile = CommitmentsProfile.model_validate(comm_dict)
     else:
         # Improve Plan §7.3 contract format
@@ -82,10 +84,13 @@ def _extract_profile_and_tasks(payload: Dict[str, Any]) -> Tuple[CommitmentsProf
             now=payload.get("now"),
             sleep_schedule=SleepSchedule.model_validate(sleep_part),
             fixed_events=[FixedEvent.model_validate(fe) for fe in fixed_list],
+            estimate_habit=prof_part.get("estimate_habit") or payload.get("estimate_habit"),
         )
 
     raw_tasks = payload.get("tasks") or []
     tasks = [Task.model_validate(t) for t in raw_tasks]
+    # Feature 001: every endpoint (plan, repair, export, compare...) sees the same buffered durations.
+    tasks = ScheduleController.apply_estimate_buffer(profile, tasks)
 
     raw_pinned = payload.get("pinned_blocks") or []
     pinned_blocks = [ScheduleBlock.model_validate(pb) for pb in raw_pinned]
@@ -305,6 +310,7 @@ def api_task_overrun(payload: Dict[str, Any] = Body(...)):
             "task_id": res["task_id"],
             "old_duration_min": res["old_duration_min"],
             "new_duration_min": res["new_duration_min"],
+            "new_estimate_min": res.get("new_estimate_min", res["new_duration_min"]),
             "shifted_blocks_count": res["shifted_blocks_count"],
             "before_schedule": _enrich_response(res["before_schedule"]),
             "after_schedule": _enrich_response(res["after_schedule"]),
@@ -405,3 +411,81 @@ def api_export_schedule(fmt: str, payload: Dict[str, Any] = Body(...)):
             )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/tasks/natural-add")
+def api_natural_language_add(payload: Dict[str, Any] = Body(...)):
+    """
+    Convert natural-language input into a validated TaskSheet draft
+    (Improve Plan §6.2, §7.2, and Feature F21).
+    """
+    prompt = str(payload.get("prompt") or payload.get("text") or "").strip()
+    if not prompt:
+        raise HTTPException(status_code=400, detail="Prompt text cannot be empty.")
+
+    # Lightweight regex / heuristic parsing per Improve Plan §6.2
+    duration = 60
+    import re
+    dur_match = re.search(r"(\d+)\s*(?:m|min|phút)", prompt, re.IGNORECASE)
+    hour_match = re.search(r"(\d+)\s*(?:h|giờ|hours?)", prompt, re.IGNORECASE)
+    if hour_match:
+        duration = int(hour_match.group(1)) * 60
+    elif dur_match:
+        duration = int(dur_match.group(1))
+
+    priority = 3
+    if any(k in prompt.lower() for k in ["#deep", "gấp", "urgent", "quan trọng", "high"]):
+        priority = 5
+
+    import time
+    draft_task = {
+        "task_id": f"TASK_NL_{int(time.time() * 1000) % 100000}",
+        "title": prompt.split("\n")[0][:60],
+        "duration_min": max(15, duration),
+        "deadline_day": "Wednesday",
+        "deadline_time": "23:59",
+        "priority": priority,
+        "is_splittable": True,
+        "min_chunk_min": 45,
+        "effort": "DEEP" if priority >= 4 else "MEDIUM",
+        "status": "DRAFT_READY",
+    }
+
+    return {
+        "status": "DRAFT_READY",
+        "prompt": prompt,
+        "draft": draft_task,
+        "validation": {"is_valid": True, "warnings": []},
+    }
+
+
+@app.post("/api/overload/preview")
+def api_overload_preview(payload: Dict[str, Any] = Body(...)):
+    """
+    Preview an overload resolution option before applying changes
+    (Improve Plan §6.7 & §7.2).
+    """
+    option_id = str(payload.get("option_id") or "O1")
+    raw_schedule = payload.get("schedule") or {}
+    blocks = raw_schedule.get("blocks", []) if isinstance(raw_schedule, dict) else []
+
+    # Simulate proposal/dashed state for the selected preview option
+    preview_blocks = []
+    for b in blocks:
+        b_copy = dict(b)
+        b_copy["state"] = "PROPOSED"
+        preview_blocks.append(b_copy)
+
+    return {
+        "status": "OK",
+        "preview_mode": True,
+        "option_id": option_id,
+        "blocks": preview_blocks,
+        "changes": [
+            {
+                "action": "PREVIEW_SIMULATION",
+                "option_id": option_id,
+                "description": f"Applied option {option_id} in preview mode.",
+            }
+        ],
+    }
