@@ -21,7 +21,9 @@ flowchart TD
 
     subgraph Layer4["Layer 4: Delivery & Web Interface"]
         API["FastAPI App (web/api.py)"]
-        Workbench["Technical Workbench (web/static/)"]
+        DualUI["Dual-Mode Frontend (web/index.html & web/app.js)"]
+        DualUI --> StudentUI["Student Mode: 3 Views (Week, Today, Queue)"]
+        DualUI --> LabUI["Lab Mode: 672-Slot Benchmark Workbench"]
     end
 
     subgraph Layer3["Layer 3: Orchestration & Control"]
@@ -38,6 +40,7 @@ flowchart TD
     subgraph Layer1["Layer 1: Pure Data Models"]
         Models["Pydantic V2 Schemas (src/models.py)"]
         Utils["Slot & Time Math (src/utils.py)"]
+        Buffer["Estimate Buffer Rule (src/estimate_buffer.py)"]
     end
 
     Studio --> CleanRunner
@@ -47,6 +50,7 @@ flowchart TD
     API --> Controller
     Controller --> Base
     Controller --> Models
+    Controller --> Buffer
     Base --> EDF
     Base --> LST
     Base --> WSPT

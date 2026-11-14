@@ -30,7 +30,7 @@
 
 ## 2. External Package Inventory (`requirements.txt`)
 
-Below is the complete inventory of external packages specified in [`requirements.txt`](file:///d:/Projects/Computational-Thinking---Group-Project/group03-smartschedule-baseline/requirements.txt):
+Below is the complete inventory of external packages specified in [`requirements.txt`](../group03-smartschedule-baseline/requirements.txt):
 
 ```text
 fastapi>=0.100.0

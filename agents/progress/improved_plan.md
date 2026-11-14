@@ -103,7 +103,7 @@ The delivery layer communicates via a standardized ISO-8601 JSON schema:
 
 ## 5. Live Development Gaps Exposing V0 Limitations
 
-The verification test suite maintains 5 intentional developmental target failure tests ([`test_improve_plan_gaps.py`](file:///d:/Projects/Computational-Thinking---Group-Project/group03-smartschedule-baseline/verification_tests/development_gap_tests/test_improve_plan_gaps.py)) tracking upcoming sprint work:
+The verification test suite maintains 5 intentional developmental target failure tests ([`test_improve_plan_gaps.py`](../../group03-smartschedule-baseline/verification_tests/development_gap_tests/test_improve_plan_gaps.py)) tracking upcoming sprint work:
 
 1. `test_fail_circadian_energy_matching`: Deep task placed at 06:30 instead of $\ge 18:00$.
 2. `test_fail_rest_break_insertion_after_deep_work`: Gap between tasks is $0\text{m}$ instead of $\ge 15\text{m}$.

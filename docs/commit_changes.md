@@ -34,12 +34,36 @@ Dự án SmartSchedule đang ở bước chuyển tiếp quan trọng từ **B�
 
 - **Bản Baseline (V0):** Đã hoàn thiện và chạy rất mượt. Bộ giải toán CSP trên lưới 672 ô (15 phút/ô) với các thuật toán tham lam EDF, LST, WSPT đảm bảo 5 ràng buộc cứng $H_1$–$H_5$.
 - **Giao diện Web Workbench:** Đang chạy tại `http://127.0.0.1:8000`, hiển thị thời khóa biểu tuần trực quan và cho phép kéo thả thử nghiệm.
-- **Hệ thống Kiểm thử (Verification Tests):** Đã xây dựng xong trọn bộ **56 bài test tự động** (Ma trận 60/40), có giao diện đồ họa Test Studio và màn hình chẩn đoán sạch sẽ, chỉ rõ lỗi nếu có.
-- **Lộ trình sắp tới:** Cài đặt các tính năng tâm lý học hành vi theo `Improve_Plan/improve_plan.md` (khớp nhịp sinh học sáng/tối, đệm $1.25\times$, nghỉ giải lao 15p, chế độ nước rút, giải quyết quá tải).
+- **Hệ thống Kiểm thử (Verification Tests):** Đã nâng cấp lên **84 bài test tự động chạy xanh 100%** (50 bài test mốc chuẩn + 34 bài test bộ đệm thời gian mới) và 5 bài test mục tiêu (trong đó bài test bộ đệm $\times 1.25$ đã chính thức CHUYỂN XANH!). Tổng cộng: 89 bài test.
+- **Lộ trình sắp tới:** Tiếp tục cài đặt các tính năng còn lại theo `Improve_Plan/improve_plan.md` (khớp nhịp sinh học sáng/tối, nghỉ giải lao 15p, chế độ nước rút, giải quyết quá tải).
 
 ---
 
 ## 2. Nhật Ký Chi Tiết Các Thay Đổi Mã Nguồn
+
+### Lần cập nhật 006 — 06/11/2026 | Giao Diện Chế Độ Sinh Viên (Student Mode) Tối Giản & Nút Chuyển Đổi Dual-Mode
+- **Người thực hiện:** Đức Minh (Trưởng nhóm phụ trách Giao diện & Trải nghiệm Người dùng), có sự hỗ trợ của Antigravity AI (Gemini 3.8 Flash)
+- **Được phê duyệt bởi:** Đức Minh (Đã kiểm tra trực tiếp trên trình duyệt)
+- **Nội dung thay đổi:**
+  1. **Nút chuyển đổi 2 chế độ (Dual-Mode Switch):**
+     - Thêm nút gạt trên thanh tiêu đề: `[🎓 Chế Độ Sinh Viên (Gọn)]` $\longleftrightarrow$ `[🔬 Chế Độ Lab (Benchmark)]`.
+     - Mặc định mở web là vào ngay **Chế độ Sinh viên** để dùng được liền, nhưng vẫn giữ nguyên vẹn **Chế độ Lab** cho giảng viên chấm điểm đối chứng T01–T10.
+  2. **3 Góc nhìn thân thiện cho sinh viên:**
+     - **Lịch tuần thông minh (`#stViewWeek`):** Tự động thu gọn 28 hàng giờ ngủ nửa đêm thành một thanh tím mỏng gọn gàng, gộp các ô 15 phút thành thẻ sự kiện đẹp mắt (Giờ học, Giờ ăn, Buổi tự học).
+     - **Hôm nay ("Đang làm gì & Việc kế tiếp" — `#stViewToday`):** Hiện thẻ tiêu điểm việc sắp làm với đồng hồ đếm ngược và dòng thời gian việc trong ngày.
+     - **Hàng đợi bài tập (`#stViewTasks`):** Bảng quản lý việc học, xem nhãn đệm an toàn `🛡️ +20%` và hạn nộp bài.
+  3. **Hộp thoại thêm việc siêu tốc (chỉ 3 ô):**
+     - Nhập Tên việc, Thời gian (có nút chọn nhanh 30p, 45p, 60p, 90p), và Hạn chót. Tự động tính nhẩm trước thời gian đệm $+20\%$ ra số phút dự trù.
+  4. **3 Tính năng tương tác trực tiếp trên lịch:**
+     - **📌 Ghim việc (Pin):** Bấm ghim để khóa cứng buổi học lại; thuật toán cam kết không bao giờ dịch chuyển buổi học đã ghim.
+     - **✓ Điểm danh (Check-in):** Đánh dấu đã học xong (thẻ mờ đi, có gạch ngang tên bài).
+     - **💡 Xem lý do (Why here?):** Hiện popup giải thích bằng tiếng Việt dễ hiểu vì sao thuật toán lại xếp việc vào giờ này.
+  5. **Dùng chung dữ liệu an toàn:** Hai chế độ dùng chung 100% dữ liệu, không sửa đổi gì vào mã nguồn solver backend.
+- **Các file bị tác động:**
+  - `group03-smartschedule-baseline/web/index.html` (Thêm layout Chế độ Sinh viên và các modal)
+  - `group03-smartschedule-baseline/web/app.js` (Thêm hàm chuyển chế độ, vẽ thẻ lịch, ghim việc, check-in)
+  - `docs/progress/giao_dien_sinh_vien.md` (Tạo mới)
+- **Tác động đến dự án:** Giúp nhóm có bản demo trực quan tuyệt đẹp để thuyết trình mà không làm ảnh hưởng đến mã nguồn chấm điểm của các bạn khác.
 
 ### Lần cập nhật 005 — 06/11/2026 | Tính năng 001: Bộ Đệm Ước Lượng Thời Gian (Chống Planning Fallacy)
 - **Người thực hiện:** Nguyễn Trọng Tiến (Thinker 3 — Trừu tượng hóa & Thiết kế thuật toán), có hỗ trợ của Claude Code
@@ -73,7 +97,7 @@ Dự án SmartSchedule đang ở bước chuyển tiếp quan trọng từ **B�
 - **Được phê duyệt bởi:** Owner / Trưởng nhóm
 - **Nội dung thay đổi:**
   1. **Tài liệu đặc tả thư viện (`requirements.md`):**
-     - Biên soạn [`docs/requirements.md`](file:///d:/Projects/Computational-Thinking---Group-Project/docs/requirements.md) (Tiếng Việt) và [`agents/requirements.md`](file:///d:/Projects/Computational-Thinking---Group-Project/agents/requirements.md) (Tiếng Anh) giải thích chi tiết mục đích của cả 6 thư viện trong `requirements.txt` (`fastapi`, `uvicorn`, `pydantic`, `pytest`, `httpx`, `python-dateutil`).
+     - Biên soạn [`docs/requirements.md`](requirements.md) (Tiếng Việt) và [`agents/requirements.md`](../agents/requirements.md) (Tiếng Anh) giải thích chi tiết mục đích của cả 6 thư viện trong `requirements.txt` (`fastapi`, `uvicorn`, `pydantic`, `pytest`, `httpx`, `python-dateutil`).
      - Phân định rõ tầng kiến trúc được phép sử dụng (FastAPI và Uvicorn chỉ thuộc Tầng 4; cấm dùng trong Tầng 2 Solvers và Tầng 1 Data Models).
      - Liệt kê các thư viện chuẩn zero-install của Python (`ast`, `tracemalloc`, `threading`, `tkinter`, `hashlib`).
   2. **File cài đặt môi trường tự động (`setup_env.bat`):**

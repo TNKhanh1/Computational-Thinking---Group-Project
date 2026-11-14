@@ -12,25 +12,23 @@
 The SmartSchedule verification testing suite serves as the **production verification gate** for our 10-week development arc. It tests not just typical happy-path executions, but systematically probes memory boundaries, AST architectural compliance, mathematical unsolvability, circular DAG traps, and developmental feature gaps.
 
 ### 1.1. The 60/40 Verification Matrix
-To ensure realistic software engineering rigor, our **56 automated tests** follow a strict distribution:
+To ensure realistic software engineering rigor, our automated suite has grown to **89 automated tests** following the 60/40 operational-to-boundary distribution:
 
 ```text
-Total Test Matrix: 56 Automated Tests
-├── ~60% Average / Operational Passing Tests (50 tests):
+Total Test Matrix: 89 Automated Tests
+├── Operational Passing Tests (84 tests — 100% GREEN):
 │   ├── Standard feasible scheduling on typical student weeks (Minh & Lan)
 │   ├── 672-slot discrete math calculations (196 SLEEP + 132 OCCUPIED + 344 FREE)
 │   ├── Determinism verification (3x identical SHA-256 hash checks)
 │   ├── UI static workbench delivery & export endpoints (.ics, .csv, .json)
 │   ├── AST architectural boundaries (solvers do not import web/FastAPI)
 │   ├── Heap memory leak checks (< 350 KB growth over 50 solves)
-│   └── Topo-sort DAG ordering & clean Pydantic schema validation
+│   ├── Topo-sort DAG ordering & clean Pydantic schema validation
+│   └── 34 Behavioral Estimation Buffer tests (Feature 001: habit multipliers & rounding)
 │
-└── ~40% Edge Cases & Developmental Target Failures (6 tests):
-    ├── Scheduling result edge cases (simultaneous priority inversions, Sunday boundary)
-    ├── Extreme 15-minute slot fragmentation vs. capacity diagnostics
-    ├── Code production stress (concurrent thread safety, 50-task scale latency, timezone offsets)
-    ├── Mathematical unsolvability proofs via response retrieval (capacity shortage, zero-slack)
-    └── 5 Intentional Developmental Failures exposing current V0 Baseline limitations
+└── Edge Cases & Developmental Target Gaps (5 tests):
+    ├── 1 RESOLVED GAP: Planning Fallacy buffer multiplier (AC1–AC7 verified)
+    └── 4 OPEN GAPS: Circadian energy matching, 15m rest breaks, reason codes, habit skipping
 ```
 
 ---
@@ -66,6 +64,8 @@ All tests are strictly located in `group03-smartschedule-baseline/verification_t
 ### 2.3. Logical & Edge Case Tests (`logical_tests/` — 16 tests)
 - `test_circular_dependencies.py` (4 tests):
   - Traps mutual cycles ($A \leftrightarrow B$), self-loops ($A \to A$), and transitive 3-node cycles ($A \to B \to C \to A$) without infinite recursion.
+- `test_estimate_buffer.py` (34 tests — Added in Feature 001):
+  - Full suite testing habit normalization (`RARELY`, `SOMETIMES`, `OFTEN`), multipliers ($1.0, 1.1, 1.25$), nearest-slot integer rounding, floor bounds, non-compounding overrun simulation, and determinism preservation.
 - `test_undefined_behaviors.py` (4 tests):
   - Guards against illegal hours (`"25:00"`), slot out-of-bounds queries, negative durations, and clamps priority ($1 \le p \le 5$).
 - `test_generation.py` (4 tests):
@@ -91,17 +91,17 @@ All tests are strictly located in `group03-smartschedule-baseline/verification_t
 
 ### 2.5. Development Gap Tests (`development_gap_tests/` — 5 tests)
 Intentional target failure tests tracking upcoming features from `Improve_Plan/improve_plan.md`:
-1. `test_fail_circadian_energy_matching` (Improve Plan §3.3)
-2. `test_fail_rest_break_insertion_after_deep_work` (Decision D2)
-3. `test_fail_planning_fallacy_buffer_multiplier` (Feature F06)
-4. `test_fail_why_popover_structured_reason_codes` (Table §7.3)
-5. `test_fail_overload_habit_skipping_recommendation` (Feature F15)
+1. `test_fail_circadian_energy_matching` (Improve Plan §3.3) — *OPEN GAP*
+2. `test_fail_rest_break_insertion_after_deep_work` (Decision D2) — *OPEN GAP*
+3. `test_fail_planning_fallacy_buffer_multiplier` (Feature F06) — **✅ GREEN / RESOLVED via Feature 001**
+4. `test_fail_why_popover_structured_reason_codes` (Table §7.3) — *OPEN GAP*
+5. `test_fail_overload_habit_skipping_recommendation` (Feature F15) — *OPEN GAP*
 
 ---
 
 ## 3. Interpretable Test Runner (`clean_runner.py`)
 
-To eliminate confusing terminal clutter, test execution is managed by [`clean_runner.py`](file:///d:/Projects/Computational-Thinking---Group-Project/group03-smartschedule-baseline/verification_tests/clean_runner.py), which outputs a structured, human-readable format:
+To eliminate confusing terminal clutter, test execution is managed by [`clean_runner.py`](../../group03-smartschedule-baseline/verification_tests/clean_runner.py), which outputs a structured, human-readable format:
 
 ```text
 ========================================================================
