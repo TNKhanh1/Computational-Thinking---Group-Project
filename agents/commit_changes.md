@@ -41,6 +41,34 @@ The project is currently at the transition point between the **Baseline Engine (
 
 ## 2. Chronological Log of System Changes
 
+### Entry 005 — 2026-11-06 | Feature 001: Estimate Buffer (Planning-Fallacy Correction)
+- **Author / Lead:** Nguyễn Trọng Tiến (Thinker 3 — Abstraction & Algorithmic Design), assisted by Claude Code
+- **Approved by:** Nguyễn Trọng Tiến (member). Branch `feature/estimate-buffer`, not merged yet; needs team review.
+- **Summary of Changes:**
+  1. **Spec-driven docs:** `specs/001-estimate-buffer/` (spec, clarifications C1–C5, plan, tasks, Mermaid diagrams).
+  2. **New pure module `src/estimate_buffer.py`:** `estimate_habit` → multiplier (`RARELY` ×1.00, `SOMETIMES` ×1.10, `OFTEN` ×1.25). Planned duration = `max(round_up_to_15(T), nearest_15(T × m))`, computed in integers, so it stays deterministic. Rounding to the *nearest* slot means small tasks are not doubled (15 min × 1.25 → 15, not 30).
+  3. **Models:** `CommitmentsProfile.estimate_habit` (validated, default `None` = V0 behaviour). `Task.buffer_multiplier` (1.0–2.0). `Task.get_planned_duration_min()` now calls the buffer rule.
+  4. **Controller:** `apply_estimate_buffer()` returns buffered *copies* (INV-3, idempotent). `solve_schedule()` applies it and adds the reason code `ESTIMATE_BUFFER` to blocks that grew. `handle_task_overrun()` adds the overrun to the raw estimate and returns `new_estimate_min`. The repair comparison receives buffered tasks.
+  5. **API:** reads `estimate_habit` from `commitments`, the Improve Plan `profile` or the top level. Buffer applied in `_extract_profile_and_tasks`, so all endpoints agree. `/api/progress` returns `new_estimate_min`.
+  6. **Workbench:** habit selector + "planned X min" preview in the task form, "estimate → planned" in the task queue and the placed-blocks table. The overrun log stores the raw estimate (no compounding buffer).
+  7. **Gap test input fix:** `test_fail_planning_fallacy_buffer_multiplier` now passes `estimate_habit="OFTEN"` (its docstring precondition). The test name is unchanged; Builder 3 may move it out of `development_gap_tests/`.
+- **Affected Files:**
+  - `group03-smartschedule-baseline/src/estimate_buffer.py` (Created)
+  - `group03-smartschedule-baseline/src/models.py`, `src/controller.py` (Modified)
+  - `group03-smartschedule-baseline/web/api.py`, `web/app.js`, `web/index.html` (Modified)
+  - `group03-smartschedule-baseline/verification_tests/logical_tests/test_estimate_buffer.py` (Created, 34 tests)
+  - `group03-smartschedule-baseline/verification_tests/development_gap_tests/test_improve_plan_gaps.py` (Modified: input of 1 test)
+  - `specs/001-estimate-buffer/*` (Created)
+  - **Not touched:** `src/solvers/*`, the quick-add / natural-language parser, `requirements.txt`.
+- **Tests Executed:**
+  - `python -B verification_tests/clean_runner.py --pass` → **84 Passed | 0 Failed** (50 existing + 34 new).
+  - `python -B verification_tests/clean_runner.py --gaps` → 1 Passed (buffer) | 4 Failed (circadian, rest break, reason codes, SKIP_HABIT: still open).
+- **Impact on Project & Teammates:**
+  - With no `estimate_habit`, every result (T01–T10, presets, hashes) is identical to V0.
+  - Solver owners: no merge conflict. Solvers only see larger `get_planned_duration_min()` values. Overload numbers now use buffered minutes.
+  - UI owners: the student-facing TaskSheet (F06) can show `reasons[code=ESTIMATE_BUFFER].planned_min` directly.
+  - Known limit (out of scope): tasks under 15 min still take a full slot (grid D2). Bundling several micro-tasks into one slot needs a solver change.
+
 ### Entry 004 — 2026-11-04 | Environment & Dependency Specifications (`requirements.md`)
 - **Author / Lead:** Nguyễn Nguyễn Gia Bảo (Builder 3 — System Architecture & Testing)
 - **Approved by:** Owner / Team Lead

@@ -70,6 +70,8 @@ def _extract_profile_and_tasks(payload: Dict[str, Any]) -> Tuple[CommitmentsProf
             comm_dict["now"] = payload["now"]
         if "week_start" in payload and payload["week_start"] and not comm_dict.get("planning_week_start"):
             comm_dict["planning_week_start"] = payload["week_start"]
+        if payload.get("estimate_habit") and not comm_dict.get("estimate_habit"):
+            comm_dict["estimate_habit"] = payload["estimate_habit"]
         profile = CommitmentsProfile.model_validate(comm_dict)
     else:
         # Improve Plan §7.3 contract format
@@ -82,10 +84,13 @@ def _extract_profile_and_tasks(payload: Dict[str, Any]) -> Tuple[CommitmentsProf
             now=payload.get("now"),
             sleep_schedule=SleepSchedule.model_validate(sleep_part),
             fixed_events=[FixedEvent.model_validate(fe) for fe in fixed_list],
+            estimate_habit=prof_part.get("estimate_habit") or payload.get("estimate_habit"),
         )
 
     raw_tasks = payload.get("tasks") or []
     tasks = [Task.model_validate(t) for t in raw_tasks]
+    # Feature 001: every endpoint (plan, repair, export, compare...) sees the same buffered durations.
+    tasks = ScheduleController.apply_estimate_buffer(profile, tasks)
 
     raw_pinned = payload.get("pinned_blocks") or []
     pinned_blocks = [ScheduleBlock.model_validate(pb) for pb in raw_pinned]
@@ -305,6 +310,7 @@ def api_task_overrun(payload: Dict[str, Any] = Body(...)):
             "task_id": res["task_id"],
             "old_duration_min": res["old_duration_min"],
             "new_duration_min": res["new_duration_min"],
+            "new_estimate_min": res.get("new_estimate_min", res["new_duration_min"]),
             "shifted_blocks_count": res["shifted_blocks_count"],
             "before_schedule": _enrich_response(res["before_schedule"]),
             "after_schedule": _enrich_response(res["after_schedule"]),

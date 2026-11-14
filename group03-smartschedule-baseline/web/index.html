@@ -241,6 +241,21 @@
             </div>
           </div>
 
+          <!-- Feature 001: Estimate buffer (Improve Plan §6.2 / §7.3 estimate_habit) -->
+          <div id="estimateBufferBox" class="bg-amber-50 border border-amber-200 rounded-lg p-2.5 space-y-1">
+            <div class="flex items-center justify-between gap-2">
+              <label for="inpEstimateHabit" class="text-[11px] font-semibold text-amber-900">⏳ Bạn có hay ước lượng thiếu thời gian không? (`estimate_habit`)</label>
+              <span id="plannedDurationLabel" class="text-[11px] font-bold text-amber-800 mono whitespace-nowrap"></span>
+            </div>
+            <select id="inpEstimateHabit" onchange="onEstimateHabitChange()" class="w-full text-xs px-2 py-1.5 rounded border border-amber-300 bg-white focus:border-amber-500 focus:outline-none">
+              <option value="">Không áp dụng bộ đệm (giữ nguyên V0)</option>
+              <option value="RARELY">Hiếm khi — giữ nguyên ước lượng (×1.00)</option>
+              <option value="SOMETIMES">Thỉnh thoảng — dự trù thêm 10% (×1.10)</option>
+              <option value="OFTEN">Thường xuyên — dự trù thêm 25% (×1.25)</option>
+            </select>
+            <p class="text-[10px] text-amber-800/80">Dự trù = ước lượng × hệ số, làm tròn tới ô 15p gần nhất, không thấp hơn ước lượng. Task nhỏ (≤ 12p) không bị cộng thêm ô.</p>
+          </div>
+
           <!-- Deadline Day & Time -->
           <div class="grid grid-cols-2 gap-2">
             <div>
