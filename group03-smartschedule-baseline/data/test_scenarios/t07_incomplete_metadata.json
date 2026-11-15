@@ -46,7 +46,6 @@
       "title": "Bài tập lớn chỉ nhập tỷ trọng điểm (30%+ -> Tự suy ra Priority 5)",
       "duration_min": 90,
       "deadline_day": "Wednesday",
-      "grep_weight": "30+",
       "grade_weight": "30+",
       "is_splittable": true
     }

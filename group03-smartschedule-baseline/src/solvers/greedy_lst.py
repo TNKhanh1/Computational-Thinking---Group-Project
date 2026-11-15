@@ -1,11 +1,9 @@
 """
-Solution 3B: Classical Greedy Least Slack Time (LST / Minimum Laxity First) + Best-Fit Placement.
-Comparison Engine as specified in baseline_plan.md §3.3.3B & §3.5.2.
-Formula:
-  Slack(t) = Deadline_t - CurrentTime - Duration_t
-Placement:
-  Best-Fit chooses the contiguous FREE interval whose usable size is closest to Duration_t,
-  preserving large contiguous blocks for longer tasks and minimizing schedule fragmentation.
+Solution 3B: Dynamic Least Slack Time (LST / Minimum Laxity First) + Best-Fit Placement.
+Upgraded (Fix A3):
+  - Respects DAG prerequisite chains in effective earliest start time.
+  - Dynamically re-evaluates actual FREE slots inside [effective_earliest, deadline) after each placement.
+  - Shares A1/A4/A7/A8/A12/Pattern-2/Pattern-3/Pattern-4/Pattern-5 + Tier-1 Sprint safeguards.
 """
 
 import time
@@ -14,16 +12,10 @@ from typing import Any, Dict, List, Optional, Tuple
 from src.grid_manager import TimeGridManager
 from src.models import CommitmentsProfile, ScheduleBlock, ScheduleOutput, Task
 from src.solvers.base_solver import BaseScheduler
-from src.utils import MINUTES_PER_SLOT, SLOTS_PER_WEEK
 
 
 class GreedyLSTSolver(BaseScheduler):
-    """
-    Least Slack Time (LST) + Best-Fit Placement Solver.
-    1. Compute Slack(t) = deadline_slot - now_slot - planned_slots.
-    2. Sort tasks by (has_no_deadline, slack ASC, -priority DESC, deadline_slot ASC, original_order ASC).
-    3. Place each chunk into the valid FREE interval with minimal excess length (Best-Fit).
-    """
+    """Dynamic Least Slack Time (LST) + Best-Fit Placement Solver."""
 
     solver_name = "GREEDY_LST_BEST_FIT"
 
@@ -36,205 +28,200 @@ class GreedyLSTSolver(BaseScheduler):
         t0 = time.perf_counter()
         week_start_iso = profile.planning_week_start
         now_slot = self.resolve_now_slot(profile)
+        horizon_slots = self.resolve_horizon_slots(tasks, week_start_iso=week_start_iso)
 
-        grid = TimeGridManager(total_slots=SLOTS_PER_WEEK)
+        grid = TimeGridManager(total_slots=horizon_slots)
         grid.initialize_from_profile(profile)
 
-        placed_blocks: List[ScheduleBlock] = []
-        pinned_task_chunks = set()
-        if pinned_blocks:
-            for pb in pinned_blocks:
-                length_slots = pb.end_slot - pb.start_slot
-                if grid.is_range_free(pb.start_slot, length_slots):
-                    grid.place_block(pb.start_slot, length_slots, pb.task_id, pb.title)
-                    pb_copy = pb.model_copy(deep=True)
-                    pb_copy.state = "PINNED"
-                    placed_blocks.append(pb_copy)
-                    pinned_task_chunks.add((pb.task_id, pb.chunk_index))
+        accepted_pinned, pinned_slots_by_task, pinned_chunk_map, base_warnings = (
+            self.prepare_pinned_blocks(grid, tasks, pinned_blocks, now_slot, week_start_iso)
+        )
+        past_due_map = self.detect_past_due_tasks(tasks, week_start_iso=week_start_iso)
 
+        active_capacity_tasks = [t for t in tasks if t.task_id not in past_due_map]
         capacity_reports = self.check_deadline_capacity(
-            grid, tasks, now_slot=now_slot, week_start_iso=week_start_iso
+            grid,
+            active_capacity_tasks,
+            now_slot=now_slot,
+            week_start_iso=week_start_iso,
+            pinned_slots_by_task=pinned_slots_by_task,
         )
 
+        # Isolate invalid cycles / missing prerequisites before dynamic selection
         indexed_tasks = list(enumerate(tasks))
+        orig_order_map = {t.task_id: i for i, t in indexed_tasks}
 
-        def lst_sort_key(item: Tuple[int, Task]) -> Tuple[int, int, int, int, int]:
+        def static_tie_key(item: Tuple[int, Task]) -> Tuple[int, int, int, int]:
             idx, t = item
             d_slot = t.resolve_deadline_slot(week_start_iso=week_start_iso)
             if d_slot is None:
-                return (1, 999999, -t.priority, 999999, idx)
-            slack_slots = d_slot - now_slot - t.get_planned_slots()
-            return (0, slack_slots, -t.priority, d_slot, idx)
+                return (1, 999999, -t.priority, idx)
+            return (0, d_slot - now_slot - t.get_planned_slots(), -t.priority, idx)
 
-        sorted_by_lst = [t for _, t in sorted(indexed_tasks, key=lst_sort_key)]
-        ordered_tasks = self.enforce_dependency_order(tasks, sorted_by_lst)
+        static_sorted = [t for _, t in sorted(indexed_tasks, key=static_tie_key)]
+        ordered_valid, invalid_dep_reasons = self.partition_dependency_order(tasks, static_sorted)
 
-        orig_order_map = {t.task_id: i for i, t in indexed_tasks}
-        total_tasks = len(ordered_tasks)
-
-        task_completion_slot: Dict[str, int] = {}
-        failed_task_ids = set()
-        unplaced_tasks: List[Dict[str, Any]] = []
-
-        for rank_idx, task in enumerate(ordered_tasks, start=1):
-            missing_prereqs = [p for p in task.depends_on if p in failed_task_ids]
-            if missing_prereqs:
-                failed_task_ids.add(task.task_id)
-                unplaced_tasks.append({
-                    "task_id": task.task_id,
-                    "title": task.title,
-                    "duration_min": task.get_planned_duration_min(),
-                    "priority": task.priority,
-                    "deadline": task.format_deadline_label(week_start_iso=week_start_iso),
-                    "deadline_slot": task.resolve_deadline_slot(week_start_iso=week_start_iso),
-                    "reason": f"Task phụ thuộc ({', '.join(missing_prereqs)}) chưa thể xếp lịch.",
+        invalid_ids = set(invalid_dep_reasons.keys()) | set(past_due_map.keys())
+        base_unplaced: List[Dict[str, Any]] = []
+        for t in tasks:
+            if t.task_id in invalid_dep_reasons:
+                r_code = invalid_dep_reasons[t.task_id]
+                msg = (
+                    "Phát hiện phụ thuộc vòng lặp (Circular Dependency) — cô lập để giữ C_hard = 0."
+                    if r_code == "CIRCULAR_DEPENDENCY"
+                    else "Thiếu công việc tiên quyết không tồn tại trong danh sách."
+                )
+                base_unplaced.append({
+                    "task_id": t.task_id,
+                    "title": t.title,
+                    "duration_min": t.get_planned_duration_min(),
+                    "priority": t.priority,
+                    "deadline": t.format_deadline_label(week_start_iso=week_start_iso),
+                    "deadline_slot": t.resolve_deadline_slot(week_start_iso=week_start_iso),
+                    "reason": msg,
+                    "reason_code": r_code,
                 })
-                continue
+            elif t.task_id in past_due_map:
+                base_unplaced.append({
+                    "task_id": t.task_id,
+                    "title": t.title,
+                    "duration_min": t.get_planned_duration_min(),
+                    "priority": t.priority,
+                    "deadline": t.due or t.format_deadline_label(week_start_iso=week_start_iso),
+                    "deadline_slot": None,
+                    "reason": "Hạn chót nằm trong quá khứ trước tuần lập lịch.",
+                    "reason_code": "DEADLINE_IN_PAST",
+                })
 
-            prereq_end_slot = now_slot
-            for pid in task.depends_on:
-                if pid in task_completion_slot:
-                    prereq_end_slot = max(prereq_end_slot, task_completion_slot[pid])
+        schedulable_tasks = [t for t in ordered_valid if t.task_id not in invalid_ids]
 
-            d_slot_task = task.resolve_deadline_slot(week_start_iso=week_start_iso)
-            slack_min = (
-                (d_slot_task - now_slot - task.get_planned_slots()) * MINUTES_PER_SLOT
-                if d_slot_task is not None
-                else None
-            )
+        chunks_count_map = {
+            t.task_id: len(self.split_task_into_chunks(t, orig_order_map.get(t.task_id, 0), week_start_iso))
+            for t in schedulable_tasks
+        }
+        base_pinned_end: Dict[str, int] = {}
+        pinned_counts: Dict[str, int] = {}
+        for pb in accepted_pinned:
+            pinned_counts[pb.task_id] = pinned_counts.get(pb.task_id, 0) + 1
+            base_pinned_end[pb.task_id] = max(base_pinned_end.get(pb.task_id, 0), pb.end_slot)
+        completed_pin_ends = {
+            tid: end_s
+            for tid, end_s in base_pinned_end.items()
+            if pinned_counts.get(tid, 0) >= chunks_count_map.get(tid, 999)
+        }
 
-            chunks = self.split_task_into_chunks(
-                task,
-                original_order=orig_order_map.get(task.task_id, 0),
-                week_start_iso=week_start_iso,
-            )
+        def execute_dynamic_lst(allow_breaks: bool, crunch_tier: int):
+            pass_grid = grid.clone()
+            if allow_breaks:
+                pass_grid.mark_dead_zones_as_rest()
 
-            task_temp_blocks: List[ScheduleBlock] = []
-            current_earliest = prereq_end_slot
-            task_failed = False
-            fail_reason = ""
+            placed: List[ScheduleBlock] = [pb.model_copy(deep=True) for pb in accepted_pinned]
+            task_ends = dict(completed_pin_ends)
+            unplaced: List[Dict[str, Any]] = []
+            pass_warnings: List[str] = []
+            failed_ids = set(invalid_ids)
+            remaining = list(schedulable_tasks)
+            total_sched = len(schedulable_tasks)
+            rank_counter = 0
 
-            for chunk in chunks:
-                if (chunk.task_id, chunk.chunk_index) in pinned_task_chunks:
-                    for pb in placed_blocks:
-                        if pb.task_id == chunk.task_id and pb.chunk_index == chunk.chunk_index:
-                            current_earliest = max(current_earliest, pb.end_slot)
+            while remaining:
+                # Propagate failed prerequisites immediately
+                blocked = [t for t in remaining if any(p in failed_ids for p in t.depends_on)]
+                if blocked:
+                    for bt in blocked:
+                        failed_ids.add(bt.task_id)
+                        remaining.remove(bt)
+                        unplaced.append({
+                            "task_id": bt.task_id,
+                            "title": bt.title,
+                            "duration_min": bt.get_planned_duration_min(),
+                            "priority": bt.priority,
+                            "deadline": bt.format_deadline_label(week_start_iso=week_start_iso),
+                            "deadline_slot": bt.resolve_deadline_slot(week_start_iso=week_start_iso),
+                            "reason": "Công việc tiên quyết chưa thể xếp lịch.",
+                            "reason_code": "PREREQUISITE_UNPLACED",
+                        })
                     continue
 
-                effective_deadline = (
-                    min(chunk.deadline_slot, SLOTS_PER_WEEK)
-                    if chunk.deadline_slot is not None
-                    else SLOTS_PER_WEEK
-                )
-
-                # Best-Fit: scan all contiguous FREE intervals in [current_earliest, effective_deadline)
-                free_intervals = grid.get_free_intervals(
-                    start_from=current_earliest, up_to=effective_deadline
-                )
-                valid_intervals: List[Tuple[int, int]] = [
-                    (iv_start, iv_len)
-                    for iv_start, iv_len in free_intervals
-                    if iv_len >= chunk.duration_slots
-                ]
-
-                if not valid_intervals:
-                    task_failed = True
-                    free_before = grid.count_free_slots_in_range(
-                        start_from=current_earliest, up_to=effective_deadline
-                    )
-                    if free_before < chunk.duration_slots:
-                        fail_reason = (
-                            f"Thiếu thời gian rảnh trước hạn chót {chunk.deadline_str} "
-                            f"(Cần {chunk.duration_min}p, chỉ còn {free_before * 15}p rảnh)."
-                        )
-                    else:
-                        fail_reason = (
-                            f"Không có khoảng trống liên tục dài {chunk.duration_min} phút "
-                            f"trước hạn chót {chunk.deadline_str} (Lỗi phân mảnh chỗ trống)."
-                        )
+                ready = [t for t in remaining if all(p in task_ends for p in t.depends_on)]
+                if not ready:
                     break
 
-                # Best-Fit selects the interval with minimum (iv_len - duration_slots), tie-breaking by earliest iv_start
-                valid_intervals.sort(key=lambda iv: (iv[1] - chunk.duration_slots, iv[0]))
-                best_start, best_len = valid_intervals[0]
-                allowed_starts = [iv[0] for iv in valid_intervals]
+                def dynamic_slack_key(t: Task) -> Tuple[int, int, int, int, int]:
+                    d_slot = t.resolve_deadline_slot(week_start_iso=week_start_iso)
+                    if d_slot is None:
+                        return (1, 999999, -t.priority, 999999, orig_order_map.get(t.task_id, 0))
+                    eff_earliest = max([now_slot] + [task_ends[p] for p in t.depends_on if p in task_ends])
+                    eff_d = min(d_slot, pass_grid.total_slots)
+                    free_avail = pass_grid.count_free_slots_in_range(start_from=eff_earliest, up_to=eff_d)
+                    needed = max(0, t.get_planned_slots() - pinned_slots_by_task.get(t.task_id, 0))
+                    dyn_slack = free_avail - needed
+                    return (0, dyn_slack, -t.priority, d_slot, orig_order_map.get(t.task_id, 0))
 
-                grid.place_block(best_start, chunk.duration_slots, chunk.task_id, chunk.title)
+                chosen_task = min(ready, key=dynamic_slack_key)
+                remaining.remove(chosen_task)
+                rank_counter += 1
 
-                slack_label = f"{slack_min}p" if slack_min is not None else "∞"
-                reason_codes: List[Dict[str, Any]] = [
-                    {
-                        "code": "BEST_FIT_GAP",
-                        "text": f"Best-Fit: Chọn khoảng trống vừa khít nhất ({best_len * 15}p cho phiên {chunk.duration_min}p)",
-                    },
-                    {
-                        "code": "ORDER",
-                        "rank": rank_idx,
-                        "of": total_tasks,
-                        "text": f"Xếp thứ {rank_idx}/{total_tasks} theo Least Slack Time (Độ trôi tự do = {slack_label})",
-                    },
-                ]
-                if chunk.deadline_slot is not None:
-                    reason_codes.insert(
-                        0,
-                        {
-                            "code": "BEFORE_DEADLINE",
-                            "due": chunk.deadline_str,
-                            "text": f"Hoàn thành trước hạn chót ({chunk.deadline_str})",
-                        },
-                    )
-                if chunk.depends_on:
-                    reason_codes.append({
-                        "code": "AFTER_PREREQ",
-                        "task": ", ".join(chunk.depends_on),
-                        "text": f"Bắt đầu sau khi hoàn thành {', '.join(chunk.depends_on)}",
-                    })
-
-                reason_text = (
-                    f"[LST + Best-Fit] Xếp thứ {rank_idx}/{total_tasks} (Slack = {slack_label}, Ưu tiên {chunk.priority}). "
-                    f"Chọn khoảng rảnh sát nhất ({best_len * 15}p) để tránh làm vỡ khoảng trống lớn."
+                p_key = dynamic_slack_key(chosen_task)
+                slack_min_label = f"{p_key[1] * 15}p" if p_key[0] == 0 else "∞"
+                p_text = (
+                    f"[Dynamic LST + Best-Fit] Xếp thứ {rank_counter}/{total_sched} "
+                    f"(Slack thực = {slack_min_label}, Ưu tiên {chosen_task.priority})."
                 )
 
-                block = self.build_schedule_block(
-                    chunk=chunk,
-                    start_slot=best_start,
-                    reason_text=reason_text,
-                    reason_codes=reason_codes,
+                ok, new_blocks, err_entry, t_warns = self.place_task_with_constraints(
+                    task=chosen_task,
+                    grid=pass_grid,
+                    profile=profile,
+                    now_slot=now_slot,
+                    task_end_slots=task_ends,
+                    pinned_chunk_map=pinned_chunk_map,
+                    placed_blocks=placed,
                     week_start_iso=week_start_iso,
-                    allowed_starts_slots=allowed_starts,
+                    primary_code="BEST_FIT_GAP",
+                    primary_text=p_text,
+                    allow_breaks=allow_breaks,
+                    crunch_tier_used=crunch_tier,
+                    order_index=orig_order_map.get(chosen_task.task_id, 0),
+                    best_fit=True,
                 )
-                task_temp_blocks.append(block)
-                current_earliest = best_start + chunk.duration_slots
-
-            if task_failed:
-                for tb in task_temp_blocks:
-                    grid.remove_block(tb.start_slot, tb.end_slot - tb.start_slot)
-                failed_task_ids.add(task.task_id)
-                unplaced_tasks.append({
-                    "task_id": task.task_id,
-                    "title": task.title,
-                    "duration_min": task.get_planned_duration_min(),
-                    "priority": task.priority,
-                    "deadline": task.format_deadline_label(week_start_iso=week_start_iso),
-                    "deadline_slot": task.resolve_deadline_slot(week_start_iso=week_start_iso),
-                    "reason": fail_reason,
-                })
-            else:
-                placed_blocks.extend(task_temp_blocks)
-                if task_temp_blocks:
-                    task_completion_slot[task.task_id] = max(b.end_slot for b in task_temp_blocks)
+                pass_warnings.extend(t_warns)
+                if ok:
+                    placed.extend(new_blocks)
                 else:
-                    task_completion_slot[task.task_id] = current_earliest
+                    failed_ids.add(chosen_task.task_id)
+                    if err_entry is not None:
+                        err_entry["priority"] = chosen_task.priority
+                        unplaced.append(err_entry)
+
+            return pass_grid, placed, unplaced, pass_warnings
+
+        final_grid, final_blocks, tier_unplaced, tier_warnings = execute_dynamic_lst(allow_breaks=True, crunch_tier=0)
+        crunch_used = 0
+        if tier_unplaced:
+            sp_grid, sp_blocks, sp_unplaced, sp_warnings = execute_dynamic_lst(allow_breaks=False, crunch_tier=1)
+            if len(sp_unplaced) < len(tier_unplaced):
+                final_grid, final_blocks, tier_unplaced, tier_warnings = (
+                    sp_grid,
+                    sp_blocks,
+                    sp_unplaced,
+                    sp_warnings + [
+                        "Tier 1 Sprint Mode (Cut breaks): Tạm bỏ nghỉ 15p để giải phóng khoảng trống kịp hạn."
+                    ],
+                )
+                crunch_used = 1
 
         exec_ms = (time.perf_counter() - t0) * 1000.0
-        output = self.finalize_output(
-            grid_manager=grid,
+        return self.finalize_output(
+            grid_manager=final_grid,
             tasks=tasks,
-            blocks=placed_blocks,
-            unplaced_tasks=unplaced_tasks,
+            blocks=final_blocks,
+            unplaced_tasks=base_unplaced + tier_unplaced,
             capacity_reports=capacity_reports,
             exec_ms=exec_ms,
             week_start_iso=week_start_iso,
-        )
-        return output, grid
-
+            warnings=base_warnings + tier_warnings,
+            profile=profile,
+            now_slot=now_slot,
+            crunch_tier_used=crunch_used,
+        ), final_grid

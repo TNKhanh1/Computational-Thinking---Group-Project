@@ -2,14 +2,14 @@
 
 **Môn học:** Tư duy Tính toán (CS252) — Khoa Công nghệ Thông tin, Trường ĐH Khoa học Tự nhiên, ĐHQG-HCM (FIT-HCMUS)  
 **Nhóm thực hiện:** Group 03 (*The Seven Dwarfs*)  
-**Phiên bản:** **Baseline System (V0)** — Hệ thống Tham chiếu Tất định trên Lưới Thời gian Rời rạc 672 Slots
+**Phiên bản:** **Baseline System (V0) + Proposal & Presentation2 Sync (V1/V2)** — Hệ thống Lập lịch Tất định trên Lưới Thời gian Rời rạc 672 Slots (5 Solvers, 8 Behavioral Patterns, Dual Buffer, M1 Dual-Engine Gemini/Offline, Overload Triage, 125 Automated Tests)
 
 ---
 
 ## 📌 Mục Lục
 1. [Tổng Quan & Triết Lý Thiết Kế Baseline (V0)](#1-tổng-quan--triết-lý-thiết-kế-baseline-v0)
 2. [Cấu Trúc Thư Mục Dự Án](#2-cấu-trúc-thư-mục-dự-án)
-3. [Hướng Dẫn Cài Đặt & Khởi Chạy Nhanh (3 Cách)](#3-hướng-dẫn-cài-đặt--khởi-chạy-nhanh-3-cách)
+3. [Hướng Dẫn Cài Đặt, Cấu Hình Gemini API & Khởi Chạy Nhanh](#3-hướng-dẫn-cài-đặt-cấu-hình-gemini-api--khởi-chạy-nhanh)
 4. [Hướng Dẫn Chi Tiết Về Dữ Liệu Đầu Vào (INPUT)](#4-hướng-dẫn-chi-tiết-về-dữ-liệu-đầu-vào-input)
 5. [Hướng Dẫn Chi Tiết Về Kết Quả Đầu Ra (OUTPUT) & Cách Đọc Thông Số](#5-hướng-dẫn-chi-tiết-về-kết-quả-đầu-ra-output--cách-đọc-thông-số)
 6. [Hướng Dẫn Sử Dụng Giao Diện Web Workbench Từng Bước](#6-hướng-dẫn-sử-dụng-giao-diện-web-workbench-từng-bước)
@@ -45,11 +45,13 @@
 ```text
 group03-smartschedule-baseline/
 ├── README.md                              # Tài liệu hướng dẫn toàn diện (file này)
-├── requirements.txt                       # Danh sách thư viện Python cần thiết
+├── requirements.txt                       # Danh sách thư viện Python (FastAPI, Pydantic, Pytest, google-genai, dotenv...)
+├── .env.example                           # Mẫu cấu hình API Key Google Gemini (copy thành .env, không commit .env)
+├── setup_env.bat                          # Script tạo .venv & cài đặt thư viện tự động 1-click trên Windows
+├── run_app.bat                            # File chạy nhanh Web Workbench trên Windows (1-click)
 ├── main.py                                # Công cụ chạy bằng dòng lệnh (CLI Runner)
 ├── benchmark_runner.py                    # Script chạy thực nghiệm tự động 10 kịch bản T01–T10
-├── run_app.bat                            # File chạy nhanh Web Workbench trên Windows (1-click)
-├── run_tests.bat                          # File chạy nhanh bộ kiểm thử Pytest + Benchmark (1-click)
+├── benchmark_alpha_grid.py                # Grid Search 1D cho α ∈ [1.00, 1.60] & Shock Stress Test (+25%/+50%)
 │
 ├── data/                                  # Dữ liệu mẫu & 10 kịch bản kiểm thử chuẩn
 │   ├── sample_week_commitments.json       # Lịch cố định & giờ ngủ chuẩn: Tuần của Minh (672 slots)
@@ -69,71 +71,137 @@ group03-smartschedule-baseline/
 │       └── t10_cross_week_deadline.json
 │
 ├── src/                                   # Mã nguồn lõi (Core Scheduling Engine)
+│   ├── config.py                          # Hằng số tham số 8 Behavioral Patterns (α, γ, ngưỡng ổn định 90%...)
 │   ├── utils.py                           # Chuyển đổi tọa độ 672-slot, Thứ/Giờ và ISO-8601
 │   ├── models.py                          # Schema dữ liệu đầu vào / đầu ra (Pydantic v2)
-│   ├── grid_manager.py                    # Quản lý lưới 672 slots & kiểm tra ràng buộc cứng H1–H5
-│   ├── metrics.py                         # Tính toán KPI (C_hard, R_deadline, S_stability, FragIndex, SHA-256)
+│   ├── grid_manager.py                    # Quản lý lưới 672/1344 slots, REST dead-zone/break & H1–H5
+│   ├── estimate_buffer.py                 # Bộ đệm Planning Fallacy kép (Feature 001 Habit + α Cognitive Load)
+│   ├── overload_triage.py                 # Xử lý quá tải thông minh (SKIP_HABIT, SHORTEN_TASK, ALLOW_SPLIT, POSTPONE)
+│   ├── nl_parser.py                       # Module M1 Dual-Engine NL Parser (Gemini API + Offline Deterministic + NO_TASK)
+│   ├── metrics.py                         # Tính KPI (C_hard, R_deadline, S_stability, FragIndex, ExpRating, SHA-256)
 │   ├── exporter.py                        # Xuất lịch sang chuẩn .json, .csv và .ics (Google/Apple Calendar)
 │   ├── controller.py                      # Bộ điều phối trung tâm (ScheduleController)
 │   └── solvers/                           # Các thuật toán xếp lịch và tái lập lịch
-│       ├── base_solver.py                 # Cắt nhỏ tác vụ (Chunking), sắp xếp Topo, chẩn đoán quá tải
+│       ├── base_solver.py                 # Cắt nhỏ tác vụ (Chunking), Topo DAG, Sprint Tier-1, chẩn đoán quá tải
 │       ├── greedy_edf.py                  # 1. Tham lam Earliest Deadline First (EDF + First-Fit) [Chuẩn V0]
-│       ├── greedy_lst.py                  # 2. Tham lam Least Slack Time (LST + Best-Fit)
+│       ├── greedy_lst.py                  # 2. Tham lam Dynamic Least Slack Time (LST + Best-Fit)
 │       ├── greedy_wspt.py                 # 3. Tham lam Weighted Shortest Processing Time (WSPT - Luật Smith)
-│       ├── backtracking.py                # 4. Vét cạn Quay lui Nhánh-Cận (Backtracking Ground-Truth)
-│       └── local_repair.py                # Động cơ Vá lịch cục bộ (Local Insertion) vs Xếp lại toàn bộ (Rebuild)
+│       ├── scored_greedy.py               # 4. Tham lam Exponential Urgency × Importance + Circadian & Category Batching
+│       ├── backtracking.py                # 5. Vét cạn Quay lui Nhánh-Cận (Backtracking Ground-Truth)
+│       └── local_repair.py                # Động cơ Vá lịch cục bộ (Local Insertion, Overrun, Ripple) vs Rebuild
 │
-├── web/                                   # Giao diện Web Bàn Thử Nghiệm Kỹ Thuật (2-Column Workbench)
+├── web/                                   # Giao diện Web Dual-Mode Workbench (Student + Developer Lab)
 │   ├── api.py                             # FastAPI Backend Server
-│   ├── index.html                         # Giao diện chính (Tailwind CSS + Bảng lưới 672 slots)
+│   ├── index.html                         # Giao diện chính (Tailwind CSS + Student Mode + Lab 672 slots)
 │   └── app.js                             # Logic tương tác Frontend
 │
-└── tests/                                 # Bộ kiểm thử tự động (Pytest Suite - 15 bài test)
-    ├── test_time_grid.py                  # Kiểm thử toán học lưới 672 slots (196 SLEEP + 132 OCCUPIED + 344 FREE)
-    ├── test_constraints.py                # Kiểm thử ràng buộc cứng H1–H5 & chặn thao tác kéo thả sai
-    ├── test_edf_solver.py                 # Kiểm thử tính tất định 3x SHA-256 & độ ổn định Local Repair
-    └── test_scenarios_t01_t10.py          # Kiểm thử tích hợp toàn bộ T01–T10 & REST API
+└── verification_tests/                    # Bộ kiểm thử tự động (Pytest + clean_runner.py — 125 bài test)
+    ├── clean_runner.py                    # Runner chuẩn (--pass / --gaps / --all)
+    ├── test_studio.py                     # Giao diện Desktop Tkinter Verification Test Studio
+    ├── run_verification_tests.bat         # Script chạy nhanh clean_runner.py trên Windows
+    ├── run_test_studio.bat                # Script mở nhanh Test Studio trên Windows
+    ├── architecture_tests/                # Kiểm thử bất biến kiến trúc (INV-1..6), RAM leak & đa luồng
+    ├── benchmark_tests/                   # Kiểm thử kịch bản T01–T10 & độ trễ khả thi
+    ├── logical_tests/                     # Kiểm thử lõi, buffer, overload triage, M1 NL Parser & edge cases
+    ├── development_gap_tests/             # Kiểm thử mục tiêu Improve Plan (--gaps)
+    └── ui_tests/                          # Kiểm thử hợp đồng giao diện & REST API endpoints
 ```
 
 ---
 
-## 3. Hướng Dẫn Cài Đặt & Khởi Chạy Nhanh (3 Cách)
+## 3. Hướng Dẫn Cài Đặt, Cấu Hình Gemini API & Khởi Chạy Nhanh
 
-### Bước 0: Cài đặt thư viện (Chỉ cần chạy 1 lần đầu)
-Mở Terminal / PowerShell và di chuyển vào thư mục `group03-smartschedule-baseline`:
-```powershell
-cd group03-smartschedule-baseline
-pip install -r requirements.txt
-```
+### Bước 1: Cài đặt Python & thư viện phụ thuộc (Chỉ cần chạy 1 lần đầu)
+Yêu cầu **`Python >= 3.10`** (đã kiểm thử ổn định trên Python `3.12`). Di chuyển vào thư mục `group03-smartschedule-baseline`:
+
+* **Cách A — Tự động bằng `.venv` trên Windows (Khuyên dùng cho máy sạch):**
+  Nhấp đúp chuột hoặc chạy **`setup_env.bat`** trong `group03-smartschedule-baseline/`:
+  ```powershell
+  cd group03-smartschedule-baseline
+  .\setup_env.bat
+  ```
+  Script sẽ tự tạo môi trường ảo `.venv`, nâng cấp `pip` và cài đặt toàn bộ thư viện trong `requirements.txt` (bao gồm `fastapi`, `uvicorn`, `pydantic`, `pytest`, `httpx`, `python-dateutil`, `google-genai`, `python-dotenv`).
+  > ⚠️ **Lưu ý quan trọng về `.venv`:** Các file `run_app.bat`, `verification_tests\run_verification_tests.bat` và `verification_tests\run_test_studio.bat` hiện gọi trực tiếp lệnh `python` của hệ thống (chưa tự kích hoạt `.venv`). Vì vậy nếu bạn cài qua `setup_env.bat`, hãy kích hoạt `.venv` trước khi chạy file `.bat` hoặc lệnh CLI:
+  > ```powershell
+  > .venv\Scripts\Activate.ps1    # PowerShell (hoặc .venv\Scripts\activate.bat trong CMD)
+  > ```
+  > *(Nếu bạn chạy bằng `.venv\Scripts\python.exe ...` trực tiếp thì không cần bước activate).*
+
+* **Cách B — Cài đặt thủ công (macOS / Linux / Windows):**
+  ```powershell
+  cd group03-smartschedule-baseline
+  python -m venv .venv
+  # Windows PowerShell: .venv\Scripts\Activate.ps1  |  CMD: .venv\Scripts\activate.bat  |  macOS/Linux: source .venv/bin/activate
+  python -m pip install --upgrade pip
+  pip install -r requirements.txt
+  ```
+  *(Hoặc nếu muốn cài trực tiếp vào Python toàn cục để nhấp đúp `.bat` chạy ngay không cần activate `.venv`, chỉ cần chạy `pip install -r requirements.txt`.)*
 
 ---
 
-### Cách 1: Chạy Giao Diện Web Trực Quan (Khuyên dùng để Demo & Thử nghiệm)
-Bạn có thể nhấp đúp chuột vào file **`run_app.bat`** hoặc chạy lệnh sau trong Terminal:
-```powershell
-python -m uvicorn web.api:app --host 127.0.0.1 --port 8000
-```
+### Bước 2: Cách lấy & cấu hình Google Gemini API Key (`.env`) cho M1 Hybrid NL Parser
+Tính năng **✨ Nhập tự nhiên (`M1 Hybrid EN/VI`)** trong Student Modal hoạt động theo kiến trúc **Dual-Engine**:
+- **Không có API key (hoặc bật chế độ `⚡ Offline`):** Hệ thống vẫn chạy bình thường **100% offline** bằng `OfflineNLParser` (`0 ms`, tất định, miễn phí).
+- **Có `GEMINI_API_KEY` (và bật `✨ Auto (AI)`):** Backend gọi Google Gemini API để hiểu câu nhập tự nhiên phức tạp tiếng Việt/Anh (~1.4–2.3 giây/lần), và tự động fallback an toàn về `OfflineNLParser` nếu hết quota, mất mạng hoặc gặp lỗi API.
+
+**Các bước thiết lập Gemini API Key:**
+1. Truy cập **Google AI Studio** ([`https://aistudio.google.com/apikey`](https://aistudio.google.com/apikey)), đăng nhập tài khoản Google và bấm **Create API Key** để tạo key mới.
+2. Tại thư mục `group03-smartschedule-baseline/`, tạo bản sao từ file mẫu `.env.example` thành `.env`:
+   ```powershell
+   # Windows PowerShell:
+   Copy-Item .env.example .env
+   # Hoặc Windows CMD: copy .env.example .env   |   macOS/Linux: cp .env.example .env
+   ```
+3. Mở file `group03-smartschedule-baseline/.env` bằng trình soạn thảo bất kỳ và dán key của bạn vào dòng `GEMINI_API_KEY=` (không thêm khoảng trắng quanh dấu `=` và không đặt trong dấu ngoặc kép):
+   ```dotenv
+   GEMINI_API_KEY=AIzaSy...dan_api_key_cua_ban_vao_day...
+   NL_PARSER_ENGINE=auto
+   GEMINI_MODEL=gemini-3-flash-preview
+   ```
+   **Ý nghĩa các biến trong `.env`:**
+   - `GEMINI_API_KEY`: API key lấy từ Google AI Studio (bỏ trống nếu chỉ dùng offline).
+   - `NL_PARSER_ENGINE`: Mặc định `auto` (ưu tiên Gemini khi có key và giao diện đang bật `Auto (AI)`, tự fallback Offline khi lỗi). Đặt `offline` để ép chạy regex offline trên toàn server.
+   - `GEMINI_MODEL`: Mặc định **`gemini-3-flash-preview`** — đã tối ưu sẵn `thinking_budget=0` và `timeout=12s` để phản hồi nhanh (~1.4–2.3s). *(Lưu ý: không đổi sang `gemini-2.5-flash` hay `gemini-2.0-flash` vì endpoint hiện tại có thể trả lỗi `404`; cũng tránh `gemini-flash-latest` vì mặc định bật thinking khiến phản hồi rất chậm).*
+4. **Bảo mật khi push Git:** File [`.gitignore`](../.gitignore) ở thư mục gốc đã chặn sẵn `.env` và `.env.*` (`!.env.example`). **Tuyệt đối không commit hoặc chia sẻ công khai file `.env` thật**; khi cần đổi key trên máy khác, chỉ cần chỉnh sửa `.env` cục bộ và khởi động lại server Uvicorn.
+5. **Kiểm tra nhanh sau khi nạp key:** Mở Web UI -> bấm **`+ Thêm Việc`** -> kiểm tra nút gạt đang ở **`✨ Auto (AI)`** -> nhập `"Ôn thi Giải tích 2 tiếng trước 17h thứ 6 #deep"` -> bấm **`Phân tích`**. Nếu cấu hình thành công, badge bên cạnh sẽ hiển thị **`✨ Gemini AI`** và tự điền form + chip thông số.
+
+---
+
+### Bước 3: Khởi Chạy Hệ Thống (3 Cách)
+
+#### Cách 1: Chạy Giao Diện Web Trực Quan (Khuyên dùng để Demo & Sử dụng hằng ngày)
+Đảm bảo đang đứng trong `group03-smartschedule-baseline/` (và đã kích hoạt `.venv` nếu cài qua `setup_env.bat`):
+- **Nhấp đúp chuột** vào **`run_app.bat`**, hoặc
+- **Chạy qua dòng lệnh:**
+  ```powershell
+  python -m uvicorn web.api:app --host 127.0.0.1 --port 8000
+  # Nếu dùng .venv mà không muốn activate:
+  # .venv\Scripts\python.exe -m uvicorn web.api:app --host 127.0.0.1 --port 8000 --reload
+  ```
 👉 Sau đó mở trình duyệt web tại địa chỉ: **`http://127.0.0.1:8000`**
 
 ---
 
-### Cách 2: Chạy Bằng Dòng Lệnh (CLI — `main.py`)
+#### Cách 2: Chạy Bằng Dòng Lệnh (CLI — `main.py`)
 Dành cho việc kiểm tra nhanh trên Terminal hoặc xuất thẳng ra file `.json`, `.csv`, `.ics`:
 
 ```powershell
 # 1. Giải lịch "Tuần của Minh" bằng thuật toán chuẩn EDF và kiểm chứng tất định 3 lần (3x SHA-256)
 python main.py --preset minh --solver EDF --check-determinism
 
-# 2. Giải lịch "Tuần bận rộn của Lan" bằng thuật toán Least Slack Time (LST + Best-Fit)
+# 2. Giải lịch "Tuần của Minh" bằng SCORED_GREEDY (Pattern 3+4+7 trong Presentation2)
+python main.py --preset minh --solver SCORED_GREEDY
+
+# 3. Giải lịch "Tuần bận rộn của Lan" bằng thuật toán Least Slack Time (LST + Best-Fit)
 python main.py --preset lan --solver LST
 
-# 3. Khởi tạo "Lịch Trống Hoàn Toàn" (0 Lịch bận cố định, 0 Task — chỉ khóa 196 slots ngủ, còn 476 slots FREE)
+# 4. Khởi tạo "Lịch Trống Hoàn Toàn" (0 Lịch bận cố định, 0 Task — chỉ khóa 196 slots ngủ, còn 476 slots FREE)
 python main.py --preset empty
 
-# 4. Chạy thử một kịch bản bất kỳ trong bộ T01..T10 (Ví dụ: T06 - Quá tải dung lượng)
+# 5. Chạy thử một kịch bản bất kỳ trong bộ T01..T10 (Ví dụ: T06 - Quá tải dung lượng)
 python main.py --scenario T06
 
-# 5. Giải lịch và xuất đồng thời ra cả 3 định dạng (.json, .csv, .ics)
+# 6. Giải lịch và xuất đồng thời ra cả 3 định dạng (.json, .csv, .ics)
 python main.py --preset minh --export-json out_schedule.json --export-csv out_schedule.csv --export-ics out_schedule.ics
 ```
 
@@ -143,20 +211,34 @@ python main.py --preset minh --export-json out_schedule.json --export-csv out_sc
   - `lan`: Tuần bận rộn của Lan (học + làm thêm + CLB + bài tập sang tuần sau).
   - `empty`: Lịch trống hoàn toàn (`0` sự kiện cố định, `0` task, chỉ khóa giờ ngủ `23:30–06:30`).
 - `--scenario T01..T10`: Chạy trực tiếp 1 trong 10 kịch bản test chuẩn (`T01`, `T02`, ..., `T10`).
-- `--solver {EDF,LST,WSPT,BACKTRACK}`: Chọn thuật toán giải.
+- `--solver {EDF,LST,WSPT,SCORED_GREEDY,BACKTRACK}`: Chọn thuật toán giải.
 - `--check-determinism`: Chạy thuật toán 3 lần liên tiếp và kiểm tra mã băm `SHA-256`.
 - `--export-json <đường_dẫn>`, `--export-csv <đường_dẫn>`, `--export-ics <đường_dẫn>`: Xuất kết quả ra tệp.
 
 ---
 
-### Cách 3: Chạy Bộ Kiểm Thử Tự Động & Thực Nghiệm (`pytest` & `benchmark_runner.py`)
-Bạn có thể nhấp đúp vào **`run_tests.bat`** hoặc chạy:
+#### Cách 3: Chạy Bộ Kiểm Thử Tự Động, Test Studio & Benchmark
+Chạy trực tiếp từ thư mục `group03-smartschedule-baseline/`:
 ```powershell
-# Chạy 15 bài kiểm thử đơn vị & tích hợp (Unit & E2E Tests)
-python -m pytest -v
+# 1. Chạy bộ kiểm thử vận hành đạt chuẩn (119 Passed | 0 Failed)
+python -B verification_tests/clean_runner.py --pass
 
-# Chạy báo cáo thực nghiệm tổng hợp (T01–T10, So sánh 4 thuật toán, Local Repair vs Rebuild, Test tải 10-25-50 tasks)
+# 2. Chạy bộ kiểm thử mục tiêu Improve Plan (5 Passed | 0 Failed)
+python -B verification_tests/clean_runner.py --gaps
+
+# 3. Chạy toàn bộ ma trận 125 bài test (124 Passed | 1 Failed — ca Sprint Mode Q9 đang mở)
+python -B verification_tests/clean_runner.py --all
+# Hoặc chạy trực tiếp bằng pytest:
+python -m pytest verification_tests -q --tb=short
+
+# 4. Mở giao diện Desktop Verification Test Studio (hoặc nhấp đúp verification_tests\run_test_studio.bat)
+python verification_tests/test_studio.py
+
+# 5. Chạy báo cáo thực nghiệm tổng hợp (T01–T10, Đối sánh 5 thuật toán, T04 Local Repair vs Rebuild, T05 Overrun, Scale 10-25-50 tasks)
 python benchmark_runner.py
+
+# 6. Chạy 1D Grid Search cho hệ số đệm α ∈ [1.00, 1.60] & Shock Stress Test (+25%, +50%)
+python benchmark_alpha_grid.py --save-json
 ```
 
 ---
@@ -167,7 +249,7 @@ Hệ thống nhận **2 nguồn dữ liệu đầu vào chính**:
 1. **Hồ sơ Lịch cố định & Giấc ngủ (`commitments.json`)**
 2. **Danh sách Công việc cần xếp lịch (`tasks.json`)**
 
-Ngoài ra, bạn có thể nhập liệu trực tiếp trên giao diện Web thông qua **Biểu mẫu (Form)**, **Thanh gõ tắt (Quick-Add Regex)**, hoặc bấm nút **📥 Nhập JSON**.
+Ngoài ra, bạn có thể nhập liệu trực tiếp trên giao diện Web thông qua **✨ Nhập tự nhiên (`M1 Hybrid EN/VI` dùng Gemini API / Offline trong Student Modal)**, **Biểu mẫu (Form)**, **Thanh gõ tắt (`Quick-Add Regex` ở Lab Mode)**, hoặc bấm nút **📥 Nhập JSON**.
 
 ### 4.1. Cấu trúc File Lịch Cố Định & Giấc Ngủ (`commitments.json`)
 Xem ví dụ mẫu tại [`data/sample_week_commitments.json`](data/sample_week_commitments.json):
@@ -266,12 +348,16 @@ Xem ví dụ mẫu tại [`data/sample_week_tasks.json`](data/sample_week_tasks.
 
 ---
 
-### 4.3. Cú Pháp Nhập Nhanh Bằng Dòng Text (`Quick-Add Regex`) trên Web
-Tại ô **"⚡ Nhập Nhanh Cú Pháp Rút Gọn"** ở cột bên trái giao diện Web, bạn có thể gõ nhanh 1 dòng văn bản tự nhiên, hệ thống sẽ tự động bóc tách thành các thẻ thông số:
-- **Cú pháp mẫu:** `<Tên bài tập> <Thời lượng: 120m hoặc 2h> <Thứ hạn chót: t2..t7, cn, mon..sun> <Giờ hạn chót: HH:MM> <Ưu tiên: p1..p5> <Cắt nhỏ: ~45> <Phụ thuộc: after: MÃ_TASK>`
-- **Ví dụ thực tế:**
-  - `On tap Toan 120m t4 13:00 p5 ~45` ➔ Tạo task *"On tap Toan"*, thời lượng `120 phút`, hạn chót `Wednesday 13:00`, ưu tiên `5`, cho phép cắt nhỏ tối thiểu `45 phút`.
-  - `Code tinh nang B 2h thu 5 21:00 p4 after:PRJ-1` ➔ Tạo task `120 phút`, hạn `Thursday 21:00`, ưu tiên `4`, chỉ bắt đầu sau khi `PRJ-1` hoàn tất.
+### 4.3. Nhập Ngôn Ngữ Tự Nhiên trên Web (`M1 Dual-Engine` ở Student Mode & `Quick-Add Regex` ở Lab Mode)
+1. **Student Mode (`+ Thêm Việc` -> Hộp `✨ Nhập tự nhiên (M1 Hybrid EN/VI)` -> API `POST /api/tasks/natural-add`):**
+   - Có nút gạt **`✨ Auto (AI)`** (dùng Google Gemini API nếu đã cấu hình `.env`, tự fallback Offline khi lỗi) và **`⚡ Offline`** (100% deterministic regex/rules EN+VI, bỏ qua AI).
+   - Hỗ trợ câu tự nhiên tiếng Việt / tiếng Anh, nhận diện địa điểm, nhắc thiếu trường bằng **chip gợi ý 1-click** (`duration_min`, `deadline_day`, `deadline_time`), bộ lọc **NO_TASK** chống nhiễu câu chuyện trò/quá khứ, và **banner gợi ý 🔒 Khóa vào Lịch Cố Định** nếu phát hiện lịch hẹn cố định (`Họp nhóm chiều mai 2h 2 tiếng ở thư viện`).
+   - Ví dụ: `Ôn thi Giải tích 2 tiếng trước 17h thứ 6 #deep`, `Tối nay chạy bộ nửa tiếng ở công viên`.
+2. **Lab Mode (`⚡ Nhập Nhanh Cú Pháp Rút Gọn` — Regex JS phía client):**
+   - **Cú pháp mẫu:** `<Tên bài tập> <Thời lượng: 120m hoặc 2h> <Thứ hạn chót: t2..t7, cn, mon..sun> <Giờ hạn chót: HH:MM> <Ưu tiên: p1..p5> <Cắt nhỏ: ~45> <Phụ thuộc: after: MÃ_TASK>`
+   - **Ví dụ thực tế:**
+     - `On tap Toan 120m t4 13:00 p5 ~45` ➔ Tạo task *"On tap Toan"*, thời lượng `120 phút`, hạn chót `Wednesday 13:00`, ưu tiên `5`, cho phép cắt nhỏ tối thiểu `45 phút`.
+     - `Code tinh nang B 2h thu 5 21:00 p4 after:PRJ-1` ➔ Tạo task `120 phút`, hạn `Thursday 21:00`, ưu tiên `4`, chỉ bắt đầu sau khi `PRJ-1` hoàn tất.
 
 ---
 
@@ -309,7 +395,7 @@ Sau khi bấm nút **"🚀 CHẠY THUẬT TOÁN XẾP LỊCH (SOLVE)"** (hoặc 
 4. **Slot Trống Còn Lại & Độ Phân Mảnh (`free_slots_remaining` & `fragmentation_index`):**
    - **Ý nghĩa:**
      - Cho biết trong tổng số `672 slots` của tuần còn bao nhiêu slot rảnh (`FREE`) sau khi đã trừ đi giờ ngủ (`196 slots`), lịch cố định (`132 slots`) và các bài tập vừa xếp.
-     - **Độ phân mảnh (`Phân mảnh: X%`):** Tỷ lệ các khe thời gian trống bị vụn vặt (ngắn dưới 45 phút = 3 slots, khó tận dụng để học sâu) so với tổng thời gian trống. Chỉ số này càng thấp thì lịch học càng liền mạch.
+     - **Độ phân mảnh (`Phân mảnh: X%`):** Tỷ lệ các khe thời gian trống bị vụn vặt (khe `< 30 phút`, tức `1 slot` — vùng dead-zone không thể học sâu theo Pattern 5) so với tổng thời gian trống. Chỉ số này càng thấp thì lịch học càng liền mạch.
 5. **Mã Tất Định SHA-256 (`determinism_hash`):**
    - **Ý nghĩa:** Chữ ký băm mật mã học được tính từ toàn bộ tọa độ các phiên học đã xếp.
    - **Cách đọc:** Khi bấm nút **"🔒 Kiểm Chứng Tất Định (3x)"**, hệ thống chạy lại thuật toán 3 lần độc lập. Nếu cả 3 lần đều sinh ra đúng một mã `SHA-256` (VD `4a66f4e24c5251fa`), hệ thống xác nhận **`100% IDENTICAL PASS`**.
@@ -391,7 +477,7 @@ Ngay trên thanh Header trên cùng của trang Web có **4 tùy chọn nạp d�
 | **T02** | `t02_overlapping_deadlines.json` | Nhiều bài tập lớn có cùng hạn chót chiều Thứ Tư. | `SUCCESS` — Tự động xếp nối tiếp từ Thứ Hai đến Thứ Tư. |
 | **T03** | `t03_large_unsplittable.json` | Task 180p cho cắt nhỏ vs Task 180p nguyên khối trên các khe trống 90p. | Đặt thành công task cắt nhỏ (`90p+90p`); báo `UNPLACED` an toàn cho task nguyên khối. |
 | **T04** | `t04_event_disruption.json` | Chèn sự kiện họp khẩn cấp 2 tiếng (`Thứ Hai 07:30–09:30`) đè lên lịch đã xếp. | `LOCAL_INSERTION` đạt $S_{\text{stability}} = 100\%$ (chỉ dời 2 block bị đè) so với `FULL_REBUILD` ($0\%$, xáo trộn 12 blocks). |
-| **T05** | `t05_duration_overrun.json` | Task đầu tiên tốn nhiều hơn 45 phút (+50%) so với dự kiến. | Tự động dịch chuyển 3 phiên học phía sau, bảo toàn $C_{\text{hard}}=0$. |
+| **T05** | `t05_duration_overrun.json` | Task đầu tiên tốn nhiều hơn 45 phút (+50%) so với dự kiến. | Tự động dịch chuyển 2 phiên học phía sau, bảo toàn $C_{\text{hard}}=0$. |
 | **T06** | `t06_overload_capacity.json` | Tổng khối lượng việc (`1,470p`) vượt quá tổng thời gian rảnh (`1,365p`) trước hạn Thứ Ba `23:59`. | Phát hiện chính xác `CAPACITY_SHORTAGE` với độ thiếu hụt `shortage_minutes = 105p`. |
 | **T07** | `t07_incomplete_metadata.json` | Dữ liệu đầu vào bị bỏ trống hạn chót (`deadline_day`), thiếu `min_chunk_min`. | Tự động chuẩn hóa thành `HABIT` / giá trị mặc định an toàn và xếp lịch `100%`. |
 | **T08** | `t08_unclear_priority.json` | Nhiều task có cùng hạn chót và cùng mức độ ưu tiên. | Quy tắc phá hòa (Tie-breaking) tất định 100% theo thời lượng và mã `task_id`. |
@@ -406,11 +492,11 @@ Hệ thống đi kèm 2 công cụ kiểm thử tự động độc lập: **B�
 
 ---
 
-### 8.1. Khi chạy `python -m pytest -v` (15 Bài Kiểm Thử Tự Động trong `tests/`)
+### 8.1. Khi chạy `python -m pytest -v` hoặc `clean_runner.py` (125 Bài Kiểm Thử trong `verification_tests/`)
 
-Lệnh `pytest` sẽ quét toàn bộ thư mục `tests/` và thực thi **4 nhóm kiểm thử nghiêm ngặt** (tổng cộng 15 bài test):
+Lệnh `pytest` sẽ quét toàn bộ thư mục `verification_tests/` (`ui_tests/`, `architecture_tests/`, `logical_tests/`, `benchmark_tests/`, `development_gap_tests/`) gồm **119 bài test `--pass`** (trong đó có `test_nl_parser_w04_integration.py`, `test_sync_algorithm_fixes.py`, `test_overload_triage.py`, `test_estimate_buffer.py`...), **5 bài test `--gaps`** và **1 ca mở Sprint Mode (`Q9`: `test_fail_edge_sprint_mode_compression_recovery`)**, tổng cộng **125 tests (`124 Passed | 1 Failed` trên `--all`)**. Các nhóm kiểm thử chính gồm:
 
-#### Nhóm 1: Kiểm thử Toán học Lưới 672 Slots (`tests/test_time_grid.py` — 3 bài test)
+#### Nhóm 1: Kiểm thử Toán học Lưới 672 Slots (`verification_tests/logical_tests/`)
 1. **`test_slot_conversion_math`**:
    - Kiểm tra công thức chuyển đổi qua lại giữa `(Thứ, Giờ:Phút)` $\leftrightarrow$ `Slot Index (0..671)`.
    - Xác minh các mốc biên: `Monday 00:00` $\rightarrow$ `Slot 0`, `Monday 06:30` $\rightarrow$ `Slot 26`, `Sunday 23:45` $\rightarrow$ `Slot 671`, và mốc đóng cuối tuần `Sunday 23:59` $\rightarrow$ `Slot 672`.
@@ -425,7 +511,7 @@ Lệnh `pytest` sẽ quét toàn bộ thư mục `tests/` và thực thi **4 nh�
    - Thử đặt một công việc giả định đè vào lúc `01:00 sáng Thứ Hai` (`Slot 4` - đang ngủ) và `13:00 chiều Thứ Hai` (`Slot 52` - đang học trên lớp).
    - Xác minh `TimeGridManager` lập tức **từ chối (`False`)** và trả về đúng mã lỗi vi phạm `H2_SLEEP_VIOLATION` / `H1_COMMITMENT_OVERLAP`.
 
-#### Nhóm 2: Kiểm thử 5 Ràng buộc cứng $H_1 \dots H_5$ (`tests/test_constraints.py` — 3 bài test)
+#### Nhóm 2: Kiểm thử 5 Ràng buộc cứng $H_1 \dots H_5$ (`verification_tests/logical_tests/`)
 4. **`test_hard_constraints_zero_violation_on_presets`**:
    - Chạy lần lượt cả 3 thuật toán (`EDF`, `LST`, `WSPT`) trên cả **Tuần của Minh** và **Tuần của Lan**.
    - Dùng bộ kiểm toán độc lập (`src/metrics.py`) quét lại toàn bộ lịch đầu ra để khẳng định: `hard_constraint_violations == 0` và `deadline_satisfaction_rate == 100.0%`.
@@ -436,16 +522,16 @@ Lệnh `pytest` sẽ quét toàn bộ thư mục `tests/` và thực thi **4 nh�
    - Tạo 2 công việc ngược thứ tự ưu tiên: `DEP-B` có độ ưu tiên cao nhất (`P5`, hạn Thứ Tư) nhưng phụ thuộc vào `DEP-A` (`depends_on: ["DEP-A"]`, ưu tiên thấp `P2`, hạn Thứ Năm).
    - Kiểm chứng bộ sắp xếp Topo buộc thuật toán phải xếp **toàn bộ các phiên của `DEP-A` hoàn tất trước** rồi mới được phép bắt đầu phiên đầu tiên của `DEP-B` (`min_start_B >= max_end_A`).
 
-#### Nhóm 3: Kiểm thử Tính Tất định 3x & Độ Ổn định Vá lịch (`tests/test_edf_solver.py` — 2 bài test)
+#### Nhóm 3: Kiểm thử Tính Tất định 3x & Độ Ổn định Vá lịch (`verification_tests/logical_tests/`)
 7. **`test_3x_determinism_hash_equality`**:
-   - Với mỗi thuật toán trong 4 bộ giải (`EDF`, `LST`, `WSPT`, `BACKTRACK`), chạy giải lịch **3 lần liên tiếp độc lập** trên cùng đầu vào.
+   - Với mỗi thuật toán (`EDF`, `LST`, `WSPT`, `SCORED_GREEDY`, `BACKTRACK`), chạy giải lịch **3 lần liên tiếp độc lập** trên cùng đầu vào.
    - Tính mã băm `SHA-256` của toàn bộ tọa độ các phiên học ở cả 3 lần chạy và kiểm chứng 3 mã băm giống hệt nhau 100% (`is_deterministic == True`).
 8. **`test_local_repair_vs_full_rebuild_stability`**:
    - Nạp kịch bản `T04` (chèn sự kiện họp khẩn cấp 2 tiếng vào sáng Thứ Hai đè lên lịch đã xếp).
    - Chạy đối chứng `LOCAL_INSERTION` (Vá lịch cục bộ) và `FULL_REBUILD` (Xếp lại từ đầu).
    - Kiểm chứng `LOCAL_INSERTION` giữ nguyên $\ge 90\%$ (thực tế đạt **100%**) các phiên học không bị sự kiện đột xuất đè trúng, cao vượt trội so với `FULL_REBUILD`.
 
-#### Nhóm 4: Kiểm thử Tích hợp 10 Kịch bản `T01–T10` & REST API (`tests/test_scenarios_t01_t10.py` — 7 bài test)
+#### Nhóm 4: Kiểm thử Tích hợp `T01–T10`, Improve Plan & REST API (`verification_tests/logical_tests/`, `development_gap_tests/`, `ui_tests/`)
 9. **`test_t01_normal_feasible` & `test_t02_tight_cluster`**: Kiểm chứng các kịch bản khả thi đạt 100% hạn chót và 0 vi phạm cứng.
 10. **`test_t03_fragmented_slots`**: Kiểm chứng trên các khe trống phân mảnh 90p, công việc 180p cho phép cắt nhỏ (`T03-SPLITTABLE`) được cắt thành `90p + 90p` và xếp thành công; trong khi công việc 180p nguyên khối (`T03-UNSPLITTABLE`) được phát hiện không đủ khe liên tục và đưa vào `unplaced_tasks`.
 11. **`test_t06_overload_capacity_exact_shortage`**: Kiểm chứng bài toán chứng minh quá tải dung lượng toán học trong Báo cáo (§6.7): Quỹ thời gian rảnh trước hạn Thứ Ba `23:59` là `1,365 phút`, tổng khối lượng việc yêu cầu là `1,470 phút` $\rightarrow$ Hệ thống xuất báo cáo `CAPACITY_SHORTAGE` với độ thiếu hụt chính xác tuyệt đối **`shortage_minutes == 105`**.
@@ -457,18 +543,18 @@ Lệnh `pytest` sẽ quét toàn bộ thư mục `tests/` và thực thi **4 nh�
 
 ### 8.2. Khi chạy `python benchmark_runner.py` Thì Hệ Thống Làm Gì?
 
-Khi bạn chạy `python benchmark_runner.py` (hoặc bấm `run_tests.bat`), script sẽ thực hiện **4 bài đo kiểm thực nghiệm tự động** và in ra 4 bảng báo cáo định lượng trên Terminal:
+Khi bạn chạy `python benchmark_runner.py`, script sẽ thực hiện **4 bài đo kiểm thực nghiệm tự động** và in ra 4 bảng báo cáo định lượng trên Terminal:
 
 1. **Bảng 1 — Quét toàn bộ 10 Kịch bản chuẩn (`T01` $\rightarrow$ `T10`):**
    - Nạp từng file JSON trong `data/test_scenarios/`, chạy thuật toán chuẩn `EDF`, đo thời gian giải (`Latency ms`), kiểm tra số lỗi cứng (`C_hard`), tỷ lệ đạt hạn chót (`R_dl %`), độ phân mảnh (`FragIdx`), và chạy lặp 3 lần mỗi kịch bản để xác nhận cột `3x Determ = PASS`.
-2. **Bảng 2 — Đối sánh 4 Thuật toán trên cùng Tuần chuẩn (`T01`):**
-   - Chạy lần lượt `GREEDY_EDF_FIRST_FIT`, `GREEDY_LST_BEST_FIT`, `GREEDY_WSPT_SMITH_RULE`, và `BACKTRACKING_BRANCH_AND_BOUND` trên cùng đầu vào để so sánh tốc độ giải (`~0.8 ms` đến `~7.5 ms`), độ phân mảnh và mã băm `SHA-256`.
+2. **Bảng 2 — Đối sánh 5 Thuật toán trên cùng Tuần chuẩn (`T01`):**
+   - Chạy lần lượt `GREEDY_EDF_FIRST_FIT`, `GREEDY_LST_BEST_FIT`, `GREEDY_WSPT_SMITH_RULE`, `SCORED_GREEDY`, và `BACKTRACKING_BRANCH_AND_BOUND` trên cùng đầu vào để so sánh tốc độ giải, độ phân mảnh và mã băm `SHA-256`.
 3. **Bảng 3 — Thực nghiệm Độ ổn định khi có Sự cố (`T04`) & Làm lố giờ (`T05`):**
-   - Đo lường và in ra sự khác biệt giữa **Local Insertion** (`Stability = 100.00%`, chỉ dời đúng `2 blocks` bị đè, mất `0.84 ms`) và **Full Rebuild** (`Stability = 0.00%`, xáo trộn `12 blocks` do hiệu ứng Domino, mất `4.90 ms`).
-   - Mô phỏng Task `T05-A` bị làm lố giờ từ `90p` lên `135p` (`+45p`) và đếm số phiên học phía sau bị đẩy lùi dây chuyền (`Shifted Downstream Blocks = 3`).
+   - Đo lường và in ra sự khác biệt giữa **Local Insertion** (`Stability = 100.00%`, chỉ dời đúng `2 blocks` bị đè, mất `~1.4 ms`) và **Full Rebuild** (`Stability = 0.00%`, xáo trộn `12 blocks` do hiệu ứng Domino, mất `~3.6 ms`).
+   - Mô phỏng Task `T05-A` bị làm lố giờ từ `90p` lên `135p` (`+45p`) và đếm số phiên học phía sau bị đẩy lùi dây chuyền (`Shifted Downstream Blocks = 2`).
 4. **Bảng 4 — Kiểm thử Khả năng Mở rộng & Tốc độ theo Quy mô (`Scalability N = 10, 25, 50 Tasks`):**
-   - Tự động sinh ngẫu nhiên có kiểm soát `10`, `25`, và `50` công việc học tập trong tuần.
-   - Đo thời gian giải thực tế (`~2.7 ms` cho 10 tasks, `~6.5 ms` cho 25 tasks, `~12.8 ms` cho 50 tasks) và đối chiếu với ngưỡng yêu cầu kỹ thuật (`<= 50 ms` cho 25 tasks, `<= 200 ms` cho 50 tasks).
+   - Tự động sinh có kiểm soát `10`, `25`, và `50` công việc học tập trong tuần.
+   - Đo thời gian giải thực tế (`~2.1 ms` cho 10 tasks, `~3.8 ms` cho 25 tasks, `~8.1 ms` cho 50 tasks) và đối chiếu với ngưỡng yêu cầu kỹ thuật (`<= 50 ms` cho 25 tasks, `<= 200 ms` cho 50 tasks).
 
 ---
 
@@ -481,7 +567,10 @@ Khi chạy server FastAPI (`web/api.py`), bạn cũng có thể truy cập tài 
 | `GET` | `/api/presets` | Lấy dữ liệu mẫu chuẩn (**Tuần của Minh** và **Tuần của Lan**). |
 | `GET` | `/api/scenarios` | Liệt kê danh sách 10 kịch bản kiểm thử chuẩn `T01 – T10`. |
 | `GET` | `/api/scenarios/{scenario_id}` | Lấy chi tiết dữ liệu đầu vào của một kịch bản (VD: `/api/scenarios/T06`). |
-| `POST` | `/api/plan` *(hoặc `/api/solve`)* | Giải bài toán xếp lịch tuần với thuật toán tùy chọn (`EDF`, `LST`, `WSPT`, `BACKTRACK`). |
+| `POST` | `/api/plan` *(hoặc `/api/solve`)* | Giải bài toán xếp lịch tuần với thuật toán tùy chọn (`EDF`, `LST`, `WSPT`, `BACKTRACK`, `SCORED_GREEDY`). |
+| `POST` | `/api/tasks/natural-add` | Phân tích câu nhập tự nhiên EN/VI thành `Task` (M1 Hybrid NL Parser). |
+| `POST` | `/api/tasks/complete` | Ghi nhận thời lượng thực tế (`actual_duration_min`) khi hoàn thành task (M7 Feedback). |
+| `POST` | `/api/overload/preview` | Tạo phương án xử lý quá tải có thể Undo (Preview / Accept / Undo via `OverloadTriageEngine`). |
 | `POST` | `/api/compare` | Chạy song song 2 thuật toán trên cùng đầu vào và trả về bảng đối sánh sai khác. |
 | `POST` | `/api/repair` | Tái lập lịch khi có sự kiện đột xuất (`LOCAL_INSERTION`, `FULL_REBUILD`, `RIPPLE_SHIFT`, `COMPARE_BOTH`). |
 | `POST` | `/api/progress` *(hoặc `/api/overrun`)* | Mô phỏng task làm lố giờ (`T05`) và tính toán số phiên học bị trượt dây chuyền. |

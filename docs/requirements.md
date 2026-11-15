@@ -61,7 +61,7 @@ python-dateutil>=2.8.2
 - **Định nghĩa các đối tượng:** `Task` (công việc), `FixedEvent` (lịch cố định), `SleepSchedule` (giờ ngủ), `ScheduleOutput` (lịch đã xếp). Giúp dữ liệu đồng nhất chuẩn ISO-8601 (§7.3 Improve Plan).
 
 #### 4. `pytest>=7.4.0` (Bộ Khung Kiểm Thử Tự Động)
-- **Dùng để làm gì:** Bộ công cụ kiểm thử chuẩn của Python giúp chạy tự động toàn bộ 56 bài test trong chớp mắt (chỉ mất ~2 giây).
+- **Dùng để làm gì:** Bộ công cụ kiểm thử chuẩn của Python giúp chạy tự động toàn bộ **113 bài test** (107 bài vận hành `--pass` + 5 bài mục tiêu Improve Plan `--gaps` + 1 bài test mở Sprint Mode liên quan `Q9`).
 - **Dùng ở tầng nào:** **Tầng 5 (Hệ Thống Kiểm Thử)** trong `verification_tests/`.
 - **Chạy bằng cách nào:** Chạy qua bộ lọc console sạch `clean_runner.py` để không bị rác màn hình.
 
@@ -116,5 +116,5 @@ source .venv/bin/activate
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
-Sau khi cài xong, bạn có thể gõ `python -B verification_tests/clean_runner.py --pass` để kiểm tra, nếu màn hình báo `50 Passed | Status: ALL PASSED` là môi trường đã chuẩn 100%!
+Sau khi cài xong, bạn có thể gõ `python -B verification_tests/clean_runner.py --pass` để kiểm tra, nếu màn hình báo `107 Passed | Status: ALL PASSED` là môi trường đã chuẩn 100%!
 

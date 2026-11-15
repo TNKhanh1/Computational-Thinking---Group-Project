@@ -85,7 +85,7 @@ def run_algorithm_comparison_benchmark():
         f"{'FragIdx':>7} | {'Latency':>9} | {'SHA-256 Prefix'}"
     )
     print("-" * 116)
-    for solver_key in ["EDF", "LST", "WSPT", "BACKTRACK"]:
+    for solver_key in ["EDF", "LST", "WSPT", "BACKTRACK", "SCORED_GREEDY"]:
         out, _ = ScheduleController.solve_schedule(profile, tasks, algorithm=solver_key)
         s = out.summary
         print(

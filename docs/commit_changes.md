@@ -34,12 +34,38 @@ Dự án SmartSchedule đang ở bước chuyển tiếp quan trọng từ **B�
 
 - **Bản Baseline (V0):** Đã hoàn thiện và chạy rất mượt. Bộ giải toán CSP trên lưới 672 ô (15 phút/ô) với các thuật toán tham lam EDF, LST, WSPT đảm bảo 5 ràng buộc cứng $H_1$–$H_5$.
 - **Giao diện Web Workbench:** Đang chạy tại `http://127.0.0.1:8000`, hiển thị thời khóa biểu tuần trực quan và cho phép kéo thả thử nghiệm.
-- **Hệ thống Kiểm thử (Verification Tests):** Đã nâng cấp lên **84 bài test tự động chạy xanh 100%** (50 bài test mốc chuẩn + 34 bài test bộ đệm thời gian mới) và 5 bài test mục tiêu (trong đó bài test bộ đệm $\times 1.25$ đã chính thức CHUYỂN XANH!). Tổng cộng: 89 bài test.
-- **Lộ trình sắp tới:** Tiếp tục cài đặt các tính năng còn lại theo `Improve_Plan/improve_plan.md` (khớp nhịp sinh học sáng/tối, nghỉ giải lao 15p, chế độ nước rút, giải quyết quá tải).
+- **Hệ thống Kiểm thử (Verification Tests):** Hiện có **107 bài test vận hành chạy xanh 100%** (`--pass`) + **5/5 bài test Improve Plan** (`--gaps`, `100% pass`) + **1 bài test mở Sprint Mode** (`test_fail_edge_sprint_mode_compression_recovery`, theo dõi tại `Q9`). Tổng cộng: **113 bài test tự động** (`112 Passed | 1 Failed` trên `--all` và `pytest -v`).
+- **Nhánh đồng bộ mới nhất (`ltbinh/sync-proposal`):** Hoàn tất đồng bộ mã nguồn `src/` và `web/` theo `Proposal/` và `Presentation2.pdf` kèm đợt vá kiểm toán bổ sung (`validate-move` `proposed_block`, opt-out `buffer_mode="NONE"`, `SHORTEN_TASK`, `repair_overrun` Pin Guard, đồng bộ CLI/Benchmark/Tài liệu và tổng hợp biểu quyết `Q1–Q10`).
 
 ---
 
 ## 2. Nhật Ký Chi Tiết Các Thay Đổi Mã Nguồn
+
+### Lần cập nhật 008 — 2026-11-15 | Vá Lỗi Kiểm Toán & Đồng Bộ Tài Liệu (`ltbinh/sync-proposal`)
+- **Người thực hiện:** ltbinh (hỗ trợ bởi Antigravity AI)
+- **Nhánh Git:** `ltbinh/sync-proposal`
+- **Tóm tắt thay đổi:**
+  1. **Khớp hợp đồng Kéo thả & API `/api/validate-move`:** `ScheduleController.validate_manual_move` (`src/controller.py`) trả thêm `"proposed_block"` (`state="PINNED"`) khi hợp lệ; `api_validate_move` (`web/api.py`) nhận đủ `blocks`, fallback `current_blocks` và `schedule.blocks`; `handleGridDrop` (`web/app.js`) gửi kèm `algorithm`, `blocks`, `current_blocks`.
+  2. **Tắt buffer từng task (`buffer_mode="NONE"`):** Bổ sung hỗ trợ `"NONE"`/`"OFF"`/`"DISABLED"`/`"NO_BUFFER"` ở `Task` (`src/models.py`), `planned_duration_for_task_mode` (`src/estimate_buffer.py`), `apply_estimate_buffer` (`src/controller.py`) và `saveStudentTask` (`web/app.js`).
+  3. **Cân bằng `SHORTEN_TASK` & Pin Guard khi Overrun:** `SHORTEN_TASK` (`src/overload_triage.py`) giữ nguyên khối khi `new_dur <= 90` và giữ `15p` cho `new_dur > 90` (`T06`); `preview_overload_resolution` (`src/controller.py`) mở rộng `PersonalHabit` trước bằng `preview_profile`; `LocalRepairEngine.repair_overrun` (`src/solvers/local_repair.py`) khóa `PINNED`/`DONE` trước khi phân bổ thêm slot và rollback kèm `OVERRUN_OVERLOAD` nếu thiếu slot.
+  4. **Trùng ID sự kiện, CLI, Benchmark & Tài liệu:** `applyStudentDisruption` (`web/app.js`) dùng chung 1 `DIS_xxxx`; `main.py` thêm `--solver SCORED_GREEDY`, `Experience Rating`, `Crunch Tier` và `REST` trong `672-Slot Breakdown`; `benchmark_runner.py` thêm `SCORED_GREEDY` vào Bảng 2 (5 solvers); đồng bộ `README.md`, `group03-smartschedule-baseline/README.md`, `agents/requirements.md`, `docs/requirements.md`, `Proposal/Open_Decisions_For_Team.md` (`Q1–Q10`) và `Proposal/Sync_Completion_Report.md`.
+- **Kiểm thử xác nhận (sau chỉnh sửa cuối cùng):** `clean_runner.py --pass` (`107/107 PASSED`), `clean_runner.py --gaps` (`5/5 PASSED`), `clean_runner.py --all` (`112 Passed | 1 Failed | Total: 113`), `pytest -v` (`112 passed, 1 failed`), `benchmark_runner.py` (5 solvers, `T04` Stability `100.00%`), `main.py --preset minh --solver SCORED_GREEDY` & `EDF`.
+
+### Lần cập nhật 007 — 2026-11-15 | Đồng Bộ Toàn Bộ Proposal & Presentation2 (`ltbinh/sync-proposal`)
+- **Người thực hiện:** ltbinh (hỗ trợ bởi Antigravity AI)
+- **Nhánh Git:** `ltbinh/sync-proposal` (tách từ `main` tại `4c0a85a`, giữ nguyên `main`)
+- **Tóm tắt thay đổi:**
+  1. **Sửa lỗi cốt lõi (`A1–A12`) & Dọn dẹp kỹ thuật:** Xóa `web/Log.md` lỗi thời, sửa typo `"grep_weight"` -> `"grade_weight"` trong `t07`, chuẩn hóa `now_day`/`now_slot` động (bỏ hardcode Thứ Tư), thêm `PersonalHabit` (bảo vệ giấc ngủ `>= 6h`, trọng số `0.25x`), mở rộng `horizon_days` động, phá hòa tất định, và sửa `src/solvers/local_repair.py` 2-pass chunk relaxation (`T04` đạt Stability `100.00%`, `C_hard=0`).
+  2. **8 Human Behavioral Patterns & `ScoredGreedySolver`:** Bổ sung `src/solvers/scored_greedy.py` (`SCORED_GREEDY`) với hàm mục tiêu $E_1$–$E_4$ (Circadian Energy Matching, Context Batching, Hyperbolic Urgency, Dead-Zone Avoidance); hỗ trợ buffer kép `HABIT` + `COGNITIVE_LOAD` ($\alpha_{\text{light}}=1.20$, $\alpha_{\text{heavy}}=1.35$), nghỉ ngơi chủ động (`REST` cho khe `<30m` và `>=15m` sau mỗi phiên), Two-Tier Crunch, `Early Extension Alert (24–48h)` và `Experience Rating (1–5)`.
+  3. **Overload Triage & M1/M7 Pipeline:** Tích hợp có chọn lọc `src/overload_triage.py` (`OverloadTriageEngine` nối với `/api/overload/preview`), bộ phân tích ngôn ngữ tự nhiên EN/VI `src/nl_parser.py` (`/api/tasks/natural-add`), và `/api/tasks/complete` (M7 check-in).
+  4. **Đồng bộ Giao diện Web (`web/index.html`, `web/app.js`):** Bỏ ngày tuần cứng, banner ngủ cứng `23:30–06:30` và lỗi nhân đôi buffer `* 1.2` phía client; bổ sung cấu hình động (`focus_preference`, `buffer_mode`, `alpha_light`, `alpha_heavy`; solver mặc định UI giữ `GREEDY_EDF_FIRST_FIT` chờ `Q10`), Overload Preview/Apply/Undo, M5 Local Repair, M7 actual duration check-in, Experience Rating & Early Alert, kéo thả nối `POST /api/validate-move`.
+  5. **Hiệu chỉnh tham số & Báo cáo:** Bổ sung `benchmark_alpha_grid.py` (`--save-json` -> `data/alpha_grid_calibration.json`); lập `Proposal/Open_Decisions_For_Team.md` (`Q1–Q10`) và `Proposal/Sync_Completion_Report.md`.
+- **Kiểm thử xác nhận (đợt đồng bộ đầu, cập nhật tiếp tại Lần cập nhật 008):** `clean_runner.py --pass`, `clean_runner.py --gaps`, `benchmark_runner.py`, `benchmark_alpha_grid.py`.
+- **Lộ trình tiếp theo:** Họp nhóm chốt 10 hạng mục `Q1–Q10`, hoàn thiện UI nhập `PersonalHabit`/`horizon_days`, bổ sung bộ stress-test `α >= 1.7` + log thực tế `1-week peer study`, và cập nhật `Proposal/Presentation2.pdf`.
+
+---
+
+## 3. Nhật Ký Chi Tiết Các Lần Cập Nhật Trước Đó
 
 ### Lần cập nhật 006 — 06/11/2026 | Giao Diện Chế Độ Sinh Viên (Student Mode) Tối Giản & Nút Chuyển Đổi Dual-Mode
 - **Người thực hiện:** Đức Minh (Trưởng nhóm phụ trách Giao diện & Trải nghiệm Người dùng), có sự hỗ trợ của Antigravity AI (Gemini 3.8 Flash)

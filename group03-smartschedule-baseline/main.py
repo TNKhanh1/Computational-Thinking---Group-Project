@@ -5,7 +5,7 @@ SmartSchedule Baseline (V0) — Command-Line Execution & Verification Runner.
 Supports:
   - Running Minh's Week or Lan's Week presets (`--preset minh|lan`)
   - Running any of the 10 test scenarios T01–T10 (`--scenario T01..T10`)
-  - Selecting solver (`--solver EDF|LST|WSPT|BACKTRACK`)
+  - Selecting solver (`--solver EDF|LST|WSPT|BACKTRACK|SCORED_GREEDY`)
   - Running 3x Determinism Verification (`--check-determinism`)
   - Exporting output to JSON, CSV, or RFC 5545 iCalendar `.ics`
 """
@@ -77,8 +77,9 @@ def print_schedule_report(output, label: str):
     print(f" Hard Violations (C_hard)   : {s.hard_constraint_violations} (MUST BE 0)")
     print(f" Deadline Satisfaction Rate : {s.deadline_satisfaction_rate:.2f}% ({s.tasks_placed}/{s.total_tasks_requested} tasks, {s.parts_placed}/{s.parts_total} chunks)")
     print(f" Fragmentation Index        : {s.fragmentation_index:.4f}")
+    print(f" Experience Rating          : {s.experience_rating:.2f}/5 ({s.experience_label}) | Crunch Tier={s.crunch_tier_used}")
     print(f" Execution Latency          : {output.execution_time_ms:.3f} ms")
-    print(f" 672-Slot Breakdown         : SLEEP={s.sleep_slots} | OCCUPIED={s.occupied_slots} | BLOCK={s.block_slots} | FREE={s.free_slots_remaining}")
+    print(f" 672-Slot Breakdown         : SLEEP={s.sleep_slots} | OCCUPIED={s.occupied_slots} | BLOCK={s.block_slots} | REST={s.rest_slots} | FREE={s.free_slots_remaining}")
     print(f" Determinism SHA-256        : {output.determinism_hash}")
     print("-" * 92)
     print(f" Placed Study Blocks ({len(output.blocks)} blocks):")
@@ -106,7 +107,7 @@ def main():
     parser = argparse.ArgumentParser(description="SmartSchedule Baseline V0 CLI Runner")
     parser.add_argument("--preset", choices=["minh", "lan", "empty"], default="minh", help="Preset dataset to load (minh, lan, or empty)")
     parser.add_argument("--scenario", type=str, default=None, help="Run a specific scenario ID (T01..T10)")
-    parser.add_argument("--solver", choices=["EDF", "LST", "WSPT", "BACKTRACK"], default="EDF", help="Solver engine")
+    parser.add_argument("--solver", choices=["EDF", "LST", "WSPT", "BACKTRACK", "SCORED_GREEDY"], default="EDF", help="Solver engine")
     parser.add_argument("--check-determinism", action="store_true", help="Run 3x determinism verification")
     parser.add_argument("--export-json", type=str, default=None, help="File path to export JSON schedule")
     parser.add_argument("--export-csv", type=str, default=None, help="File path to export CSV schedule")

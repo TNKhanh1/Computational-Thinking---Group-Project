@@ -47,7 +47,45 @@ const state = {
   pinnedBlocks: new Map(), // block_id -> ScheduleBlock
   doneBlocks: new Set(), // block_id
   taskBufferMap: new Map(), // task_id -> { raw_min, buffered_min }
+  actualDurations: new Map(), // block_id -> actual_min
+  previewState: null, // { option_id, option_code, target_task_id, resolved_tasks, before_schedule }
+  undoSnapshot: null, // { commitments, tasks, schedule, pinnedBlocks }
+  nlEngineMode: "auto", // 'auto' | 'offline'
+  nlSuggestedFixedEvent: null, // Suggested FixedEvent payload from M1 parser
 };
+
+function _storageKey() {
+  const sid = state.commitments?.student_id || "DEFAULT";
+  return `smartschedule_state_${sid}_v1`;
+}
+
+function savePersistedStudentState() {
+  try {
+    localStorage.setItem(
+      _storageKey(),
+      JSON.stringify({
+        doneBlocks: Array.from(state.doneBlocks),
+        actualDurations: Array.from(state.actualDurations.entries()),
+        pinnedBlocks: Array.from(state.pinnedBlocks.entries()),
+        focus_preference: state.commitments?.focus_preference || "BALANCED",
+        buffer_mode: state.commitments?.buffer_mode || "HABIT",
+        alpha_light: state.commitments?.alpha_light,
+        alpha_heavy: state.commitments?.alpha_heavy,
+      })
+    );
+  } catch (_) {}
+}
+
+function loadPersistedStudentState() {
+  try {
+    const raw = localStorage.getItem(_storageKey());
+    if (!raw) return;
+    const saved = JSON.parse(raw);
+    if (Array.isArray(saved.doneBlocks)) state.doneBlocks = new Set(saved.doneBlocks);
+    if (Array.isArray(saved.actualDurations)) state.actualDurations = new Map(saved.actualDurations);
+    if (Array.isArray(saved.pinnedBlocks)) state.pinnedBlocks = new Map(saved.pinnedBlocks);
+  } catch (_) {}
+}
 
 // ============================================================================
 // INITIALIZATION & PRESET / SCENARIO LOADERS
@@ -106,6 +144,9 @@ async function loadPreset(presetId) {
     state.pinnedBlocks.clear();
     state.doneBlocks.clear();
     state.taskBufferMap.clear();
+    state.actualDurations.clear();
+    state.previewState = null;
+    loadPersistedStudentState();
 
     const sel = document.getElementById("scenarioSelect");
     if (sel) sel.value = "";
@@ -514,10 +555,15 @@ function renderTaskQueue() {
 
 function syncSleepUI() {
   const sleep = (state.commitments && state.commitments.sleep_schedule) || {};
+  const start = sleep.daily_start_time || sleep.start || "23:30";
+  const end = sleep.daily_end_time || sleep.end || "06:30";
   const sEl = document.getElementById("inpSleepStart");
   const eEl = document.getElementById("inpSleepEnd");
-  if (sEl) sEl.value = sleep.daily_start_time || sleep.start || "23:30";
-  if (eEl) eEl.value = sleep.daily_end_time || sleep.end || "06:30";
+  if (sEl) sEl.value = start;
+  if (eEl) eEl.value = end;
+  document.querySelectorAll(".st-sleep-window-label").forEach((el) => {
+    el.textContent = `🌙 ${start} – ${end} (Ngủ)`;
+  });
 }
 
 async function updateSleepFromUI() {
@@ -525,6 +571,7 @@ async function updateSleepFromUI() {
   state.commitments.sleep_schedule.daily_start_time = document.getElementById("inpSleepStart").value || "23:30";
   state.commitments.sleep_schedule.daily_end_time = document.getElementById("inpSleepEnd").value || "06:30";
   state.commitments.sleep_schedule.is_hard_lock = true;
+  syncSleepUI();
   await solveSchedule();
 }
 
@@ -772,14 +819,18 @@ function buildScheduleRowsHTML(schedule, { foldSleep = true, stepSlots = 1, diff
   }
 
   let html = "";
-  const startOffset = foldSleep ? 26 : 0; // 26 * 15m = 06:30
+  const sleepCfg = state.commitments?.sleep_schedule || {};
+  const sleepStartStr = sleepCfg.daily_start_time || sleepCfg.start || "23:30";
+  const sleepEndStr = sleepCfg.daily_end_time || sleepCfg.end || "06:30";
+  const [eH, eM] = String(sleepEndStr).split(":").map(Number);
+  const startOffset = foldSleep ? Math.max(0, Math.min(48, Math.floor(((eH || 6) * 60 + (eM || 30)) / 15))) : 0;
 
-  if (foldSleep) {
+  if (foldSleep && startOffset > 0) {
     html += `
       <tr class="slot-sleep text-[11px]">
-        <td class="py-1.5 px-2 font-bold mono border-r border-slate-600">00:00 - 06:30</td>
+        <td class="py-1.5 px-2 font-bold mono border-r border-slate-600">00:00 - ${sleepEndStr}</td>
         <td colspan="7" class="py-1.5 px-3 text-center font-medium">
-          🌙 Khung giờ ngủ đêm được khóa cứng bảo vệ sức khỏe (26 slots/đêm × 7 ngày = 182 slots ban đêm + 14 slots sau 23:30 = 196 SLEEP slots)
+          🌙 Khung giờ ngủ đêm được khóa cứng bảo vệ sức khỏe (${sleepStartStr} – ${sleepEndStr}, ≥ 6h tối thiểu)
         </td>
       </tr>`;
   }
@@ -799,10 +850,15 @@ function buildScheduleRowsHTML(schedule, { foldSleep = true, stepSlots = 1, diff
 
       let cellClass = "slot-free";
       let cellText = "";
+      let dragAttrs = `ondragover="event.preventDefault()" ondrop="handleGridDrop(event, ${dayIdx}, '${startTime}')"`;
 
       if (rawState === "SLEEP") {
         cellClass = "slot-sleep";
-        cellText = offset === 94 ? "🌙 Ngủ (23:30)" : "";
+        cellText = startTime === sleepStartStr ? `🌙 Ngủ (${sleepStartStr})` : "";
+      } else if (rawState === "REST") {
+        cellClass = "slot-rest";
+        const prevRest = offset > startOffset ? gridStates[slotIdx - stepSlots] === "REST" : false;
+        cellText = prevRest ? "〃" : "☕ Nghỉ";
       } else if (rawState.startsWith("OCCUPIED")) {
         const cat = fixedCatBySlot[slotIdx] || "ACADEMIC_CLASS";
         if (cat === "MEAL") cellClass = "slot-occupied-meal";
@@ -812,14 +868,17 @@ function buildScheduleRowsHTML(schedule, { foldSleep = true, stepSlots = 1, diff
         cellText = prevSlotState !== rawState ? fixedLabelBySlot[slotIdx] || rawState.split(":")[1] : "〃";
       } else if (rawState.startsWith("BLOCK") && block) {
         const isMoved = state.repairedMovedIds.has(block.block_id);
+        const isProposed = block.state === "PROPOSED";
         const isDiff = otherGridStates && otherGridStates[slotIdx] !== rawState;
-        if (isDiff) cellClass = "slot-block-diff";
+        if (isProposed) cellClass = "slot-block-proposed";
+        else if (isDiff) cellClass = "slot-block-diff";
         else if (isMoved) cellClass = "slot-block-moved";
         else cellClass = "slot-block";
 
         const isBlockStart = slotIdx === block.start_slot || offset === startOffset;
         const partBadge = block.total_chunks > 1 ? ` (${block.chunk_index}/${block.total_chunks})` : "";
         cellText = isBlockStart ? `[${block.task_id}] ${block.title}${partBadge}` : `↳ ${block.task_id}`;
+        dragAttrs += ` draggable="true" ondragstart="handleGridDragStart(event, '${block.block_id}')"`;
       }
 
       const inspectData = encodeURIComponent(
@@ -835,6 +894,7 @@ function buildScheduleRowsHTML(schedule, { foldSleep = true, stepSlots = 1, diff
 
       html += `
         <td
+          ${dragAttrs}
           onmouseenter="inspectSlot('${inspectData}')"
           onclick="inspectSlot('${inspectData}')"
           class="grid-cell py-1 px-1.5 border-r border-slate-200 truncate cursor-pointer text-[11px] font-medium ${cellClass}"
@@ -1334,6 +1394,7 @@ function switchStudentView(view) {
 
 function renderStudentViews() {
   renderStudentSummary();
+  renderStudentOverloadBanner();
   if (state.studentView === "WEEK") {
     renderStudentWeekCalendar();
   } else if (state.studentView === "TODAY") {
@@ -1343,7 +1404,33 @@ function renderStudentViews() {
   }
 }
 
+function updateDynamicWeekDates() {
+  const startIso = state.commitments?.planning_week_start;
+  let baseDate = new Date("2026-11-02T00:00:00");
+  if (startIso) {
+    const parsed = new Date(startIso);
+    if (!Number.isNaN(parsed.getTime())) baseDate = parsed;
+  }
+  const endDate = new Date(baseDate.getTime() + 6 * 86400000);
+  const fmt = (d) => `${d.getDate()} Thg ${d.getMonth() + 1}`;
+
+  const titleEl = document.getElementById("stWeekHeaderTitle");
+  if (titleEl) {
+    titleEl.textContent = `Tuần Học Tập: ${fmt(baseDate)} – ${fmt(endDate)}, ${endDate.getFullYear()}`;
+  }
+  for (let i = 0; i < 7; i++) {
+    const dEl = document.getElementById(`stDayDate_${i}`);
+    if (dEl) {
+      const cur = new Date(baseDate.getTime() + i * 86400000);
+      dEl.textContent = fmt(cur);
+    }
+  }
+}
+
 function renderStudentSummary() {
+  updateDynamicWeekDates();
+  syncSleepUI();
+
   const summary = state.currentSchedule?.summary;
   const tasksCount = state.tasks?.length || 0;
   const blocksCount = state.currentSchedule?.blocks?.length || 0;
@@ -1353,6 +1440,7 @@ function renderStudentSummary() {
   const elTasks = document.getElementById("stSummaryTasks");
   const elHours = document.getElementById("stSummaryHours");
   const elDeadline = document.getElementById("stSummaryDeadline");
+  const elExp = document.getElementById("stSummaryExperience");
   const elViolations = document.getElementById("stSummaryViolations");
 
   if (elTasks) elTasks.textContent = `${tasksCount} bài tập (${blocksCount} phiên)`;
@@ -1366,6 +1454,16 @@ function renderStudentSummary() {
         ? "px-2.5 py-1 text-xs font-semibold bg-emerald-50 text-emerald-700 rounded-full border border-emerald-200"
         : "px-2.5 py-1 text-xs font-semibold bg-rose-50 text-rose-700 rounded-full border border-rose-200";
     }
+    if (elExp) {
+      const rating = summary.experience_rating ?? 1.0;
+      const lbl = summary.experience_label || "1 - Comfortable";
+      elExp.textContent = `⭐ ${Number(rating).toFixed(1)} (${lbl.split(" - ")[1] || lbl})`;
+      elExp.className = rating >= 4.0
+        ? "px-2.5 py-1 text-xs font-semibold bg-rose-50 text-rose-700 rounded-full border border-rose-200"
+        : rating >= 3.0
+          ? "px-2.5 py-1 text-xs font-semibold bg-amber-50 text-amber-800 rounded-full border border-amber-200"
+          : "px-2.5 py-1 text-xs font-semibold bg-violet-50 text-violet-700 rounded-full border border-violet-200";
+    }
     if (elViolations) {
       const v = summary.hard_constraint_violations ?? 0;
       elViolations.textContent = v === 0 ? "🛡️ 0 vi phạm (H1–H5)" : `⚠️ ${v} vi phạm`;
@@ -1374,6 +1472,88 @@ function renderStudentSummary() {
         : "px-2.5 py-1 text-xs font-semibold bg-rose-100 text-rose-800 rounded-full border border-rose-300";
     }
   }
+
+  // Render Early Extension Alert 24-48h Banner
+  const alertBox = document.getElementById("stEarlyExtensionAlertBox");
+  const alerts = state.currentSchedule?.early_extension_alerts || summary?.early_extension_alerts || [];
+  if (alertBox) {
+    if (alerts.length > 0) {
+      alertBox.classList.remove("hidden");
+      alertBox.innerHTML = `
+        <div class="flex items-center gap-2">
+          <span class="text-base">⏳</span>
+          <div>
+            <div class="font-bold text-amber-950">Cảnh báo Sớm 24–48h (Early Extension Alert)</div>
+            <div class="text-[11px] text-amber-900">${alerts.map((a) => `${a.title || a.task_id}: còn ${a.hours_remaining}h, thiếu ~${a.missing_minutes}p`).join(" · ")}</div>
+          </div>
+        </div>
+        <span class="px-2 py-0.5 bg-amber-200 text-amber-950 rounded-full font-bold text-[10px]">${alerts.length} cảnh báo</span>
+      `;
+    } else {
+      alertBox.classList.add("hidden");
+    }
+  }
+}
+
+function renderStudentOverloadBanner() {
+  const banner = document.getElementById("stOverloadBanner");
+  if (!banner) return;
+
+  if (state.previewState) {
+    banner.classList.remove("hidden");
+    const afterS = state.previewState.after_summary || {};
+    banner.innerHTML = `
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <span class="font-bold text-indigo-900">👁️ Đang Xem Trước Phương Án (${state.previewState.option_code}):</span>
+          <span>Đúng hạn ${afterS.deadline_satisfaction_rate ?? 100}% · Đã xếp ${afterS.tasks_placed ?? "?"}/${afterS.total_tasks_requested ?? "?"} tasks (0 vi phạm cứng).</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <button onclick="applyStudentOverloadPreview()" class="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold">✓ Áp Dụng Phương Án</button>
+          <button onclick="undoStudentChange()" class="px-3 py-1 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-lg font-bold">↩️ Hoàn Tác</button>
+        </div>
+      </div>`;
+    return;
+  }
+
+  const ov = state.currentSchedule?.overload;
+  const options = ov?.options || [];
+  if (!ov || options.length === 0) {
+    if (state.undoSnapshot) {
+      banner.classList.remove("hidden");
+      banner.className = "bg-indigo-50 border border-indigo-200 rounded-2xl p-3 text-xs text-indigo-950 shadow-sm flex items-center justify-between";
+      banner.innerHTML = `
+        <span>⚡ Đã cập nhật lịch (ổn định). Bạn có thể hoàn tác nếu muốn quay lại trạng thái trước.</span>
+        <button onclick="undoStudentChange()" class="px-3 py-1 bg-white border border-indigo-300 hover:bg-indigo-100 text-indigo-900 rounded-lg font-bold">↩️ Hoàn Tác (Undo)</button>`;
+    } else {
+      banner.classList.add("hidden");
+    }
+    return;
+  }
+
+  banner.className = "bg-rose-50 border-2 border-rose-300 rounded-2xl p-4 text-xs text-rose-950 shadow-sm space-y-2.5";
+  banner.classList.remove("hidden");
+  banner.innerHTML = `
+    <div class="flex flex-wrap items-center justify-between gap-2">
+      <div>
+        <div class="font-bold text-rose-900">⚠️ Quá tải lịch học (${ov.error_type}) — Thiếu ${ov.shortage_minutes || 0} phút</div>
+        <div class="text-[11px] text-rose-800 mt-0.5">${ov.message || ""}</div>
+      </div>
+      ${state.undoSnapshot ? `<button onclick="undoStudentChange()" class="px-2.5 py-1 bg-white border border-rose-300 rounded-lg font-bold">↩️ Hoàn Tác</button>` : ""}
+    </div>
+    <div class="flex flex-wrap gap-2">
+      ${options
+        .slice(0, 4)
+        .map(
+          (opt) => `
+        <button onclick="previewStudentOverloadOption('${opt.option_id || "O1"}', '${opt.code || ""}', '${opt.task || ""}')"
+          class="px-3 py-1.5 bg-white hover:bg-indigo-50 border border-rose-200 hover:border-indigo-400 rounded-xl font-semibold text-slate-800 transition flex items-center gap-1.5">
+          <span>👁️</span>
+          <span>[${opt.code}] ${opt.label || opt.task || opt.option_id}</span>
+        </button>`
+        )
+        .join("")}
+    </div>`;
 }
 
 function renderStudentWeekCalendar() {
@@ -1698,13 +1878,46 @@ function renderStudentTaskQueue() {
 }
 
 // Student Task Modal controls
+function setStudentNlEngine(mode) {
+  state.nlEngineMode = mode === "offline" ? "offline" : "auto";
+  const btnAuto = document.getElementById("btnNlEngineAuto");
+  const btnOff = document.getElementById("btnNlEngineOffline");
+  const activeCls = "px-2 py-0.5 rounded-md bg-white text-indigo-700 shadow-sm transition";
+  const idleCls = "px-2 py-0.5 rounded-md text-slate-600 hover:text-slate-900 transition";
+  if (btnAuto) btnAuto.className = state.nlEngineMode === "auto" ? activeCls : idleCls;
+  if (btnOff) btnOff.className = state.nlEngineMode === "offline" ? activeCls : idleCls;
+}
+
+function resetStudentNlFeedback() {
+  state.nlSuggestedFixedEvent = null;
+  const nlSt = document.getElementById("stNlStatus");
+  if (nlSt) {
+    nlSt.className = "text-[10px] text-slate-500 hidden";
+    nlSt.textContent = "";
+  }
+  const badge = document.getElementById("stNlEngineBadge");
+  if (badge) {
+    badge.className = "hidden px-1.5 py-0.5 rounded text-[9px] font-bold";
+    badge.textContent = "";
+  }
+  const chips = document.getElementById("stNlChips");
+  if (chips) {
+    chips.classList.add("hidden");
+    chips.innerHTML = "";
+  }
+  const fixedBanner = document.getElementById("stNlFixedBanner");
+  if (fixedBanner) fixedBanner.classList.add("hidden");
+}
+
 function openStudentTaskModal() {
+  resetStudentNlFeedback();
   document.getElementById("stTaskModal")?.classList.remove("hidden");
   document.getElementById("stInpTitle")?.focus();
   updateStBufferPreview();
 }
 
 function closeStudentTaskModal() {
+  resetStudentNlFeedback();
   document.getElementById("stTaskModal")?.classList.add("hidden");
 }
 
@@ -1715,49 +1928,211 @@ function setStDuration(val) {
 }
 
 function updateStBufferPreview() {
-  const raw = parseInt(document.getElementById("stInpDuration")?.value || "60", 10);
+  const raw = Math.max(15, parseInt(document.getElementById("stInpDuration")?.value || "60", 10));
   const isBuffer = document.getElementById("stInpBuffer")?.checked ?? true;
+  const load = parseInt(document.getElementById("stInpCognitiveLoad")?.value || "2", 10);
   const durPreview = document.getElementById("stDurationPreview");
   const txtPreview = document.getElementById("stBufferPreviewText");
 
   if (durPreview) durPreview.textContent = `${raw} phút`;
 
-  if (isBuffer) {
-    const rawBuffered = Math.ceil(raw * 1.2);
-    const planned = Math.ceil(rawBuffered / 15) * 15;
-    if (txtPreview) {
-      txtPreview.innerHTML = `Thời lượng xếp lịch: <strong>${raw}p → ${rawBuffered}p (~${planned}p)</strong> (Thêm 20% đệm an toàn chống vỡ kế hoạch).`;
-    }
-  } else {
+  if (!isBuffer) {
     if (txtPreview) {
       txtPreview.innerHTML = `Thời lượng xếp lịch: <strong>${raw}p</strong> (Không thêm thời gian đệm).`;
+    }
+    return;
+  }
+
+  const mode = state.commitments?.buffer_mode || "HABIT";
+  if (mode === "COGNITIVE_LOAD") {
+    const aLight = Number(state.commitments?.alpha_light || 1.2);
+    const aHeavy = Number(state.commitments?.alpha_heavy || 1.35);
+    const alpha = load >= 3 ? aHeavy : aLight;
+    const planned = Math.ceil((raw * alpha) / 15) * 15;
+    if (txtPreview) {
+      txtPreview.innerHTML = `Chế độ <strong>COGNITIVE_LOAD (α=${alpha.toFixed(2)})</strong>: <strong>${raw}p → ${planned}p</strong> (tính 1 lần ở backend, chống trễ hạn).`;
+    }
+  } else {
+    const mult = currentBufferMultiplier();
+    const planned = plannedMinutesFor(raw, mult);
+    const habitLabel = state.commitments?.estimate_habit || "V0 (×1.00)";
+    if (txtPreview) {
+      txtPreview.innerHTML = mult > 1
+        ? `Chế độ <strong>Habit (${habitLabel}, ×${mult})</strong>: <strong>${raw}p → ${planned}p</strong> (backend tự tính, không nhân trùng).`
+        : `Đang đặt <strong>${habitLabel}</strong>: thời lượng giữ <strong>${planned}p</strong> (bạn có thể bật Habit / Cognitive Load trong ⚙️ Cài Đặt).`;
+    }
+  }
+}
+
+function applyNlChipSuggestion(field, value) {
+  if (field === "duration_min") {
+    setStDuration(parseInt(value, 10) || 60);
+  } else if (field === "deadline_day") {
+    const daySel = document.getElementById("stInpDeadlineDay");
+    if (daySel) daySel.value = String(value ?? "");
+    if (!value) {
+      const catSel = document.getElementById("stInpCategory");
+      if (catSel) catSel.value = "HABIT";
+    }
+    updateStBufferPreview();
+  }
+}
+
+function renderStudentNlChips(suggestions) {
+  const box = document.getElementById("stNlChips");
+  if (!box) return;
+  box.innerHTML = "";
+  if (!Array.isArray(suggestions) || suggestions.length === 0) {
+    box.classList.add("hidden");
+    return;
+  }
+  const hint = document.createElement("span");
+  hint.className = "text-[10px] font-semibold text-slate-600";
+  hint.textContent = "Chọn nhanh:";
+  box.appendChild(hint);
+
+  suggestions.forEach((chip) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "px-2 py-0.5 rounded-full bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-800 text-[10px] font-semibold transition";
+    btn.textContent = chip.label || String(chip.value);
+    btn.onclick = () => applyNlChipSuggestion(chip.field, chip.value);
+    box.appendChild(btn);
+  });
+  box.classList.remove("hidden");
+}
+
+async function lockNlFixedEvent() {
+  const fe = state.nlSuggestedFixedEvent;
+  if (!fe) return;
+  if (!state.commitments.fixed_events) state.commitments.fixed_events = [];
+  state.commitments.fixed_events.push({
+    event_id: fe.event_id || `FIXED_NL_${Date.now().toString().slice(-4)}`,
+    title: document.getElementById("stInpTitle")?.value.trim() || fe.title || "Lịch cố định",
+    day_of_week: fe.day_of_week,
+    start_time: fe.start_time,
+    end_time: fe.end_time,
+    category: fe.category || "MEETING",
+  });
+  const inpNl = document.getElementById("stNlPrompt");
+  if (inpNl) inpNl.value = "";
+  const inpT = document.getElementById("stInpTitle");
+  if (inpT) inpT.value = "";
+  closeStudentTaskModal();
+  syncAllLeftPanels();
+  await solveSchedule();
+}
+
+async function analyzeStudentNlPrompt() {
+  const inp = document.getElementById("stNlPrompt");
+  const statusEl = document.getElementById("stNlStatus");
+  const badgeEl = document.getElementById("stNlEngineBadge");
+  const fixedBannerEl = document.getElementById("stNlFixedBanner");
+  const fixedDescEl = document.getElementById("stNlFixedDesc");
+  const prompt = (inp?.value || "").trim();
+  if (!prompt) return;
+
+  resetStudentNlFeedback();
+  if (statusEl) {
+    statusEl.className = "text-[10px] text-indigo-600 font-medium";
+    statusEl.textContent = "⏳ Đang phân tích ngôn ngữ tự nhiên...";
+  }
+
+  try {
+    const res = await fetch("/api/tasks/natural-add", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        prompt,
+        now: state.commitments?.now || null,
+        existing_count: state.tasks.length,
+        engine: state.nlEngineMode || "auto",
+      }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+
+    if (badgeEl) {
+      const isAi = data.engine_used === "AI_GEMINI";
+      badgeEl.textContent = isAi ? "✨ Gemini AI" : "⚡ Offline Regex";
+      badgeEl.className = isAi
+        ? "px-1.5 py-0.5 rounded text-[9px] font-bold bg-indigo-100 text-indigo-700"
+        : "px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-200 text-slate-700";
+    }
+
+    if (data.status === "NO_TASK" || data.status === "INVALID") {
+      if (statusEl) {
+        statusEl.className = "text-[10px] text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-2 py-1.5 font-medium";
+        statusEl.textContent = `🚫 ${data.rejection_reason || "Câu nhập không phải công việc cần xếp lịch."}`;
+      }
+      return;
+    }
+
+    const d = data.draft || {};
+    if (document.getElementById("stInpTitle")) document.getElementById("stInpTitle").value = d.title || prompt;
+    if (document.getElementById("stInpDuration")) document.getElementById("stInpDuration").value = d.duration_min || 60;
+    if (document.getElementById("stInpDeadlineDay")) document.getElementById("stInpDeadlineDay").value = d.deadline_day || "";
+    if (document.getElementById("stInpDeadlineTime")) document.getElementById("stInpDeadlineTime").value = d.deadline_time || "23:59";
+    if (document.getElementById("stInpPriority")) document.getElementById("stInpPriority").value = String(d.priority || 3);
+    const catEl = document.getElementById("stInpCategory");
+    if (catEl) {
+      const targetCat = d.category || "ASSIGNMENT";
+      const hasOption = Array.from(catEl.options).some((opt) => opt.value === targetCat);
+      catEl.value = hasOption ? targetCat : "ASSIGNMENT";
+    }
+    if (document.getElementById("stInpCognitiveLoad")) document.getElementById("stInpCognitiveLoad").value = String(d.cognitive_load || 2);
+    if (document.getElementById("stInpSplittable")) document.getElementById("stInpSplittable").checked = d.is_splittable !== false;
+    updateStBufferPreview();
+
+    renderStudentNlChips(data.suggestions || []);
+
+    if (data.suggested_fixed_event && fixedBannerEl && fixedDescEl) {
+      const fe = data.suggested_fixed_event;
+      state.nlSuggestedFixedEvent = fe;
+      const locStr = data.location ? ` · 📍 ${data.location}` : "";
+      fixedDescEl.textContent = `${fe.day_of_week} ${fe.start_time}–${fe.end_time} (${fe.category})${locStr}`;
+      fixedBannerEl.classList.remove("hidden");
+    }
+
+    if (statusEl) {
+      const warns = data.validation?.warnings || [];
+      const locBadge = data.location ? ` · 📍 ${data.location}` : "";
+      const dlText = d.deadline_day ? `${d.deadline_day} ${d.deadline_time}` : "Habit (Không hạn chót)";
+      statusEl.className = warns.length > 0
+        ? "text-[10px] text-amber-700 font-medium"
+        : "text-[10px] text-emerald-700 font-medium";
+      statusEl.textContent = warns.length > 0
+        ? `⚠️ Đã điền (${dlText}${locBadge}): ${warns.join(" ")}`
+        : `✓ Đã phân tích M1: ${d.category} · P${d.priority} · Load-${d.cognitive_load} · ${dlText}${locBadge}`;
+    }
+  } catch (err) {
+    if (statusEl) {
+      statusEl.className = "text-[10px] text-rose-600 font-medium";
+      statusEl.textContent = `Lỗi phân tích M1: ${err.message}`;
     }
   }
 }
 
 async function saveStudentTask() {
   const title = document.getElementById("stInpTitle")?.value.trim() || "Bài tập mới";
-  const rawDur = parseInt(document.getElementById("stInpDuration")?.value || "60", 10);
+  const rawDur = Math.max(15, parseInt(document.getElementById("stInpDuration")?.value || "60", 10));
   const isBuffer = document.getElementById("stInpBuffer")?.checked ?? true;
   const deadlineDay = document.getElementById("stInpDeadlineDay")?.value || null;
   const deadlineTime = document.getElementById("stInpDeadlineTime")?.value || "23:59";
   const priority = parseInt(document.getElementById("stInpPriority")?.value || "3", 10);
+  const category = document.getElementById("stInpCategory")?.value || (deadlineDay ? "ASSIGNMENT" : "HABIT");
+  const cognitiveLoad = parseInt(document.getElementById("stInpCognitiveLoad")?.value || "2", 10);
   const isSplittable = document.getElementById("stInpSplittable")?.checked ?? true;
   const dependsOnStr = document.getElementById("stInpDependsOn")?.value.trim() || "";
-
-  // Compute final planned duration with buffer
-  let finalDur = rawDur;
-  if (isBuffer) {
-    finalDur = Math.ceil(Math.ceil(rawDur * 1.2) / 15) * 15;
-  }
 
   const tid = `TASK_${Date.now().toString().slice(-4)}`;
   const dependsOn = dependsOnStr ? dependsOnStr.split(",").map((s) => s.trim()).filter(Boolean) : [];
 
+  // Send raw duration_min cleanly — backend applies Planning Fallacy buffer ONCE (zero double-buffering)
   const newTask = {
     task_id: tid,
     title,
-    duration_min: finalDur,
+    duration_min: rawDur,
     deadline_day: deadlineDay,
     deadline_time: deadlineTime,
     priority,
@@ -1765,11 +2140,12 @@ async function saveStudentTask() {
     min_chunk_min: 45,
     max_chunk_min: 90,
     depends_on: dependsOn,
-    category: deadlineDay ? "DEADLINE" : "HABIT",
+    category: deadlineDay ? category : "HABIT",
+    cognitive_load: cognitiveLoad,
   };
-
-  if (isBuffer) {
-    state.taskBufferMap.set(tid, { raw_min: rawDur, buffered_min: finalDur });
+  if (!isBuffer) {
+    newTask.buffer_mode = "NONE";
+    newTask.buffer_multiplier = 1.0;
   }
 
   state.tasks.push(newTask);
@@ -1778,6 +2154,10 @@ async function saveStudentTask() {
   // Reset modal fields
   const inpT = document.getElementById("stInpTitle");
   if (inpT) inpT.value = "";
+  const inpNl = document.getElementById("stNlPrompt");
+  if (inpNl) inpNl.value = "";
+  const nlSt = document.getElementById("stNlStatus");
+  if (nlSt) nlSt.classList.add("hidden");
   const inpD = document.getElementById("stInpDuration");
   if (inpD) inpD.value = "60";
   const inpDep = document.getElementById("stInpDependsOn");
@@ -1794,7 +2174,7 @@ async function deleteStudentTask(tid) {
   await solveSchedule();
 }
 
-// Pin & Done Block Handlers
+// Pin & Done Block Handlers (with localStorage persistence + M7 feedback)
 async function togglePinBlock(blockId) {
   if (state.pinnedBlocks.has(blockId)) {
     state.pinnedBlocks.delete(blockId);
@@ -1804,6 +2184,7 @@ async function togglePinBlock(blockId) {
       state.pinnedBlocks.set(blockId, block);
     }
   }
+  savePersistedStudentState();
   await solveSchedule();
 }
 
@@ -1813,6 +2194,37 @@ function toggleDoneBlock(blockId) {
   } else {
     state.doneBlocks.add(blockId);
   }
+  savePersistedStudentState();
+  renderStudentViews();
+}
+
+async function submitBlockCheckIn(blockId) {
+  const block = (state.currentSchedule?.blocks || []).find((b) => b.block_id === blockId);
+  if (!block) return;
+  const actInp = document.getElementById("stActualMinInput");
+  const feedbackEl = document.getElementById("stCheckInFeedback");
+  const actualMin = Math.max(15, parseInt(actInp?.value || String(block.duration_min), 10));
+  state.actualDurations.set(blockId, actualMin);
+  state.doneBlocks.add(blockId);
+  savePersistedStudentState();
+
+  try {
+    const res = await fetch("/api/tasks/complete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        task_id: block.task_id,
+        estimated_min: block.duration_min,
+        actual_duration_min: actualMin,
+        completed: true,
+      }),
+    });
+    const data = await res.json();
+    if (feedbackEl) {
+      feedbackEl.classList.remove("hidden");
+      feedbackEl.textContent = `✓ Đã ghi nhận ${actualMin}p (tỷ lệ ×${data.overrun_ratio}). Gợi ý hệ số cá nhân tiếp theo: ${data.recommended_estimate_habit} (α≈${data.recommended_alpha}).`;
+    }
+  } catch (_) {}
   renderStudentViews();
 }
 
@@ -1827,6 +2239,11 @@ function openWhyHereModal(blockId) {
 
   const isPinned = state.pinnedBlocks.has(blockId);
   const isDone = state.doneBlocks.has(blockId);
+  const sleepCfg = state.commitments?.sleep_schedule || {};
+  const sleepWin = `${sleepCfg.daily_start_time || "23:30"}–${sleepCfg.daily_end_time || "06:30"}`;
+  const solverUsed = state.currentSchedule?.solver_used || "EDF";
+  const structuredReasons = Array.isArray(block.reasons) ? block.reasons : [];
+  const savedActual = state.actualDurations.get(blockId) || block.duration_min;
 
   body.innerHTML = `
     <div class="p-3 bg-indigo-50 border border-indigo-200 rounded-xl space-y-1">
@@ -1837,12 +2254,28 @@ function openWhyHereModal(blockId) {
     <div class="space-y-2 pt-1">
       <div class="font-bold text-slate-800 text-xs">Cơ sở toán học thuật toán chọn vị trí này:</div>
       <ul class="space-y-1.5 list-disc list-inside text-slate-600 text-xs">
-        <li><strong>Thuật toán:</strong> Earliest Deadline First (EDF) + First-Fit.</li>
-        <li><strong>Hạn chót:</strong> ${block.deadline_str || 'Linh hoạt'} (Độ ưu tiên: P${block.priority}).</li>
-        <li><strong>Bảo toàn ràng buộc cứng H1 & H2:</strong> Khe thời gian hoàn toàn tự do, không xâm phạm giờ ngủ (23:30–06:30) hay lớp học.</li>
-        ${block.total_chunks > 1 ? `<li><strong>Cắt nhỏ thông minh (Chunking):</strong> Được cắt thành phiên ${block.duration_min}p để vừa khe trống liên tục.</li>` : ''}
-        <li><strong>Lý do cụ thể:</strong> ${block.reason || 'Đặt vào khe trống sớm nhất khả dụng trước hạn chót.'}</li>
+        <li><strong>Thuật toán:</strong> <span class="mono">${solverUsed}</span>.</li>
+        <li><strong>Hạn chót:</strong> ${block.deadline_str || 'Linh hoạt'} (Độ ưu tiên: P${block.priority}, Load-${block.cognitive_load || 2}).</li>
+        <li><strong>Bảo toàn ràng buộc cứng H1 & H2:</strong> Không xâm phạm giờ ngủ (<span class="mono">${sleepWin}</span>) hay lớp học.</li>
+        ${block.total_chunks > 1 ? `<li><strong>Cắt nhỏ thông minh (Chunking):</strong> Chia thành phiên ${block.duration_min}p (tối đa 90p Deep Work) kèm nghỉ ngắn 15p.</li>` : ''}
+        <li><strong>Lý do tổng hợp:</strong> ${block.reason || 'Đặt vào khe tối ưu trước hạn chót.'}</li>
       </ul>
+      ${
+        structuredReasons.length > 0
+          ? `<div class="flex flex-wrap gap-1 pt-1">
+              ${structuredReasons.map((r) => `<span class="px-2 py-0.5 rounded-full bg-slate-100 border border-slate-200 text-[10px] font-semibold text-slate-700" title="${r.text || ""}">#${r.code}</span>`).join("")}
+            </div>`
+          : ""
+      }
+      <div class="mt-2 p-2.5 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5">
+        <div class="font-bold text-[11px] text-slate-700">⏱️ Ghi nhận thời gian thực tế (M7 Feedback Loop):</div>
+        <div class="flex items-center gap-2">
+          <input id="stActualMinInput" type="number" min="15" step="15" value="${savedActual}" class="w-20 px-2 py-1 text-xs rounded border border-slate-300 mono" />
+          <span class="text-[11px] text-slate-500">phút thực tế</span>
+          <button onclick="submitBlockCheckIn('${blockId}')" class="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-[11px] font-bold">Lưu & Done</button>
+        </div>
+        <div id="stCheckInFeedback" class="hidden text-[10px] text-emerald-700 font-medium"></div>
+      </div>
     </div>`;
 
   actions.innerHTML = `
@@ -1862,4 +2295,253 @@ function openWhyHereModal(blockId) {
 
 function closeWhyHereModal() {
   document.getElementById("stWhyHereModal")?.classList.add("hidden");
+}
+
+// ============================================================================
+// STUDENT SETTINGS MODAL, M5 DISRUPTION, M6 OVERLOAD PREVIEW & UNDO, DRAG/DROP
+// ============================================================================
+
+function toggleAlphaInputsInSettings() {
+  const mode = document.getElementById("stSetBufferMode")?.value || "HABIT";
+  document.getElementById("stSetHabitRow")?.classList.toggle("hidden", mode === "COGNITIVE_LOAD");
+  document.getElementById("stSetAlphaRow")?.classList.toggle("hidden", mode !== "COGNITIVE_LOAD");
+}
+
+function openStudentSettingsModal() {
+  const sleep = state.commitments?.sleep_schedule || {};
+  document.getElementById("stSetSleepStart").value = sleep.daily_start_time || "23:30";
+  document.getElementById("stSetSleepEnd").value = sleep.daily_end_time || "06:30";
+  document.getElementById("stSetFocusPref").value = state.commitments?.focus_preference || "BALANCED";
+  document.getElementById("stSetBufferMode").value = state.commitments?.buffer_mode || "HABIT";
+  document.getElementById("stSetEstimateHabit").value = state.commitments?.estimate_habit || "";
+  document.getElementById("stSetAlphaLight").value = String(state.commitments?.alpha_light ?? 1.2);
+  document.getElementById("stSetAlphaHeavy").value = String(state.commitments?.alpha_heavy ?? 1.35);
+  document.getElementById("stSetSolver").value = document.getElementById("solverSelect")?.value || "GREEDY_EDF_FIRST_FIT";
+  document.getElementById("stSetSleepWarning")?.classList.add("hidden");
+  toggleAlphaInputsInSettings();
+  document.getElementById("stSettingsModal")?.classList.remove("hidden");
+}
+
+function closeStudentSettingsModal() {
+  document.getElementById("stSettingsModal")?.classList.add("hidden");
+}
+
+async function saveStudentSettings() {
+  const sStart = document.getElementById("stSetSleepStart")?.value || "23:30";
+  const sEnd = document.getElementById("stSetSleepEnd")?.value || "06:30";
+  const [sh, sm] = sStart.split(":").map(Number);
+  const [eh, em] = sEnd.split(":").map(Number);
+  const startMin = (sh || 0) * 60 + (sm || 0);
+  const endMin = (eh || 0) * 60 + (em || 0);
+  const sleepDurMin = endMin > startMin ? endMin - startMin : (1440 - startMin + endMin);
+
+  if (sleepDurMin < 360) {
+    const warnEl = document.getElementById("stSetSleepWarning");
+    if (warnEl) {
+      warnEl.classList.remove("hidden");
+      warnEl.textContent = "⚠️ Pattern 6: Ngủ tối thiểu phải ≥ 6 tiếng/đêm. Hệ thống sẽ tự động khóa đủ 6h nếu thấp hơn.";
+    }
+  }
+
+  state.commitments.sleep_schedule = {
+    daily_start_time: sStart,
+    daily_end_time: sEnd,
+    is_hard_lock: true,
+  };
+  state.commitments.focus_preference = document.getElementById("stSetFocusPref")?.value || "BALANCED";
+  state.commitments.buffer_mode = document.getElementById("stSetBufferMode")?.value || "HABIT";
+  const habitVal = document.getElementById("stSetEstimateHabit")?.value || "";
+  if (habitVal) state.commitments.estimate_habit = habitVal;
+  else delete state.commitments.estimate_habit;
+  state.commitments.alpha_light = parseFloat(document.getElementById("stSetAlphaLight")?.value || "1.2");
+  state.commitments.alpha_heavy = parseFloat(document.getElementById("stSetAlphaHeavy")?.value || "1.35");
+
+  const solverEl = document.getElementById("solverSelect");
+  const stSolver = document.getElementById("stSetSolver")?.value;
+  if (solverEl && stSolver) solverEl.value = stSolver;
+
+  syncAllLeftPanels();
+  savePersistedStudentState();
+  closeStudentSettingsModal();
+  await solveSchedule();
+}
+
+function openStudentDisruptionModal() {
+  document.getElementById("stDisruptionModal")?.classList.remove("hidden");
+}
+
+function closeStudentDisruptionModal() {
+  document.getElementById("stDisruptionModal")?.classList.add("hidden");
+}
+
+async function applyStudentDisruption() {
+  if (!state.currentSchedule) return;
+  state.undoSnapshot = {
+    commitments: JSON.parse(JSON.stringify(state.commitments)),
+    tasks: JSON.parse(JSON.stringify(state.tasks)),
+    schedule: JSON.parse(JSON.stringify(state.currentSchedule)),
+    pinnedBlocks: new Map(state.pinnedBlocks),
+  };
+
+  const title = document.getElementById("stDisTitle")?.value.trim() || "Sự cố đột xuất";
+  const day = document.getElementById("stDisDay")?.value || "Monday";
+  const start = document.getElementById("stDisStart")?.value || "08:00";
+  const end = document.getElementById("stDisEnd")?.value || "10:00";
+  const algorithm = document.getElementById("solverSelect")?.value || "GREEDY_EDF_FIRST_FIT";
+
+  const eventId = `DIS_${Date.now().toString().slice(-4)}`;
+
+  try {
+    const res = await fetch("/api/repair", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        commitments: state.commitments,
+        tasks: state.tasks,
+        algorithm,
+        schedule: state.currentSchedule,
+        mode: "LOCAL_INSERTION",
+        disruption: {
+          event_id: eventId,
+          title,
+          day_of_week: day,
+          start_time: start,
+          end_time: end,
+        },
+      }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const rep = await res.json();
+    state.commitments.fixed_events = state.commitments.fixed_events || [];
+    state.commitments.fixed_events.push({
+      event_id: eventId,
+      title,
+      day_of_week: day,
+      start_time: start,
+      end_time: end,
+      category: "DISRUPTION",
+      is_movable: false,
+    });
+    state.currentSchedule = rep.schedule;
+    state.repairedMovedIds = new Set((rep.changes || []).filter((c) => c.status === "MOVED").map((c) => c.block_id));
+    closeStudentDisruptionModal();
+    syncAllLeftPanels();
+    renderKpiCards(state.currentSchedule);
+    renderMainGrid();
+    renderStudentViews();
+  } catch (err) {
+    alert(`Lỗi tái lập lịch M5: ${err.message}`);
+  }
+}
+
+async function previewStudentOverloadOption(optionId, optionCode, targetTaskId) {
+  const algorithm = document.getElementById("solverSelect")?.value || "GREEDY_EDF_FIRST_FIT";
+  try {
+    const res = await fetch("/api/overload/preview", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        commitments: state.commitments,
+        tasks: state.tasks,
+        algorithm,
+        option_id: optionId,
+        option_code: optionCode,
+        target_task_id: targetTaskId,
+        schedule: state.currentSchedule,
+      }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const prev = await res.json();
+
+    state.undoSnapshot = {
+      commitments: JSON.parse(JSON.stringify(state.commitments)),
+      tasks: JSON.parse(JSON.stringify(state.tasks)),
+      schedule: JSON.parse(JSON.stringify(state.currentSchedule)),
+      pinnedBlocks: new Map(state.pinnedBlocks),
+    };
+    state.previewState = {
+      option_id: prev.option_id,
+      option_code: prev.option_code,
+      target_task_id: prev.target_task_id,
+      resolved_tasks: prev.resolved_tasks,
+      after_summary: prev.after_summary,
+    };
+    if (prev.schedule) {
+      state.currentSchedule = prev.schedule;
+    }
+    renderKpiCards(state.currentSchedule);
+    renderMainGrid();
+    renderStudentViews();
+  } catch (err) {
+    alert(`Không thể xem trước phương án: ${err.message}`);
+  }
+}
+
+async function applyStudentOverloadPreview() {
+  if (!state.previewState) return;
+  if (Array.isArray(state.previewState.resolved_tasks)) {
+    state.tasks = state.previewState.resolved_tasks;
+  }
+  state.previewState = null;
+  syncAllLeftPanels();
+  await solveSchedule();
+}
+
+function undoStudentChange() {
+  if (!state.undoSnapshot) return;
+  state.commitments = state.undoSnapshot.commitments;
+  state.tasks = state.undoSnapshot.tasks;
+  state.currentSchedule = state.undoSnapshot.schedule;
+  state.pinnedBlocks = state.undoSnapshot.pinnedBlocks || new Map();
+  state.undoSnapshot = null;
+  state.previewState = null;
+  state.repairedMovedIds.clear();
+  syncAllLeftPanels();
+  renderKpiCards(state.currentSchedule);
+  renderMainGrid();
+  renderStudentViews();
+}
+
+let draggedBlockId = null;
+function handleGridDragStart(event, blockId) {
+  draggedBlockId = blockId;
+  event.dataTransfer?.setData("text/plain", blockId);
+}
+
+async function handleGridDrop(event, dayIdx, newTime) {
+  event.preventDefault();
+  const blockId = draggedBlockId || event.dataTransfer?.getData("text/plain");
+  draggedBlockId = null;
+  if (!blockId || !state.currentSchedule) return;
+
+  const newDay = DAYS_EN[dayIdx];
+  const algorithm = document.getElementById("solverSelect")?.value || "GREEDY_EDF_FIRST_FIT";
+  try {
+    const res = await fetch("/api/validate-move", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        commitments: state.commitments,
+        tasks: state.tasks,
+        algorithm,
+        blocks: state.currentSchedule.blocks || [],
+        current_blocks: state.currentSchedule.blocks || [],
+        block_id: blockId,
+        new_day: newDay,
+        new_time: newTime,
+      }),
+    });
+    const val = await res.json();
+    if (!val.ok) {
+      alert(`❌ Không thể kéo block sang ${newDay} ${newTime}:\n` + (val.violations || []).map((v) => `• ${v.message}`).join("\n"));
+      return;
+    }
+    if (val.proposed_block) {
+      state.pinnedBlocks.set(blockId, val.proposed_block);
+      savePersistedStudentState();
+      await solveSchedule();
+    }
+  } catch (err) {
+    console.error("Drag/drop validate error:", err);
+  }
 }

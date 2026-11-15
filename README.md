@@ -3,7 +3,7 @@
 
 > **Môn học:** Tư duy Tính toán (CS252) — Khoa Công nghệ Thông tin, Trường Đại học Khoa học Tự nhiên, ĐHQG-HCM (FIT-HCMUS)  
 > **Nhóm thực hiện:** Group 03 (*The Seven Dwarfs*)  
-> **Phiên bản:** Baseline System (V0) + Week 4 Extended Features (Dual-Mode UI, Planning Fallacy Buffer, Verification Test Studio)
+> **Phiên bản:** Baseline System (V0) + Proposal & Presentation2 Sync (8 Behavioral Patterns, `SCORED_GREEDY`, Dual-Mode UI, M1 Dual-Engine Gemini/Offline NL Parser, Overload Triage, 125 Automated Tests)
 
 ---
 
@@ -31,10 +31,13 @@ Hệ thống mô hình hóa tuần lễ sinh viên thành một **Lưới rời 
 Computational-Thinking---Group-Project/
 ├── README.md                              # Tài liệu tổng quan dự án (file này)
 │
-├── Proposal/                              # Hồ sơ đề xuất dự án ban đầu
+├── Proposal/                              # Hồ sơ đề xuất & tài liệu đồng bộ dự án
 │   ├── Proposal_Report.pdf                # Báo cáo đề xuất hoàn chỉnh (45 trang)
 │   ├── Presentation.pdf                   # Slide báo cáo đề xuất (53 trang)
-│   └── Task_Assignment.md                 # Bảng phân công công việc thành viên
+│   ├── Presentation2.pdf                  # Slide trình bày tham số & 8 Behavioral Patterns (18 trang)
+│   ├── Sync_Audit_And_Fix_Guide.md        # Bản kiểm toán đối chiếu mã nguồn với Presentation2
+│   ├── Open_Decisions_For_Team.md         # Danh sách Q1–Q10 cần nhóm thảo luận & biểu quyết
+│   └── Sync_Completion_Report.md          # Báo cáo kết quả đồng bộ & các điểm tồn đọng
 │
 ├── Baseline_Plan/                         # Đặc tả kỹ thuật hệ sinh thái Baseline (V0)
 │   └── baseline_plan.md                   # Đặc tả toán học, 672 slots, 5 ràng buộc cứng H1-H5
@@ -44,16 +47,18 @@ Computational-Thinking---Group-Project/
 │   └── improve_plan_summary.pdf           # Bản tóm tắt cải tiến hệ thống
 │
 ├── group03-smartschedule-baseline/         # ⭐ MÃ NGUỒN CHÍNH THỨC CỦA HỆ THỐNG
-│   ├── README.md                          # Sổ tay kỹ thuật chi tiết hướng dẫn chạy & REST API
-│   ├── requirements.txt                   # Danh sách thư viện Python phụ thuộc
+│   ├── README.md                          # Sổ tay kỹ thuật chi tiết hướng dẫn cài đặt, Gemini .env, chạy & REST API
+│   ├── requirements.txt                   # Danh sách thư viện Python (FastAPI, Pydantic, Pytest, google-genai, dotenv...)
+│   ├── .env.example                       # Mẫu cấu hình API Key Google Gemini (copy thành .env cục bộ, đã ignore trên Git)
+│   ├── setup_env.bat                      # Script 1-click tạo .venv và cài thư viện trên Windows
 │   ├── run_app.bat                        # File khởi chạy nhanh Web Workbench (1-click)
-│   ├── run_tests.bat                      # File khởi chạy nhanh toàn bộ Test Suite (1-click)
 │   ├── main.py                            # CLI Runner cho lập lịch nhanh
 │   ├── benchmark_runner.py                # Runner thực nghiệm tự động 10 kịch bản T01–T10
-│   ├── src/                               # Động cơ cốt lõi (TimeGrid, Solvers, Buffer, Metrics)
+│   ├── benchmark_alpha_grid.py            # Grid Search 1D cho α ∈ [1.00, 1.60] & stress test +25%/+50%
+│   ├── src/                               # Động cơ cốt lõi (TimeGrid, Solvers, Buffer, OverloadTriage, NL Parser, Metrics)
 │   ├── web/                               # Giao diện Web Workbench Dual-Mode (HTML5/Tailwind/FastAPI)
 │   ├── data/                              # Dữ liệu tuần mẫu (Minh, Lan) & 10 kịch bản T01–T10
-│   └── verification_tests/                # Hệ thống kiểm thử chuyên sâu 89 tests & Test Studio
+│   └── verification_tests/                # Hệ thống kiểm thử chuyên sâu 125 tests & Test Studio
 │
 ├── agents/                                # 🤖 AI AGENT & DEVELOPER KNOWLEDGE HUB (English)
 │   ├── requirements.md                    # Môi trường, dependency và kiến trúc bất biến (INV-1..6)
@@ -89,8 +94,8 @@ Computational-Thinking---Group-Project/
    - Tự động áp dụng hệ số an toàn $1.25\times$ cho các tác vụ lớn, làm tròn số nguyên theo bước 15 phút.
    - Bảo toàn nguyên vẹn thời lượng các tác vụ ngắn $\le 15$ phút, chống lãng phí thời gian biểu.
 
-5. **Hệ Thống Kiểm Thử 89 Tests & Test Studio:**
-   - 84 bài kiểm thử vận hành đạt chuẩn (Pass 100%), bao phủ tính toàn vẹn kiến trúc, tính logic, và giao diện.
+5. **Hệ Thống Kiểm Thử 125 Tests & Test Studio:**
+   - `119` bài kiểm thử vận hành đạt chuẩn (`--pass`, Pass 100%) + `5/5` bài kiểm thử mục tiêu Improve Plan (`--gaps`, Pass 100%), cộng `1` ca giới hạn Sprint Mode mở (`--all`: `124/125` pass, gắn với quyết định `Q9`).
    - Giao diện **Test Studio** và công cụ **Interpretable Console Runner** xuất báo cáo trực quan cho từng commit.
 
 ---
@@ -98,18 +103,40 @@ Computational-Thinking---Group-Project/
 ## 🚀 Hướng Dẫn Cài Đặt & Khởi Chạy Nhanh
 
 ### 1. Yêu Cầu Tiên Quyết
-- **Python:** Phiên bản 3.10 trở lên.
+- **Python:** Phiên bản 3.10 trở lên (đã kiểm thử trên Python 3.12).
 - **Hệ điều hành:** Windows 10/11, macOS, hoặc Linux.
 
 ### 2. Cài Đặt Môi Trường
-Mở terminal tại thư mục gốc và di chuyển vào thư mục ứng dụng:
-```powershell
-cd group03-smartschedule-baseline
-pip install -r requirements.txt
-```
+- **Cách 1 (Tự động tạo `.venv` trên Windows):** Chạy [`group03-smartschedule-baseline/setup_env.bat`](group03-smartschedule-baseline/setup_env.bat):
+  ```powershell
+  cd group03-smartschedule-baseline
+  .\setup_env.bat
+  ```
+  > *Lưu ý:* `run_app.bat`, `run_verification_tests.bat` và `run_test_studio.bat` gọi `python` trực tiếp chưa tự activate `.venv`, nên nếu cài bằng `setup_env.bat` hãy kích hoạt `.venv\Scripts\Activate.ps1` (PowerShell) trước khi chạy `.bat` hoặc CLI.
+- **Cách 2 (Cài thủ công vào venv hoặc Python hiện hành):**
+  ```powershell
+  cd group03-smartschedule-baseline
+  pip install -r requirements.txt
+  ```
 
-### 3. Khởi Chạy Giao Diện Web Workbench
-- **Cách 1 (1-Click trên Windows):** Nhấp đúp vào file [`group03-smartschedule-baseline/run_app.bat`](group03-smartschedule-baseline/run_app.bat).
+### 3. Cấu Hình API Key Google Gemini (Cho M1 Hybrid NL Parser — Tùy Chọn)
+Hệ thống vẫn chạy **100% offline** nếu không có key (chế độ `⚡ Offline` mặc định fallback tự động). Để bật AI Gemini cho ô **`✨ Nhập tự nhiên`** trong Student Modal:
+1. Lấy API key miễn phí tại Google AI Studio (`https://aistudio.google.com/apikey`).
+2. Tạo file `.env` trong `group03-smartschedule-baseline/` từ mẫu [`.env.example`](group03-smartschedule-baseline/.env.example):
+   ```powershell
+   cd group03-smartschedule-baseline
+   Copy-Item .env.example .env
+   ```
+3. Dán key vào `group03-smartschedule-baseline/.env` (file `.gitignore` đã chặn `.env` để không bao giờ lộ key lên Git):
+   ```dotenv
+   GEMINI_API_KEY=AIzaSy...key_cua_ban...
+   NL_PARSER_ENGINE=auto
+   GEMINI_MODEL=gemini-3-flash-preview
+   ```
+   *(Xem thêm lưu ý chọn model và cách kiểm tra trên UI tại [`group03-smartschedule-baseline/README.md`](group03-smartschedule-baseline/README.md#bước-2-cách-lấy--cấu-hình-google-gemini-api-key-env-cho-m1-hybrid-nl-parser).)*
+
+### 4. Khởi Chạy Giao Diện Web Workbench
+- **Cách 1 (1-Click trên Windows — khi dùng Python global hoặc đã activate `.venv`):** Nhấp đúp vào file [`group03-smartschedule-baseline/run_app.bat`](group03-smartschedule-baseline/run_app.bat).
 - **Cách 2 (Dòng lệnh):**
   ```powershell
   cd group03-smartschedule-baseline
@@ -117,26 +144,32 @@ pip install -r requirements.txt
   ```
 👉 Truy cập trình duyệt tại địa chỉ: **`http://127.0.0.1:8000`**
 
-### 4. Chạy Kiểm Thử Toàn Diện (Verification Tests & Studio)
-- **Chạy toàn bộ 84 bài kiểm thử vận hành:**
+### 5. Chạy Kiểm Thử Toàn Diện (Verification Tests & Studio)
+- **Chạy toàn bộ 119 bài kiểm thử vận hành (`--pass`):**
   ```powershell
   cd group03-smartschedule-baseline
-  python verification_tests/clean_runner.py --pass
+  python -B verification_tests/clean_runner.py --pass
   ```
-- **Kiểm tra các kịch bản đang mở rộng (Gap Analysis):**
+- **Kiểm tra 5 bài mục tiêu Improve Plan (`--gaps`):**
   ```powershell
   cd group03-smartschedule-baseline
-  python verification_tests/clean_runner.py --gaps
+  python -B verification_tests/clean_runner.py --gaps
+  ```
+- **Chạy đầy đủ cả 125 tests (`--all` — `124 Passed | 1 Failed` ca Sprint Mode `Q9`):**
+  ```powershell
+  cd group03-smartschedule-baseline
+  python -B verification_tests/clean_runner.py --all
   ```
 - **Khởi chạy Test Studio trực quan:**
   ```powershell
   cd group03-smartschedule-baseline
   python verification_tests/test_studio.py
   ```
-- **Chạy thực nghiệm Benchmark 10 kịch bản chuẩn (T01–T10):**
+- **Chạy thực nghiệm Benchmark 10 kịch bản chuẩn (`T01–T10`) & Grid Search `α`:**
   ```powershell
   cd group03-smartschedule-baseline
   python benchmark_runner.py
+  python benchmark_alpha_grid.py --save-json
   ```
 
 ---

@@ -33,6 +33,7 @@ def test_fail_circadian_energy_matching():
         planning_week_start="2026-11-02T00:00:00+07:00",
         sleep_schedule=SleepSchedule(daily_start_time="23:30", daily_end_time="06:30"),
         fixed_events=[],
+        focus_preference="EVENING",
     )
     deep_task = Task(
         task_id="T_DEEP_ESSAY",
@@ -41,6 +42,7 @@ def test_fail_circadian_energy_matching():
         deadline_day="Wednesday",
         deadline_time="23:59",
         priority=4,
+        cognitive_load=3,
     )
 
     out, _ = ScheduleController.solve_schedule(profile, [deep_task], algorithm="EDF")

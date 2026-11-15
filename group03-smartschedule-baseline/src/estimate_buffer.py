@@ -8,8 +8,10 @@ Pure functions only (Layer 1): no imports from web, fastapi, controller or solve
 All arithmetic is done on integers so results are deterministic on every platform.
 """
 
+import math
 from typing import Any, Dict, Optional
 
+from src.config import ALPHA_HEAVY_DEFAULT, ALPHA_LIGHT_DEFAULT
 from src.utils import MINUTES_PER_SLOT, round_up_to_15
 
 ESTIMATE_HABITS = ("RARELY", "SOMETIMES", "OFTEN")
@@ -79,3 +81,48 @@ def buffer_reason(estimate_min: int, planned_min: int, multiplier: float, habit:
         "multiplier": float(multiplier),
         "text": f"Dự trù {planned_min}p cho ước lượng {estimate_min}p (×{multiplier:g}){suffix}",
     }
+
+
+def multiplier_for_load(
+    cognitive_load: Optional[int],
+    alpha_light: float = ALPHA_LIGHT_DEFAULT,
+    alpha_heavy: float = ALPHA_HEAVY_DEFAULT,
+) -> float:
+    """
+    Proposal / Presentation2 Pattern 1 α scaling by cognitive load:
+      - load == 3 (Heavy / Deep Work) -> α_heavy (1.35)
+      - load in {1, 2, None} (Light / Medium) -> α_light (1.20)
+    """
+    if cognitive_load is not None and int(cognitive_load) >= 3:
+        return float(alpha_heavy)
+    return float(alpha_light)
+
+
+def planned_duration_roundup_15(estimate_min: int, multiplier: float = 1.0) -> int:
+    """
+    Presentation2 Slide 7 & Slide 17 exact formula:
+      Planned_Duration = RoundUp_15(Estimated_Duration * α)
+    """
+    estimate = int(estimate_min)
+    if estimate <= 0:
+        return 0
+    raw_scaled = int(math.ceil(estimate * float(multiplier) - 1e-9))
+    return max(round_up_to_15(estimate), round_up_to_15(raw_scaled))
+
+
+def planned_duration_for_task_mode(
+    estimate_min: int,
+    buffer_multiplier: float = 1.0,
+    cognitive_load: Optional[int] = None,
+    buffer_mode: str = "HABIT",
+    alpha_light: float = ALPHA_LIGHT_DEFAULT,
+    alpha_heavy: float = ALPHA_HEAVY_DEFAULT,
+) -> int:
+    """Dispatch planned duration cleanly between Feature 001 (HABIT), Presentation2 (COGNITIVE_LOAD), and NONE (opt-out)."""
+    mode = (buffer_mode or "HABIT").strip().upper()
+    if mode in ("NONE", "OFF", "DISABLED", "NO_BUFFER"):
+        return round_up_to_15(int(estimate_min))
+    if mode == "COGNITIVE_LOAD":
+        alpha = multiplier_for_load(cognitive_load, alpha_light=alpha_light, alpha_heavy=alpha_heavy)
+        return planned_duration_roundup_15(estimate_min, alpha)
+    return planned_duration_min(estimate_min, buffer_multiplier)

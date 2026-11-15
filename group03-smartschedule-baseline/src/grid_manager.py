@@ -12,7 +12,13 @@ Enforces Hard Constraints H1-H5:
 from copy import deepcopy
 from typing import Dict, List, Optional, Tuple, Union
 
-from src.models import CommitmentsProfile, FixedEvent, SleepSchedule
+from src.config import (
+    DEAD_ZONE_MAX_SLOTS,
+    MANDATORY_REST_SLOTS,
+    MIN_SLEEP_HOURS,
+    MIN_SLEEP_SLOTS,
+)
+from src.models import CircadianEnergyProfile, CommitmentsProfile, FixedEvent, SleepSchedule
 from src.utils import (
     DAYS_OF_WEEK,
     DAYS_PER_WEEK,
@@ -25,21 +31,24 @@ from src.utils import (
 
 
 class TimeGridManager:
-    """Manages the 672-slot weekly discrete time grid and hard constraint checks."""
+    """Manages the discrete weekly time grid (672 or 1344 slots) and hard constraint checks."""
 
     STATE_FREE = "FREE"
     STATE_SLEEP = "SLEEP"
     STATE_OCCUPIED = "OCCUPIED"
     STATE_BLOCK = "BLOCK"
+    STATE_REST = "REST"
 
     def __init__(self, total_slots: int = SLOTS_PER_WEEK):
         self.total_slots: int = total_slots
-        # Raw state per slot: "FREE", "SLEEP", "OCCUPIED:<event_id>", or "BLOCK:<task_id>"
+        # Raw state per slot: "FREE", "SLEEP", "REST[:...]", "OCCUPIED:<event_id>", or "BLOCK:<task_id>"
         self.grid: List[str] = [self.STATE_FREE] * total_slots
         # Human-readable label per slot (for UI tooltips and inspection)
         self.labels: List[str] = [""] * total_slots
         # Snapshot of baseline immutable states (SLEEP and OCCUPIED) for violation auditing
         self._locked_mask: List[str] = [self.STATE_FREE] * total_slots
+        self.sleep_warnings: List[str] = []
+        self.energy_profile: CircadianEnergyProfile = CircadianEnergyProfile.from_preference(None)
 
     def clone(self) -> "TimeGridManager":
         """Create a fast deep copy of the current grid state (used in Backtracking & Repair trials)."""
@@ -47,6 +56,8 @@ class TimeGridManager:
         copied.grid = list(self.grid)
         copied.labels = list(self.labels)
         copied._locked_mask = list(self._locked_mask)
+        copied.sleep_warnings = list(self.sleep_warnings)
+        copied.energy_profile = self.energy_profile
         return copied
 
     def initialize_from_profile(self, profile: CommitmentsProfile) -> None:
@@ -54,9 +65,16 @@ class TimeGridManager:
         self.grid = [self.STATE_FREE] * self.total_slots
         self.labels = [""] * self.total_slots
         self._locked_mask = [self.STATE_FREE] * self.total_slots
+        self.sleep_warnings = []
+        self.energy_profile = profile.get_energy_profile()
 
-        if profile.sleep_schedule and profile.sleep_schedule.is_hard_lock:
-            self.lock_sleep_schedule(profile.sleep_schedule)
+        # Pattern 6 (A8, A11): Always enforce protected biological sleep (>= 6h/night)
+        sleep_cfg = profile.sleep_schedule or SleepSchedule()
+        if not sleep_cfg.is_hard_lock:
+            self.sleep_warnings.append(
+                f"Pattern 6: Protected sleep (>={MIN_SLEEP_HOURS}h/night) enforced even though is_hard_lock=False."
+            )
+        self.lock_sleep_schedule(sleep_cfg)
 
         for event in profile.fixed_events:
             self.lock_fixed_event(event)
@@ -64,61 +82,80 @@ class TimeGridManager:
     def lock_sleep_schedule(self, sleep: SleepSchedule) -> None:
         """
         Lock nightly sleep slots across all days in the grid.
-        Example: 23:30 to 06:30 locks [00:00..06:30) and [23:30..24:00) on each day (28 slots/day = 196 slots/week).
+        Enforces Pattern 6 (>= MIN_SLEEP_HOURS = 6h / 24 slots per night).
         """
         start_offset = parse_time_to_slot_offset(sleep.daily_start_time, is_end_or_deadline=False)
         end_offset = parse_time_to_slot_offset(sleep.daily_end_time, is_end_or_deadline=True)
 
+        if start_offset > end_offset:
+            offsets = list(range(start_offset, SLOTS_PER_DAY)) + list(range(0, end_offset))
+        elif start_offset < end_offset:
+            offsets = list(range(start_offset, end_offset))
+        else:
+            offsets = []
+
+        label = f"Sleep ({sleep.daily_start_time}–{sleep.daily_end_time})"
+        if len(offsets) < MIN_SLEEP_SLOTS:
+            orig_hours = (len(offsets) * MINUTES_PER_SLOT) / 60.0
+            self.sleep_warnings.append(
+                f"Pattern 6: Configured sleep ({orig_hours:.1f}h) is below {MIN_SLEEP_HOURS}h minimum; "
+                f"protected sleep extended to {MIN_SLEEP_HOURS}h ({MIN_SLEEP_SLOTS} slots) per night."
+            )
+            if not offsets:
+                offsets = list(range(0, MIN_SLEEP_SLOTS))
+            else:
+                needed = MIN_SLEEP_SLOTS - len(offsets)
+                first_offset = offsets[0]
+                extra = [((first_offset - i) % SLOTS_PER_DAY) for i in range(1, needed + 1)]
+                offsets = sorted(set(offsets + extra))
+            label = f"Protected Sleep (>={MIN_SLEEP_HOURS}h)"
+
         num_days = self.total_slots // SLOTS_PER_DAY
         for day_idx in range(num_days):
             day_base = day_idx * SLOTS_PER_DAY
-            if start_offset > end_offset:
-                # Crosses midnight: [0, end_offset) and [start_offset, 96)
-                for offset in range(0, end_offset):
-                    idx = day_base + offset
+            for offset in offsets:
+                idx = day_base + offset
+                if 0 <= idx < self.total_slots:
                     self.grid[idx] = self.STATE_SLEEP
                     self._locked_mask[idx] = self.STATE_SLEEP
-                    self.labels[idx] = f"Sleep ({sleep.daily_start_time}–{sleep.daily_end_time})"
-                for offset in range(start_offset, SLOTS_PER_DAY):
-                    idx = day_base + offset
-                    self.grid[idx] = self.STATE_SLEEP
-                    self._locked_mask[idx] = self.STATE_SLEEP
-                    self.labels[idx] = f"Sleep ({sleep.daily_start_time}–{sleep.daily_end_time})"
-            elif start_offset < end_offset:
-                # Within same day: [start_offset, end_offset)
-                for offset in range(start_offset, end_offset):
-                    idx = day_base + offset
-                    self.grid[idx] = self.STATE_SLEEP
-                    self._locked_mask[idx] = self.STATE_SLEEP
-                    self.labels[idx] = f"Sleep ({sleep.daily_start_time}–{sleep.daily_end_time})"
+                    self.labels[idx] = label
 
     def lock_fixed_event(self, event: FixedEvent) -> None:
         """
         Lock slots for a fixed commitment (class, meal, work shift, meeting).
+        A11: Supports overnight events (end_offset < start_offset wrapping to next day).
         Note: SLEEP always takes precedence if a fixed event overlaps sleep.
         """
         start_offset = parse_time_to_slot_offset(event.start_time, is_end_or_deadline=False)
         end_offset = parse_time_to_slot_offset(event.end_time, is_end_or_deadline=True)
-        if end_offset <= start_offset:
+        if end_offset == start_offset:
             raise ValueError(
-                f"Invalid fixed event '{event.event_id}': end_time ({event.end_time}) must be after start_time ({event.start_time})."
+                f"Invalid fixed event '{event.event_id}': end_time ({event.end_time}) must differ from start_time ({event.start_time})."
             )
 
         day_indices = self._resolve_event_days(event.day_of_week)
         state_tag = f"{self.STATE_OCCUPIED}:{event.event_id}"
+        label = f"{event.title} ({event.start_time}–{event.end_time})"
 
         for day_idx in day_indices:
             if day_idx * SLOTS_PER_DAY >= self.total_slots:
                 continue
             day_base = day_idx * SLOTS_PER_DAY
-            for offset in range(start_offset, end_offset):
-                idx = day_base + offset
-                if 0 <= idx < self.total_slots:
-                    # Preserve SLEEP if already marked SLEEP
-                    if self.grid[idx] != self.STATE_SLEEP:
+            if end_offset > start_offset:
+                slot_ranges = [range(day_base + start_offset, day_base + end_offset)]
+            else:
+                # Overnight fixed shift: rest of today + early morning of next day
+                next_day_base = (day_idx + 1) * SLOTS_PER_DAY
+                slot_ranges = [
+                    range(day_base + start_offset, day_base + SLOTS_PER_DAY),
+                    range(next_day_base, min(self.total_slots, next_day_base + end_offset)),
+                ]
+            for s_range in slot_ranges:
+                for idx in s_range:
+                    if 0 <= idx < self.total_slots and self.grid[idx] != self.STATE_SLEEP:
                         self.grid[idx] = state_tag
                         self._locked_mask[idx] = state_tag
-                        self.labels[idx] = f"{event.title} ({event.start_time}–{event.end_time})"
+                        self.labels[idx] = label
 
     def _resolve_event_days(self, day_spec: Union[str, List[str]]) -> List[int]:
         """Resolve 'ALL', single weekday name, or list of weekday names into day indices."""
@@ -241,6 +278,70 @@ class TimeGridManager:
 
         return violations
 
+    def get_slot_energy_level(
+        self,
+        slot_idx: int,
+        energy_profile: Optional[CircadianEnergyProfile] = None,
+    ) -> int:
+        """Pattern 3: Return student's circadian energy level (1=Low, 2=Med, 3=Peak) at slot_idx."""
+        prof = energy_profile or self.energy_profile
+        return prof.level_for_slot(slot_idx)
+
+    def mark_dead_zones_as_rest(
+        self,
+        max_gap_slots: int = DEAD_ZONE_MAX_SLOTS,
+        up_to: Optional[int] = None,
+    ) -> int:
+        """
+        Pattern 5: Pre-mark isolated free gaps < 30 minutes (<= 1 slot) as STATE_REST (Active Rest).
+        Does not touch _locked_mask so Tier 1 Sprint / Crunch mode can still clear if needed.
+        Returns number of slots converted to REST.
+        """
+        marked = 0
+        for run_start, run_len in self.get_free_intervals(start_from=0, up_to=up_to):
+            if run_len <= max_gap_slots:
+                for s in range(run_start, run_start + run_len):
+                    self.grid[s] = f"{self.STATE_REST}:DEAD_ZONE"
+                    self.labels[s] = "Active Rest (Dead-zone <30m)"
+                    marked += 1
+        return marked
+
+    def reserve_rest_break(
+        self,
+        end_slot: int,
+        break_slots: int = MANDATORY_REST_SLOTS,
+        task_id: str = "",
+    ) -> int:
+        """
+        Pattern 2: Reserve mandatory 15-min rest break (STATE_REST) immediately after a deep work block.
+        Only claims currently FREE slots so existing SLEEP/OCCUPIED/BLOCK transitions remain intact.
+        """
+        if break_slots <= 0:
+            return 0
+        reserved = 0
+        limit = min(self.total_slots, end_slot + break_slots)
+        tag = f"{self.STATE_REST}:BREAK:{task_id}" if task_id else f"{self.STATE_REST}:BREAK"
+        for s in range(max(0, end_slot), limit):
+            if self.grid[s] == self.STATE_FREE:
+                self.grid[s] = tag
+                self.labels[s] = "Active Rest Break (15m recovery)"
+                reserved += 1
+        return reserved
+
+    def clear_rest_slots(self, kind_prefix: Optional[str] = None) -> int:
+        """
+        Reset REST slots back to FREE (preserving hard-locked SLEEP/OCCUPIED).
+        Used by Tier 1 Sprint / Crunch relaxation ('Cut breaks') when deadline capacity is tight.
+        """
+        prefix = f"{self.STATE_REST}:{kind_prefix}" if kind_prefix else self.STATE_REST
+        cleared = 0
+        for s in range(self.total_slots):
+            if self.grid[s].startswith(prefix) and self._locked_mask[s] == self.STATE_FREE:
+                self.grid[s] = self.STATE_FREE
+                self.labels[s] = ""
+                cleared += 1
+        return cleared
+
     def place_block(self, start_slot: int, length_slots: int, task_id: str, title: str = "") -> None:
         """Mark [start_slot, start_slot + length_slots) as BLOCK:<task_id>."""
         if not self.is_range_free(start_slot, length_slots):
@@ -289,9 +390,9 @@ class TimeGridManager:
         return sum(1 for s in range(lo, limit) if self.grid[s] == self.STATE_FREE)
 
     def get_slot_counts(self, up_to: int = SLOTS_PER_WEEK) -> Dict[str, int]:
-        """Count SLEEP, OCCUPIED, BLOCK, and FREE slots in the primary 672-slot week."""
+        """Count SLEEP, OCCUPIED, BLOCK, REST, and FREE slots in the target horizon."""
         limit = min(self.total_slots, up_to)
-        counts = {"SLEEP": 0, "OCCUPIED": 0, "BLOCK": 0, "FREE": 0}
+        counts = {"SLEEP": 0, "OCCUPIED": 0, "BLOCK": 0, "REST": 0, "FREE": 0}
         for s in range(limit):
             st = self.grid[s]
             if st == self.STATE_SLEEP:
@@ -300,6 +401,8 @@ class TimeGridManager:
                 counts["OCCUPIED"] += 1
             elif st.startswith(self.STATE_BLOCK):
                 counts["BLOCK"] += 1
+            elif st.startswith(self.STATE_REST):
+                counts["REST"] += 1
             else:
                 counts["FREE"] += 1
         return counts

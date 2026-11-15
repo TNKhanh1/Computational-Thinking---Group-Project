@@ -52,7 +52,7 @@ python-dateutil>=2.8.2
 #### 2. `uvicorn>=0.23.0`
 - **Purpose:** Lightning-fast ASGI (Asynchronous Server Gateway Interface) web server implementation for Python.
 - **Architectural Scope:** **Layer 4: Server Runtime** (`web/` and CLI startup scripts).
-- **Used For:** Hosting the FastAPI web application and serving the static Technical Workbench (`web/static/`).
+- **Used For:** Hosting the FastAPI web application and serving the Dual-Mode Web Workbench (`web/index.html`, `web/app.js`).
 - **Standard Command:** `uvicorn web.api:app --host 127.0.0.1 --port 8000`.
 
 #### 3. `pydantic>=2.0.0`
@@ -67,7 +67,7 @@ python-dateutil>=2.8.2
 - **Purpose:** Scalable testing framework for unit, integration, invariant, and benchmark testing.
 - **Architectural Scope:** **Layer 5: Verification Infrastructure** (`verification_tests/`).
 - **Used For:**
-  - Running the 56 automated verification tests across `ui_tests/`, `architecture_tests/`, `logical_tests/`, `benchmark_tests/`, and `development_gap_tests/`.
+  - Running 113 automated verification tests (`107` `--pass` operational + `5` `--gaps` Improve Plan + `1` open Sprint-Mode baseline gap) across `ui_tests/`, `architecture_tests/`, `logical_tests/`, `benchmark_tests/`, and `development_gap_tests/`.
   - Driven cleanly via `verification_tests/clean_runner.py` with custom plugin hooks (`InterpretableConsolePlugin`).
 
 #### 5. `httpx>=0.24.0`
