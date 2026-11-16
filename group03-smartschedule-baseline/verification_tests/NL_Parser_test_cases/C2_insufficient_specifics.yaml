@@ -1,0 +1,865 @@
+# Category C2 — Insufficient Specifics About the Work (18 cases, 15% of dataset)
+# Prompts that pass basic temporal/duration syntax but lack concrete specifics on what work to perform.
+# Reference clock: 2026-11-06T09:00 (Friday)
+
+cases:
+- id: C2-01
+  domain: office
+  group: C2.1 Unresolved pronouns & references
+  covers:
+  - dangling_pronoun_it
+  - vague_task
+  input:
+    prompt: Finish it by tomorrow at 18:00, takes 60 minutes.
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Finish unspecified task ("it")
+    total_work_minutes: 60
+    deadline: 2026-11-07T18:00
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    warnings:
+    - W_UNRESOLVED_REFERENCE
+    - W_VAGUE_TASK
+    suggestions:
+    - Replace 'it' with the specific deliverable name (e.g., 'Finish Q4 budget spreadsheet').
+  rationale: Temporal and duration syntax are clear (60m, tomorrow 18:00), but 'it' is an unresolved pronoun.
+- id: C2-02
+  domain: office
+  group: C2.1 Unresolved pronouns & references
+  covers:
+  - unspecified_meeting_prep
+  - unresolved_reference
+  input:
+    prompt: Prepare for the meeting on Monday, takes 45 minutes.
+    ui:
+      session: single
+      pacing: BALANCED
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Prepare for Monday meeting
+    total_work_minutes: 45
+    deadline: 2026-11-08T23:59
+    priority: 2
+    is_task_splittable: false
+    splitting: null
+    warnings:
+    - W_UNRESOLVED_REFERENCE
+    - W_VAGUE_TASK
+    - W_AMBIGUOUS_DATE
+    suggestions:
+    - Specify which Monday meeting and what prep deliverable is needed (e.g., slide deck, agenda notes).
+  rationale: '''the meeting'' lacks topic/time and prep for Monday defaults to Sunday 23:59.'
+- id: C2-03
+  domain: office
+  group: C2.1 Unresolved pronouns & references
+  covers:
+  - deictic_that_file_the_guy
+  input:
+    prompt: Send that file to the guy from accounting before 17:00 today, takes 15 minutes.
+    ui:
+      session: single
+      pacing: LIGHT
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Send file to accounting contact
+    total_work_minutes: 15
+    deadline: 2026-11-06T17:00
+    priority: 2
+    is_task_splittable: false
+    splitting: null
+    requires_document_analysis: true
+    warnings:
+    - W_UNRESOLVED_REFERENCE
+    - W_DOC_MENTIONED_NOT_ATTACHED
+    suggestions:
+    - Name the exact file and recipient in accounting, and attach the document if needed.
+  rationale: '''that file'' and ''the guy from accounting'' are unresolved deictic references.'
+- id: C2-04
+  domain: office
+  group: C2.1 Unresolved pronouns & references
+  covers:
+  - external_chat_reference_slack
+  input:
+    prompt: Fix the bug Sarah mentioned on Slack by Tuesday at 18:00 for 90 minutes.
+    ui:
+      session: splittable
+      pacing: FLOW
+      priority: 1
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Fix bug mentioned by Sarah on Slack
+    total_work_minutes: 90
+    deadline: 2026-11-10T18:00
+    priority: 1
+    is_task_splittable: true
+    splitting:
+      min: 45
+      pref: 90
+      max: 120
+    warnings:
+    - W_UNRESOLVED_REFERENCE
+    - W_VAGUE_TASK
+    suggestions:
+    - Include the issue ID, component name, or paste the Slack bug summary into the prompt.
+  rationale: Parser has no access to external Slack history; flags W_UNRESOLVED_REFERENCE and W_VAGUE_TASK.
+- id: C2-05
+  domain: study
+  group: C2.1 Unresolved pronouns & references
+  covers:
+  - same_as_yesterday_reference
+  input:
+    prompt: Continue working on the same thing as yesterday for 60 minutes by Sunday night.
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 3
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Continue previous task ("same thing as yesterday")
+    total_work_minutes: 60
+    deadline: 2026-11-08T23:59
+    priority: 3
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    warnings:
+    - W_UNRESOLVED_REFERENCE
+    - W_VAGUE_TASK
+    suggestions:
+    - State the course or topic you worked on yesterday so it can be labeled in your schedule.
+  rationale: Stateless parser cannot resolve 'the same thing as yesterday' without explicit task context.
+- id: C2-06
+  domain: lifestyle
+  group: C2.1 Unresolved pronouns & references
+  covers:
+  - dangling_comparative_reference
+  input:
+    prompt: Do the other part of the errands before Wednesday at 19:00, takes 40 minutes.
+    ui:
+      session: single
+      pacing: BALANCED
+      priority: 3
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Do remaining errands ("the other part")
+    total_work_minutes: 40
+    deadline: 2026-11-11T19:00
+    priority: 3
+    is_task_splittable: false
+    splitting: null
+    warnings:
+    - W_UNRESOLVED_REFERENCE
+    - W_VAGUE_TASK
+    suggestions:
+    - List the specific errands to complete (e.g., post office drop-off, pharmacy pickup).
+  rationale: '''the other part of the errands'' depends on unstated prior context.'
+- id: C2-07
+  domain: study
+  group: C2.2 Generic / underspecified scope
+  covers:
+  - generic_study_no_subject
+  input:
+    prompt: Do some studying by Sunday night for 90 minutes.
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Study session
+    total_work_minutes: 90
+    deadline: 2026-11-08T23:59
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    warnings:
+    - W_VAGUE_TASK
+    suggestions:
+    - Specify which subject, chapter, or problem set you plan to study.
+  rationale: Has duration (90m) and deadline (Sun 23:59), but 'Do some studying' lacks any subject or deliverable.
+- id: C2-08
+  domain: office
+  group: C2.2 Generic / underspecified scope
+  covers:
+  - generic_work_on_project
+  input:
+    prompt: Work on the project for 2 hours by Tuesday at 18:00.
+    ui:
+      session: splittable
+      pacing: FLOW
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Work on project
+    total_work_minutes: 120
+    deadline: 2026-11-10T18:00
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 45
+      pref: 90
+      max: 120
+    warnings:
+    - W_VAGUE_TASK
+    - W_UNRESOLVED_REFERENCE
+    suggestions:
+    - Name the project and list the specific milestone or deliverable for this 2-hour block.
+  rationale: '''Work on the project'' gives no indication of which project or what concrete output is expected.'
+- id: C2-09
+  domain: housework
+  group: C2.2 Generic / underspecified scope
+  covers:
+  - generic_housework_chore
+  input:
+    prompt: Do housework tomorrow afternoon for 60 minutes.
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 3
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Housework
+    total_work_minutes: 60
+    start_after: 2026-11-07T12:00
+    deadline: 2026-11-07T17:00
+    priority: 3
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    warnings:
+    - W_VAGUE_TASK
+    suggestions:
+    - Specify which rooms or chores (e.g., vacuum living room, clean kitchen counters).
+  rationale: Window and duration are clear (Sat 12:00-17:00, 60m), but 'Do housework' is overly generic.
+- id: C2-10
+  domain: exercise
+  group: C2.2 Generic / underspecified scope
+  covers:
+  - generic_workout_unspecified
+  input:
+    prompt: Do a workout for 45 minutes before Sunday at 20:00.
+    ui:
+      session: single
+      pacing: BALANCED
+      priority: 3
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Workout
+    total_work_minutes: 45
+    deadline: 2026-11-08T20:00
+    priority: 3
+    is_task_splittable: false
+    splitting: null
+    warnings:
+    - W_VAGUE_TASK
+    suggestions:
+    - Specify the workout modality (e.g., 5K run, upper-body weights, yoga).
+  rationale: '''Do a workout'' has valid timing but no modality or training focus.'
+- id: C2-11
+  domain: office
+  group: C2.2 Generic / underspecified scope
+  covers:
+  - generic_office_admin_stuff
+  input:
+    prompt: Handle miscellaneous office admin stuff by Monday at 17:00 for 45 minutes.
+    ui:
+      session: single
+      pacing: LIGHT
+      priority: 3
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Miscellaneous office admin tasks
+    total_work_minutes: 45
+    deadline: 2026-11-09T17:00
+    priority: 3
+    is_task_splittable: false
+    splitting: null
+    warnings:
+    - W_VAGUE_TASK
+    suggestions:
+    - List the specific admin items (e.g., submit expense report, approve timesheets).
+  rationale: '''office admin stuff'' is a vague catch-all bucket -> W_VAGUE_TASK.'
+- id: C2-12
+  domain: lifestyle
+  group: C2.2 Generic / underspecified scope
+  covers:
+  - vague_self_improvement_goal
+  input:
+    prompt: Work on personal growth and life organization this weekend for 90 minutes.
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 4
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Personal growth and life organization
+    total_work_minutes: 90
+    deadline: 2026-11-08T23:59
+    priority: 4
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    warnings:
+    - W_VAGUE_TASK
+    suggestions:
+    - Break 'personal growth' into concrete actions (e.g., write weekly journal, review monthly budget).
+  rationale: Abstract lifestyle aspiration without a concrete deliverable triggers W_VAGUE_TASK.
+- id: C2-13
+  domain: office
+  group: C2.3 Placeholder subtasks & fragments
+  covers:
+  - placeholder_subtask_labels_step1_step2
+  input:
+    prompt: 'Complete client deliverable by Wednesday at 17:00: first do Step 1 for 30m, then do Step 2 for 45m,
+      finally do Step 3 for 25m.
+
+      '
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Complete client deliverable
+    total_work_minutes: 100
+    deadline: 2026-11-11T17:00
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    subtasks:
+    - id: s1
+      title: Step 1
+      status: TODO
+      minutes: 30
+      priority: 2
+      depends_on: []
+    - id: s2
+      title: Step 2
+      status: TODO
+      minutes: 45
+      priority: 2
+      depends_on:
+      - s1
+    - id: s3
+      title: Step 3
+      status: TODO
+      minutes: 25
+      priority: 2
+      depends_on:
+      - s2
+    warnings:
+    - W_VAGUE_TASK
+    suggestions:
+    - Replace placeholder names ('Step 1', 'Step 2', 'Step 3') with descriptive task titles.
+  rationale: Structure and math are valid (100m), but subtask names are meaningless placeholders.
+- id: C2-14
+  domain: study
+  group: C2.3 Placeholder subtasks & fragments
+  covers:
+  - open_ended_etcetera_subtask
+  input:
+    prompt: 'Prepare history term paper by Thursday night: first write the introduction for 40m, then do the rest
+      of the paper and stuff for 80m.
+
+      '
+    ui:
+      session: splittable
+      pacing: FLOW
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Prepare history term paper
+    total_work_minutes: 120
+    deadline: 2026-11-12T23:59
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 45
+      pref: 90
+      max: 120
+    subtasks:
+    - id: s1
+      title: Write introduction
+      status: TODO
+      minutes: 40
+      priority: 2
+      depends_on: []
+    - id: s2
+      title: Do the rest of the paper and stuff
+      status: TODO
+      minutes: 80
+      priority: 2
+      depends_on:
+      - s1
+    warnings:
+    - W_VAGUE_TASK
+    suggestions:
+    - Clarify what 'the rest of the paper and stuff' covers (e.g., body sections, conclusion, bibliography).
+  rationale: Second subtask is a vague catch-all ('the rest of the paper and stuff') -> W_VAGUE_TASK.
+- id: C2-15
+  domain: housework
+  group: C2.3 Placeholder subtasks & fragments
+  covers:
+  - vague_fix_things_around_house
+  input:
+    prompt: Fix a few broken things around the house by Sunday evening for 60 minutes.
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 3
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Fix broken things around the house
+    total_work_minutes: 60
+    deadline: 2026-11-08T21:00
+    priority: 3
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    warnings:
+    - W_VAGUE_TASK
+    suggestions:
+    - List which specific repairs you want to tackle (e.g., tighten cabinet hinge, replace hallway bulb).
+  rationale: '''a few broken things'' does not identify the specific household repairs.'
+- id: C2-16
+  domain: study
+  group: C2.3 Placeholder subtasks & fragments
+  covers:
+  - single_word_noun_prompt
+  input:
+    prompt: Homework
+    ui:
+      session: null
+      pacing: null
+      priority: null
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Homework
+    total_work_minutes: null
+    deadline: null
+    priority: 3
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    warnings:
+    - W_VAGUE_TASK
+    - W_NO_DURATION
+    - W_NO_DEADLINE
+    - W_PRIORITY_DEFAULTED
+    - W_SESSION_DEFAULTED
+    - W_PACING_DEFAULTED
+    suggestions:
+    - Add the course name, estimated duration, and due date (e.g., 'CS252 homework for 60m by Sunday').
+  rationale: Single-word noun 'Homework' has no subject, duration, or deadline.
+- id: C2-17
+  domain: none
+  group: C2.3 Placeholder subtasks & fragments
+  covers:
+  - time_and_deadline_only_no_action
+  input:
+    prompt: For 60 minutes by tomorrow at 17:00 in 30-minute chunks.
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 2
+      attachments: []
+  expected:
+    status: NEEDS_FIX
+    contract: null
+    errors:
+    - E_NO_ACTIONABLE_TASK
+    suggestions:
+    - Your prompt includes a duration (60m) and deadline (tomorrow 17:00), but no task description. Tell us what
+      activity to schedule.
+  rationale: Contains temporal and duration modifiers only, with zero verb or task noun -> E_NO_ACTIONABLE_TASK.
+- id: C2-18
+  domain: none
+  group: C2.3 Placeholder subtasks & fragments
+  covers:
+  - urgency_and_deadline_only_no_task
+  input:
+    prompt: Urgent high priority by Monday night at 23:59!!
+    ui:
+      session: single
+      pacing: FLOW
+      priority: 1
+      attachments: []
+  expected:
+    status: NEEDS_FIX
+    contract: null
+    errors:
+    - E_NO_ACTIONABLE_TASK
+    suggestions:
+    - Please describe the task or deliverable that is due Monday at 23:59.
+  rationale: Priority and deadline only, with no identifiable activity -> E_NO_ACTIONABLE_TASK.
+- id: C2-19
+  domain: office
+  group: C2.1 Unresolved pronouns & references
+  covers:
+  - dangling_pronoun_them_that_thing
+  input:
+    prompt: Send them that thing before tomorrow at 17:00, takes 20 minutes.
+    ui:
+      session: single
+      pacing: LIGHT
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Send unspecified item to recipients
+    total_work_minutes: 20
+    deadline: 2026-11-07T17:00
+    priority: 2
+    is_task_splittable: false
+    splitting: null
+    warnings:
+    - W_UNRESOLVED_REFERENCE
+    - W_VAGUE_TASK
+    suggestions:
+    - Specify who 'them' refers to and what deliverable 'that thing' is.
+  rationale: '''them'' and ''that thing'' are unresolved pronouns -> W_UNRESOLVED_REFERENCE, W_VAGUE_TASK.'
+- id: C2-20
+  domain: study
+  group: C2.1 Unresolved pronouns & references
+  covers:
+  - vietnamese_unresolved_reference_do_it
+  input:
+    prompt: Làm xong cái đó trước 18h ngày mai trong 45 phút
+    ui:
+      session: single
+      pacing: BALANCED
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Finish unspecified task
+    total_work_minutes: 45
+    deadline: 2026-11-07T18:00
+    priority: 2
+    is_task_splittable: false
+    splitting: null
+    warnings:
+    - W_UNRESOLVED_REFERENCE
+    - W_VAGUE_TASK
+    suggestions:
+    - Specify what 'cái đó' ('that thing / it') refers to so it can be scheduled clearly.
+  rationale: Vietnamese 'Làm xong cái đó' ('Finish that thing/it') has unresolved reference -> W_UNRESOLVED_REFERENCE,
+    W_VAGUE_TASK.
+- id: C2-21
+  domain: office
+  group: C2.1 Unresolved pronouns & references
+  covers:
+  - external_email_thread_reference
+  input:
+    prompt: Follow up on the issue David mentioned in the email thread by Tuesday at 16:00 for 30 minutes.
+    ui:
+      session: single
+      pacing: LIGHT
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Follow up on issue mentioned by David
+    total_work_minutes: 30
+    deadline: 2026-11-10T16:00
+    priority: 2
+    is_task_splittable: false
+    splitting: null
+    warnings:
+    - W_UNRESOLVED_REFERENCE
+    - W_VAGUE_TASK
+    suggestions:
+    - Include the specific email topic or ticket number in the task description.
+  rationale: '''the issue David mentioned in the email thread'' is external unattached context -> W_UNRESOLVED_REFERENCE,
+    W_VAGUE_TASK.'
+- id: C2-22
+  domain: lifestyle
+  group: C2.1 Unresolved pronouns & references
+  covers:
+  - same_routine_as_last_time
+  input:
+    prompt: Do the same routine as last time before Sunday at 20:00 for 45 minutes.
+    ui:
+      session: single
+      pacing: BALANCED
+      priority: 3
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Repeat previous routine
+    total_work_minutes: 45
+    deadline: 2026-11-08T20:00
+    priority: 3
+    is_task_splittable: false
+    splitting: null
+    warnings:
+    - W_UNRESOLVED_REFERENCE
+    - W_VAGUE_TASK
+    suggestions:
+    - Describe the specific routine you want to repeat.
+  rationale: '''the same routine as last time'' cannot be resolved by a stateless parser -> W_UNRESOLVED_REFERENCE,
+    W_VAGUE_TASK.'
+- id: C2-23
+  domain: study
+  group: C2.2 Generic / underspecified scope
+  covers:
+  - vietnamese_generic_study
+  input:
+    prompt: Học bài trong 60 phút trước 21h tối mai
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Study session
+    total_work_minutes: 60
+    deadline: 2026-11-07T21:00
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    warnings:
+    - W_VAGUE_TASK
+    suggestions:
+    - Specify which course or topic you plan to study.
+  rationale: Generic Vietnamese 'Học bài' ('Study') without subject or deliverable -> W_VAGUE_TASK.
+- id: C2-24
+  domain: office
+  group: C2.2 Generic / underspecified scope
+  covers:
+  - generic_catch_up_on_work_stuff
+  input:
+    prompt: Catch up on some work stuff by Monday at 18:00 for 90 minutes.
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 3
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Catch up on work tasks
+    total_work_minutes: 90
+    deadline: 2026-11-09T18:00
+    priority: 3
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    warnings:
+    - W_VAGUE_TASK
+    suggestions:
+    - Replace 'some work stuff' with concrete deliverables.
+  rationale: '''Catch up on some work stuff'' is underspecified -> W_VAGUE_TASK.'
+- id: C2-25
+  domain: housework
+  group: C2.2 Generic / underspecified scope
+  covers:
+  - generic_clean_stuff_at_home
+  input:
+    prompt: Clean some stuff around the apartment by Sunday at 18:00 for 45 minutes.
+    ui:
+      session: single
+      pacing: BALANCED
+      priority: 3
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Clean apartment
+    total_work_minutes: 45
+    deadline: 2026-11-08T18:00
+    priority: 3
+    is_task_splittable: false
+    splitting: null
+    warnings:
+    - W_VAGUE_TASK
+    suggestions:
+    - Specify which rooms or surfaces to clean.
+  rationale: '''Clean some stuff'' is overly generic -> W_VAGUE_TASK.'
+- id: C2-26
+  domain: exercise
+  group: C2.2 Generic / underspecified scope
+  covers:
+  - generic_exercise_session
+  input:
+    prompt: Do some exercise by tomorrow at 19:00 for 40 minutes.
+    ui:
+      session: single
+      pacing: BALANCED
+      priority: 3
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Exercise session
+    total_work_minutes: 40
+    deadline: 2026-11-07T19:00
+    priority: 3
+    is_task_splittable: false
+    splitting: null
+    warnings:
+    - W_VAGUE_TASK
+    suggestions:
+    - Specify the type of exercise (e.g., 5K run, cycling, strength training).
+  rationale: '''Do some exercise'' lacks workout specifics -> W_VAGUE_TASK.'
+- id: C2-27
+  domain: office
+  group: C2.3 Placeholder subtasks & fragments
+  covers:
+  - placeholder_part_a_part_b_subtasks
+  input:
+    prompt: 'Finish quarterly report by Wednesday at 18:00: first do Part A for 45m, then do Part B for 45m.'
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Finish quarterly report
+    total_work_minutes: 90
+    deadline: 2026-11-11T18:00
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    subtasks:
+    - id: s1
+      title: Part A
+      status: TODO
+      minutes: 45
+      priority: 2
+      depends_on: []
+    - id: s2
+      title: Part B
+      status: TODO
+      minutes: 45
+      priority: 2
+      depends_on:
+      - s1
+    warnings:
+    - W_VAGUE_TASK
+    suggestions:
+    - Replace placeholder labels ('Part A', 'Part B') with concrete section names.
+  rationale: Placeholder subtask titles 'Part A' and 'Part B' trigger W_VAGUE_TASK.
+- id: C2-28
+  domain: study
+  group: C2.3 Placeholder subtasks & fragments
+  covers:
+  - single_word_exam_prompt
+  input:
+    prompt: Exam
+    ui:
+      session: null
+      pacing: null
+      priority: null
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Exam
+    total_work_minutes: null
+    deadline: null
+    priority: 3
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    warnings:
+    - W_VAGUE_TASK
+    - W_NO_DURATION
+    - W_NO_DEADLINE
+    - W_PRIORITY_DEFAULTED
+    - W_SESSION_DEFAULTED
+    - W_PACING_DEFAULTED
+    suggestions:
+    - Add the course name, study duration, and exam date.
+  rationale: Single-word noun 'Exam' has no course, duration, or deadline.
+- id: C2-29
+  domain: none
+  group: C2.3 Placeholder subtasks & fragments
+  covers:
+  - time_only_fragment_vietnamese
+  input:
+    prompt: Trong 90 phút trước 17h ngày mai
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 2
+      attachments: []
+  expected:
+    status: NEEDS_FIX
+    contract: null
+    errors:
+    - E_NO_ACTIONABLE_TASK
+    suggestions:
+    - Your prompt specifies a duration (90m) and deadline (tomorrow 17:00) but no task activity.
+  rationale: Vietnamese time-and-deadline fragment with zero task verb or noun -> E_NO_ACTIONABLE_TASK.
+- id: C2-30
+  domain: none
+  group: C2.3 Placeholder subtasks & fragments
+  covers:
+  - shorthand_and_priority_only_no_task
+  input:
+    prompt: p1 ~45m by Tuesday at 18:00!!
+    ui:
+      session: splittable
+      pacing: FLOW
+      priority: 1
+      attachments: []
+  expected:
+    status: NEEDS_FIX
+    contract: null
+    errors:
+    - E_NO_ACTIONABLE_TASK
+    suggestions:
+    - Include the task title or activity alongside the priority and chunk shorthand.
+  rationale: Shorthand and deadline modifiers only with no task noun/verb -> E_NO_ACTIONABLE_TASK.

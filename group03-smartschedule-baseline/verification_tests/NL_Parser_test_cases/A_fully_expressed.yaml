@@ -1,0 +1,529 @@
+# Category A — Fully Expressed Prompts (6 cases, 5% of dataset)
+# Reference clock: 2026-11-06T09:00 (Friday)
+
+cases:
+- id: A-01
+  domain: office
+  group: A.1 Complete multi-step office workflow
+  covers:
+  - explicit_subtasks
+  - subtask_priorities
+  - subtask_statuses
+  - linear_dag
+  - doc_attached_referenced
+  input:
+    prompt: 'Complete the Q4 financial audit packet by next Wednesday at 17:00 using audit_checklist.pdf. Subtasks:
+      (1) reconcile ledger entries - already done; (2) draft variance commentary for 90m [high priority, deep work];
+      (3) after commentary, compile executive deck for 45m [urgent].
+
+      '
+    ui:
+      session: splittable
+      pacing: FLOW
+      priority: 2
+      attachments:
+      - name: audit_checklist.pdf
+        mb: 4.2
+  expected:
+    status: OK
+    title: Complete Q4 financial audit packet
+    total_work_minutes: 135
+    deadline: 2026-11-11T17:00
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 45
+      pref: 90
+      max: 120
+    requires_document_analysis: true
+    subtasks:
+    - id: s1
+      title: Reconcile ledger entries
+      status: DONE
+      minutes: 0
+      priority: 2
+      depends_on: []
+    - id: s2
+      title: Draft variance commentary
+      status: TODO
+      minutes: 90
+      priority: 2
+      pacing: FLOW
+      depends_on:
+      - s1
+    - id: s3
+      title: Compile executive deck
+      status: TODO
+      minutes: 45
+      priority: 1
+      pacing: FLOW
+      depends_on:
+      - s2
+  rationale: Every attribute, subtask status, subtask priority, DAG edge, and attachment is explicitly specified.
+- id: A-02
+  domain: study
+  group: A.1 Complete academic workflow
+  covers:
+  - start_after_explicit
+  - subtask_priorities
+  - doc_attached_referenced
+  - balanced_pacing
+  input:
+    prompt: 'Solve Operating Systems Lab 3 starting tomorrow at 09:00 and finish by next Thursday at 23:59, referring
+      to xv6_guide.pdf. Step 1: implement page table walk for 60m (urgent). Step 2: after step 1, write kernel unit
+      tests for 45m (medium priority). Step 3: after tests, write lab report for 30m (low priority).
+
+      '
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 1
+      attachments:
+      - name: xv6_guide.pdf
+        mb: 2.8
+  expected:
+    status: OK
+    title: Solve Operating Systems Lab 3
+    total_work_minutes: 135
+    start_after: 2026-11-07T09:00
+    deadline: 2026-11-12T23:59
+    priority: 1
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    requires_document_analysis: true
+    subtasks:
+    - id: s1
+      title: Implement page table walk
+      status: TODO
+      minutes: 60
+      priority: 1
+      depends_on: []
+    - id: s2
+      title: Write kernel unit tests
+      status: TODO
+      minutes: 45
+      priority: 3
+      depends_on:
+      - s1
+    - id: s3
+      title: Write lab report
+      status: TODO
+      minutes: 30
+      priority: 4
+      depends_on:
+      - s2
+  rationale: Explicit start_after, deadline, attachment reference, and ordered subtasks with individual priorities.
+- id: A-03
+  domain: exercise
+  group: A.2 Complete single-session workout
+  covers:
+  - atomic_single_session
+  - fixed_slot_window
+  - subtask_chain
+  input:
+    prompt: 'Run my Saturday morning 10K tempo workout tomorrow from 06:30 to 07:30 as a single uninterrupted session:
+      first 15m dynamic warm-up (medium priority), then 35m tempo run at threshold pace (high priority), finally
+      10m cooldown stretch (low priority).
+
+      '
+    ui:
+      session: single
+      pacing: BALANCED
+      priority: 2
+      attachments: []
+  expected:
+    status: OK
+    title: Saturday morning 10K tempo workout
+    total_work_minutes: 60
+    start_after: 2026-11-07T06:30
+    deadline: 2026-11-07T07:30
+    priority: 2
+    is_task_splittable: false
+    splitting: null
+    subtasks:
+    - id: s1
+      title: Dynamic warm-up
+      status: TODO
+      minutes: 15
+      priority: 3
+      depends_on: []
+    - id: s2
+      title: Tempo run at threshold pace
+      status: TODO
+      minutes: 35
+      priority: 2
+      depends_on:
+      - s1
+    - id: s3
+      title: Cooldown stretch
+      status: TODO
+      minutes: 10
+      priority: 4
+      depends_on:
+      - s2
+  rationale: Fixed-window atomic session with exact 60-minute subtask breakdown and null splitting.
+- id: A-04
+  domain: housework
+  group: A.2 Complete household task with custom chunks
+  covers:
+  - custom_chunk_bounds
+  - subtask_done_zero_work
+  - lag_waiting_time
+  input:
+    prompt: 'Finish weekend kitchen maintenance by Sunday at 20:00: (1) empty and descale dishwasher - completed;
+      (2) scrub oven interior for 40m (high priority); (3) after scrubbing oven, mop and seal floor tiles for 35m
+      (medium priority).
+
+      '
+    ui:
+      session: splittable
+      pacing: CUSTOM
+      custom:
+      - 20
+      - 45
+      priority: 2
+      attachments: []
+  expected:
+    status: OK
+    title: Weekend kitchen maintenance
+    total_work_minutes: 75
+    deadline: 2026-11-08T20:00
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 20
+      pref: 32
+      max: 45
+    subtasks:
+    - id: s1
+      title: Empty and descale dishwasher
+      status: DONE
+      minutes: 0
+      priority: 2
+      depends_on: []
+    - id: s2
+      title: Scrub oven interior
+      status: TODO
+      minutes: 40
+      priority: 2
+      depends_on:
+      - s1
+    - id: s3
+      title: Mop and seal floor tiles
+      status: TODO
+      minutes: 35
+      priority: 3
+      depends_on:
+      - s2
+  rationale: Custom chunk bounds [20, 45] are valid; completed subtask contributes 0 minutes to remaining total
+    (75m).
+- id: A-05
+  domain: lifestyle
+  group: A.3 Complete personal hobby session
+  covers:
+  - in_progress_remaining_work
+  - light_pomodoro
+  - md_attachment
+  input:
+    prompt: 'Practice fingerstyle guitar piece from tab_notes.md by next Tuesday at 21:00 in 25m Pomodoro sessions:
+      (1) memorize intro bars 1-16 - in progress, 20m remaining (medium priority); (2) after intro, practice chorus
+      transitions for 30m (high priority).
+
+      '
+    ui:
+      session: splittable
+      pacing: LIGHT
+      priority: 3
+      attachments:
+      - name: tab_notes.md
+        mb: 0.1
+  expected:
+    status: OK
+    title: Practice fingerstyle guitar piece
+    total_work_minutes: 50
+    deadline: 2026-11-10T21:00
+    priority: 3
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 25
+      max: 30
+    requires_document_analysis: true
+    subtasks:
+    - id: s1
+      title: Memorize intro bars 1-16
+      status: IN_PROGRESS
+      minutes: 20
+      priority: 3
+      depends_on: []
+    - id: s2
+      title: Practice chorus transitions
+      status: TODO
+      minutes: 30
+      priority: 2
+      depends_on:
+      - s1
+  rationale: IN_PROGRESS subtask counts only remaining 20m plus 30m TODO = 50m total.
+- id: A-06
+  domain: office
+  group: A.3 Diamond DAG workflow
+  covers:
+  - diamond_dag
+  - multi_predecessor_join
+  - html_attachment
+  input:
+    prompt: 'Ship hotfix v2.4.1 by Monday at 18:00 per cve_report.html: first reproduce bug in staging for 30m (urgent);
+      after reproducing, patch backend handler for 45m (urgent) and update API schema docs for 25m (medium) in parallel;
+      after both patch and docs finish, run regression suite for 20m (high).
+
+      '
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 1
+      attachments:
+      - name: cve_report.html
+        mb: 0.4
+  expected:
+    status: OK
+    title: Ship hotfix v2.4.1
+    total_work_minutes: 120
+    deadline: 2026-11-09T18:00
+    priority: 1
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    requires_document_analysis: true
+    subtasks:
+    - id: s1
+      title: Reproduce bug in staging
+      status: TODO
+      minutes: 30
+      priority: 1
+      depends_on: []
+    - id: s2
+      title: Patch backend handler
+      status: TODO
+      minutes: 45
+      priority: 1
+      depends_on:
+      - s1
+    - id: s3
+      title: Update API schema docs
+      status: TODO
+      minutes: 25
+      priority: 3
+      depends_on:
+      - s1
+    - id: s4
+      title: Run regression suite
+      status: TODO
+      minutes: 20
+      priority: 2
+      depends_on:
+      - s2
+      - s3
+  rationale: Diamond DAG (s1 -> s2 & s3 -> s4) with explicit durations summing to 120m and per-node priorities.
+- id: A-07
+  domain: study
+  group: A.4 Complete Vietnamese academic workflow via NLLB bridge
+  covers:
+  - vietnamese_translation_nllb
+  - explicit_subtasks
+  - doc_attached_referenced
+  - priority_p1_urgent
+  input:
+    prompt: 'Hoàn thành bài tập lớn Hệ điều hành trước 17h thứ 6 tuần tới theo tài liệu os_spec.pdf: (1) đọc đề
+      và cấu hình xv6 - đã xong; (2) lập trình bộ cấp phát bộ nhớ 90 phút; (3) sau khi lập trình, viết báo cáo kiểm
+      thử 45 phút.'
+    ui:
+      session: splittable
+      pacing: FLOW
+      priority: 1
+      attachments:
+      - name: os_spec.pdf
+        mb: 3.5
+  expected:
+    status: OK
+    title: Complete Operating Systems project
+    total_work_minutes: 135
+    deadline: 2026-11-13T17:00
+    priority: 1
+    is_task_splittable: true
+    splitting:
+      min: 45
+      pref: 90
+      max: 120
+    requires_document_analysis: true
+    subtasks:
+    - id: s1
+      title: Read prompt and configure xv6
+      status: DONE
+      minutes: 0
+      priority: 1
+      depends_on: []
+    - id: s2
+      title: Implement memory allocator
+      status: TODO
+      minutes: 90
+      priority: 1
+      pacing: FLOW
+      depends_on:
+      - s1
+    - id: s3
+      title: Write test report
+      status: TODO
+      minutes: 45
+      priority: 1
+      pacing: FLOW
+      depends_on:
+      - s2
+  rationale: Vietnamese academic workflow translated via Stage 2b with explicit attachment, DONE step (0m), and
+    linear DAG summing to 135m.
+- id: A-08
+  domain: office
+  group: A.4 Complete release workflow with shorthand & start_after
+  covers:
+  - shorthand_chunk_override
+  - start_after_explicit
+  - linear_dag
+  - priority_p1_urgent
+  input:
+    prompt: 'Prepare v2.5 security release starting tomorrow at 10:00 and finish by Tuesday at 18:00 using release_plan.md:
+      (1) audit dependency CVEs for 45m; (2) after audit, patch OAuth token rotation for 75m.'
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 1
+      attachments:
+      - name: release_plan.md
+        mb: 0.5
+  expected:
+    status: OK
+    title: Prepare v2.5 security release
+    total_work_minutes: 120
+    start_after: 2026-11-07T10:00
+    deadline: 2026-11-10T18:00
+    priority: 1
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    requires_document_analysis: true
+    subtasks:
+    - id: s1
+      title: Audit dependency CVEs
+      status: TODO
+      minutes: 45
+      priority: 1
+      depends_on: []
+    - id: s2
+      title: Patch OAuth token rotation
+      status: TODO
+      minutes: 75
+      priority: 1
+      depends_on:
+      - s1
+  rationale: Explicit release date (start_after), deadline, markdown reference, and 2-step DAG summing to 120m.
+- id: A-09
+  domain: exercise
+  group: A.4 Complete Vietnamese single-session workout
+  covers:
+  - vietnamese_single_session
+  - atomic_single_session
+  - subtask_chain
+  input:
+    prompt: 'Tập buổi chạy bền Chủ Nhật trước 18h00 không chia nhỏ: (1) khởi động khớp 15 phút; (2) chạy tempo 45
+      phút; (3) giãn cơ 15 phút.'
+    ui:
+      session: single
+      pacing: BALANCED
+      priority: 2
+      attachments: []
+  expected:
+    status: OK
+    title: Sunday endurance run workout
+    total_work_minutes: 75
+    deadline: 2026-11-08T18:00
+    priority: 2
+    is_task_splittable: false
+    splitting: null
+    subtasks:
+    - id: s1
+      title: Joint warm-up
+      status: TODO
+      minutes: 15
+      priority: 2
+      depends_on: []
+    - id: s2
+      title: Tempo run
+      status: TODO
+      minutes: 45
+      priority: 2
+      depends_on:
+      - s1
+    - id: s3
+      title: Cooldown stretch
+      status: TODO
+      minutes: 15
+      priority: 2
+      depends_on:
+      - s2
+  rationale: Vietnamese atomic workout with 'không chia nhỏ' and 3 ordered steps totaling 75m.
+- id: A-10
+  domain: housework
+  group: A.4 Complete household maintenance with custom chunking
+  covers:
+  - custom_chunk_bounds
+  - explicit_subtasks
+  - done_subtask_zero_minutes
+  input:
+    prompt: 'Complete autumn garden winterizing by Wednesday at 17:00: (1) drain outdoor hose bibs - already done;
+      (2) prune rose bushes for 45m; (3) after pruning, mulch perennial beds for 45m.'
+    ui:
+      session: splittable
+      pacing: CUSTOM
+      custom:
+      - 30
+      - 60
+      priority: 3
+      attachments: []
+  expected:
+    status: OK
+    title: Complete autumn garden winterizing
+    total_work_minutes: 90
+    deadline: 2026-11-11T17:00
+    priority: 3
+    is_task_splittable: true
+    splitting:
+      min: 30
+      pref: 45
+      max: 60
+    subtasks:
+    - id: s1
+      title: Drain outdoor hose bibs
+      status: DONE
+      minutes: 0
+      priority: 3
+      depends_on: []
+    - id: s2
+      title: Prune rose bushes
+      status: TODO
+      minutes: 45
+      priority: 3
+      depends_on:
+      - s1
+    - id: s3
+      title: Mulch perennial beds
+      status: TODO
+      minutes: 45
+      priority: 3
+      depends_on:
+      - s2
+  rationale: Fully specified custom chunking [30, 60] and 2 active subtasks summing to 90m.

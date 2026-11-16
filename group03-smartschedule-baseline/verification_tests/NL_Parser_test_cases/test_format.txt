@@ -1,0 +1,121 @@
+================================================================================
+SMARTSCHEDULE NLP PARSER — GOLDEN TEST SUITE & HYBRID VERIFICATION (200 CASES)
+Reference Clock: Friday, 2026-11-06 09:00 (Asia/Ho_Chi_Minh)
+Full Machine-Readable Dataset: ./test_cases/*.yaml (validated via validate_cases.py & verify_hybrid_200.py)
+================================================================================
+
+--------------------------------------------------------------------------------
+PART 1: REFINED USER SAMPLE TESTS (WITH CORRECTIONS & RATIONALE)
+--------------------------------------------------------------------------------
+
+1. Content Creation (Case ID: B-47 | Domain: lifestyle | Group: B2.1)
+Prompt:
+I need to make a vlog about my holiday posting on Facebook by Thursday next week. Here is my detailed work:
+- Recorded submissions for the manager by the end of this week.
+- Analyzing beautiful templates
+- Editing, rendering the final product.
+- Review requests to the manager, all work should have been finished by Wednesday.
+Session: Deep Work (FLOW), splittable
+Priority Rating: 2
+Attachments: []
+
+*Expected Results (Refined):
+- Total Work Time: null (no durations were given for any subtask; parser must not invent numbers).
+- Session & Pacing: Splittable with Deep Work (FLOW) chunk bounds {min: 45m, pref: 90m, max: 120m}, inherited by all active subtasks.
+- Resolved Deadlines:
+  + Parent Deadline (Posting on Facebook): Thursday next week -> 2026-11-12 23:59.
+  + Subtask s1 (Send recorded submissions to manager): End of this week -> Sunday 2026-11-08 23:59.
+  + Subtask s3 (Edit and render final video) & s4 (Manager review): Wednesday next week -> 2026-11-11 23:59.
+- Subtask Workflow States & Dependencies:
+  + s1: Send recorded submissions to manager [TODO, priority=2, due Sun Nov 8]
+  + s2: Analyze templates [TODO, priority=2, depends_on=[]]
+  + s3: Edit and render final video [TODO, priority=2, due Wed Nov 11, inferred_dependency=[s1]]
+  + s4: Manager review of final video [WAITING, external=true, minutes=0, priority=2, due Wed Nov 11, inferred_dependency=[s3]]
+- Errors: []
+- Warnings:
+  + W_NO_DURATION: No duration specified for any subtask.
+  + W_OPEN_LOOP: Manager review -> re-edit cycle is open-ended; only one Edit -> Review pass is scheduled until user gives revision bounds.
+  + W_DEPENDENCY_UNCLEAR: Whether "Analyzing beautiful templates" must precede "Editing" is not explicitly stated.
+  + W_EXTERNAL_DEPENDENCY & W_STATUS_INFERRED: Manager review is an external waiting state (0m of user's own work).
+
+
+2. Doing Homework (Case ID: B-48 | Domain: study | Group: B2.1)
+Prompt:
+Doing Discrete Structure exercises, finishing 3 chapters by the end of this week, each section should be less than a hour to finish all of this.
+- Do chapter 2 first
+- Then, do chapter 1
+- Finally, do only the first half of chapter 3
+Session: null (blank)
+Priority Rating: null (blank)
+Attachments: []
+
+*Expected Results (Refined):
+- Priority: 3 (Medium by default, since UI priority is blank and no urgency keywords appear).
+- Session & Pacing: Splittable (defaulted since total > 30m), BALANCED pacing {min: 15m, pref: 45m, max: 59m} ("less than a hour" caps each section at 59m).
+- Total Work Time: 177 minutes upper bound (total_range: [45, 177], 3 sections * 59m cap).
+- Resolved Deadline: End of this week -> Sunday 2026-11-08 23:59.
+- Subtask Order (Strictly follows user's non-numeric sequence):
+  + s1: Do chapter 2 [TODO, max 59m, priority=3, depends_on=[]]
+  + s2: Do chapter 1 [TODO, max 59m, priority=3, depends_on=[s1]]
+  + s3: Do first half of chapter 3 [TODO, max 59m, priority=3, depends_on=[s2]]
+- Errors: []  (Note: Missing textbook citation is downgraded from Error to Warning W_DOC_MENTIONED_NOT_ATTACHED because the task is still schedulable).
+- Warnings:
+  + W_VAGUE_DURATION: Only an upper bound ("less than a hour") was given per section.
+  + W_SCOPE_MISMATCH: Header says "finishing 3 chapters" but bullet list only covers 2.5 chapters (Ch 2, Ch 1, half of Ch 3).
+  + W_DOC_MENTIONED_NOT_ATTACHED: Chapters are referenced without an attached textbook/problem sheet.
+  + W_PRIORITY_DEFAULTED, W_SESSION_DEFAULTED, W_PACING_DEFAULTED, W_SUBTASK_DEFAULTS_INHERITED.
+
+
+--------------------------------------------------------------------------------
+PART 2: DISTRIBUTION & GROUPED ARCHITECTURE (200 CASES ACROSS 7 FILES)
+--------------------------------------------------------------------------------
+
+1. Category A — Fully Expressed Prompts (10 cases = 5.0%)
+   File: test_cases/A_fully_expressed.yaml (IDs: A-01 .. A-10)
+   - A.1 Multi-step office & study workflows with explicit subtask statuses, priorities, DAG edges, and attachments (A-01, A-02)
+   - A.2 Single-session fixed-window workout & custom-chunk housework with DONE subtasks (A-03, A-04)
+   - A.3 Pomodoro hobby practice with IN_PROGRESS remaining work & diamond DAG hotfix release (A-05, A-06)
+   - A.4 Hybrid EN/VI workflows via NLLB bridge, release dates, atomic VI workouts & custom chunking (A-07 .. A-10)
+
+2. Category B — General Natural Speech with Missing/Uncertain Info (120 cases = 60.0%)
+   Part 1 File: test_cases/B1_general_missing_info.yaml (IDs: B-01 .. B-36, B1-37 .. B1-60, 60 cases = 30.0%)
+   - B1.1 Missing, vague, or ambiguous deadlines: no deadline, ASAP, early next week, bare Friday, 11/12, the 20th, midnight Sunday, hedged dates, event-prep offset, Vietnamese deadlines & section multipliers (B-01 .. B-09, B1-37 .. B1-42)
+   - B1.2 Missing, vague, or partial durations: null duration, hedged duration, 2-3h ranges, inclusive chapter multiplier, partial subtask durations, passive drying lag, Vietnamese missing/multiplied durations (B-10 .. B-18, B1-43 .. B1-48)
+   - B1.3 Priorities & uncertainty (Lower = More Urgent): blank default, UI NOT_SURE, text overriding UI priority, parent priority derived from subtasks, self-corrected priority, shorthand p1..p4 & Vietnamese urgency (B-19 .. B-27, B1-49 .. B1-54)
+   - B1.4 Session, pacing & chunk conflict detection: blank session/pacing defaults, prompt vs UI session conflict, custom chunk vs prompt cap flagged without auto-clamping (W_CHUNK_CONFLICT), per-subtask pacing override, tight schedule, unrealistic load & Vietnamese release dates (B-28 .. B-36, B1-55 .. B1-60)
+
+   Part 2 File: test_cases/B2_general_missing_info.yaml (IDs: B-37 .. B-72, B2-73 .. B2-96, 60 cases = 30.0%)
+   - B2.1 Workflow states, external waits & open loops: text/emoji/Vietnamese status inference (DONE/IN_PROGRESS/WAITING), external=true steps, unclear bullet dependencies, open review/debug loops, scope mismatch, plus refined Samples B-47 & B-48 (B-37 .. B-48, B2-73 .. B2-78)
+   - B2.2 Document attachment gaps & validation: mentioned PDF/recipe/syllabus not attached, attached file unreferenced in prompt, >20MB rejection (E_ATTACHMENT_TOO_LARGE), unsupported .xlsx/.zip rejection (E_ATTACHMENT_TYPE), exact 20.0MB boundary (B-49 .. B-57, B2-79 .. B2-84)
+   - B2.3 Recurring habits, fixed events & lifestyle routines: daily meditation, MWF barbell training, weekly Sunday chores, bounded daily Anki/foam-rolling routines, Vietnamese habits & Room B42 fixed events (B-58 .. B-64, B2-85 .. B2-90)
+   - B2.4 Messy natural speech: mid-sentence self-corrections, heavy typos, mixed Vietnamese-English code-switching, emotional venting preamble, bundled same-domain chores (B-65 .. B-72, B2-91 .. B2-96)
+
+3. Category C — Passed Basic Structure with a Twist (60 cases = 30.0%)
+   Sub-category C1 — Contradictions (First-Layer Verification Flags; Resolution Delegated to Engine Solver) (20 cases = 10.0%)
+   File: test_cases/C1_contradictions.yaml (IDs: C1-01 .. C1-20)
+   - C1.1 Duration & arithmetic contradictions: EN & VI header total vs subtask sum mismatch (E_DURATION_CONTRADICTION) (C1-01, C1-11, C1-13)
+   - C1.2 Temporal & deadline contradictions: weekday/date mismatch (Mon Nov 8), EN & VI start_after > deadline, subtask deadline > parent deadline, two conflicting deadlines (C1-02, C1-03, C1-04, C1-12, C1-14, C1-15)
+   - C1.3 Topological DAG contradictions: 2-node mutual cycles & 3-node directed cycle (E_CYCLIC_DEPENDENCY) (C1-05, C1-06, C1-16)
+   - C1.4 Session & semantic contradictions: single session + Pomodoro chunks simultaneously (E_SESSION_CONTRADICTION); rest day / digital detox oxymorons (E_SEMANTIC_CONTRADICTION) (C1-07, C1-08, C1-17, C1-18)
+   - C1.5 Feasibility & UI boundary contradictions: workload > window (E_INFEASIBLE_WORKLOAD); UI custom min > max (E_CUSTOM_RANGE_INVALID) (C1-09, C1-10, C1-19, C1-20)
+
+   Sub-category C2 — Insufficient Specifics About the Work (30 cases = 15.0%)
+   File: test_cases/C2_insufficient_specifics.yaml (IDs: C2-01 .. C2-30)
+   - C2.1 Unresolved pronouns & references: EN & VI dangling pronouns ("Finish it", "Làm xong cái đó", "that file to the guy", Slack/email references, "same routine as last time") (C2-01 .. C2-06, C2-19 .. C2-22)
+   - C2.2 Generic / underspecified scope: EN & VI generic verbs ("Do some studying", "Học bài", "Work on the project", "Do housework", "Do a workout", "some work stuff") (C2-07 .. C2-12, C2-23 .. C2-26)
+   - C2.3 Placeholder subtasks & non-actionable fragments: "Step 1 / Step 2", "Part A / Part B", "Homework", "Exam", and EN/VI time-only or shorthand-only fragments (E_NO_ACTIONABLE_TASK) (C2-13 .. C2-18, C2-27 .. C2-30)
+
+   Sub-category C3 — Trolling, Nonsense & Adversarial Inputs (10 cases = 5.0%)
+   File: test_cases/C3_trolling_nonsense.yaml (IDs: C3-01 .. C3-10)
+   - Gibberish, keyboard smash, meme lyrics & Vietnamese past-tense narrative chatter (C3-01, C3-05, C3-07, C3-10)
+   - Sci-fi/fantasy impossible tasks & negative duration time-travel paradoxes (C3-02, C3-04, C3-09)
+   - EN & bilingual prompt injection / SQL injection & >2000-char spam flood (C3-03, C3-06, C3-08)
+
+4. Category D — Overloaded / Sophisticated Tasks Requiring Breakdown Suggestions (10 cases = 5.0%)
+   File: test_cases/D_overload_breakdown.yaml (IDs: D-01 .. D-10)
+   - D.1 > 6 declared subtasks (EN 8-step SaaS launch & VI 7-step CS finals review) (D-01, D-07)
+   - D.2 Single uninterrupted session > 480 minutes (600m coding marathon & 540m failover drill) (D-02, D-08)
+   - D.3 Multi-domain unrelated goals bundled together (office + housework + exercise + study) (D-03, D-09)
+   - D.4 Sequential dependency chain > 5 links (6-step mobile app & 6-step SSO pipelines) (D-04, D-10)
+   - D.5 Subtask deadlines spread over > 14 days (29-day charity concert timeline) (D-05)
+   - D.6 Nested multi-level subtask hierarchy (Phase 1 -> 1.1, 1.2; Phase 2 -> 2.1, 2.2) (D-06)
