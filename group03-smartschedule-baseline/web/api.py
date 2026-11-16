@@ -449,11 +449,16 @@ def api_export_schedule(fmt: str, payload: Dict[str, Any] = Body(...)):
 def api_natural_language_add(payload: Dict[str, Any] = Body(...)):
     """
     Convert natural-language input into a validated TaskSheet draft
-    using the Dual-Engine M1 NL Parser (AI Gemini + Offline deterministic fallback).
+    using the Dual-Engine M1 NL Parser enriched with the Hybrid 6-stage Pipeline
+    (AI Gemini / Offline Deterministic + WorkRhythm, 1=Urgent..4=Low urgency mapping,
+    subtask extraction, VI->EN translation, and First-Layer E_*/W_* diagnostics).
     """
     prompt = str(payload.get("prompt") or payload.get("text") or "").strip()
     if not prompt:
         raise HTTPException(status_code=400, detail="Prompt text cannot be empty.")
+
+    ui_opts = payload.get("ui") if isinstance(payload.get("ui"), dict) else None
+    trans_backend = str(payload.get("translation_backend") or "rule").strip().lower() or "rule"
 
     try:
         return parse_natural_language_task(
@@ -461,6 +466,8 @@ def api_natural_language_add(payload: Dict[str, Any] = Body(...)):
             now=payload.get("now"),
             existing_count=int(payload.get("existing_count") or 0),
             engine=payload.get("engine"),
+            ui=ui_opts,
+            translation_backend=trans_backend,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

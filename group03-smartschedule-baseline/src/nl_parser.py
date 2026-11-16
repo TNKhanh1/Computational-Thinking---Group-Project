@@ -19,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import sys
 import unicodedata
 from datetime import datetime
 from pathlib import Path
@@ -712,6 +713,9 @@ class OfflineNLParser:
     def clean_title(self, raw_text: str) -> str:
         cleaned = raw_text.split("\n")[0]
         patterns = (
+            r"\[\[[^\[\]\n]*?\]\]",
+            r"@\[[^\[\]\n]*?\]",
+            r"\[?\bp[1-4]\b\]?",
             r"\s*#[a-zA-Z0-9_]+\b",
             r"\b(?:không\s*chia(?:\s*nhỏ)?|khong\s*chia(?:\s*nho)?|liền\s*mạch|lien\s*mach|liên\s*tục|lien\s*tuc|unsplittable|no\s*split|single\s*block)\b",
             r"(?:,\s*)?\b(?:ưu\s*tiên(?:\s*(?:cao|thấp|[1-5]))?|uu\s*tien(?:\s*(?:cao|thap|[1-5]))?|priority\s*[:=]?\s*[1-5]|khẩn\s*cấp|khan\s*cap|rất\s*gấp|rat\s*gap|urgent|asap)\b",
@@ -745,7 +749,9 @@ class OfflineNLParser:
         return _capitalize_first((fallback or raw_text)[:80])
 
     def parse(self, raw: str, *, now_day: str, existing_count: int) -> Dict[str, Any]:
-        norm = _strip_accents(raw.lower())
+        # Strip [[filename]] and @[path/filename] citation blocks before temporal/duration regexes
+        parse_raw = re.sub(r"\[\[[^\[\]\n]*?\]\]|@\[[^\[\]\n]*?\]", " ", raw) if ("[[" in raw or "@[" in raw) else raw
+        norm = _strip_accents(parse_raw.lower())
         rejection = self.detect_noise_or_past(norm)
         if rejection:
             return _reject_payload(
@@ -759,8 +765,8 @@ class OfflineNLParser:
         deadline_day, day_inferred = self.extract_deadline_day(norm, now_day)
         clock_time, time_inferred, is_deadline_cue, _ = self.extract_clock_time(norm)
         duration_min, dur_inferred = self.extract_duration_min(norm)
-        category, priority, cognitive_load = self.extract_category_priority_load(raw.lower(), norm)
-        location = self.extract_location(raw)
+        category, priority, cognitive_load = self.extract_category_priority_load(parse_raw.lower(), norm)
+        location = self.extract_location(parse_raw)
         is_fixed, fixed_cat = self.detect_fixed_event_hint(norm, clock_time, time_inferred, is_deadline_cue)
 
         unsplittable = bool(
@@ -931,10 +937,175 @@ class GeminiNLParser:
 
 
 class NLParserController:
-    """Dual-Engine coordinator routing between Gemini AI and Offline deterministic fallback."""
+    """Dual-Engine coordinator routing between Gemini AI and Offline deterministic fallback,
+    enriched with the unified 6-stage Hybrid Parser (`NL_Parser_Package/hybrid_parser.py`)."""
 
     def __init__(self, offline_parser: Optional[OfflineNLParser] = None):
         self.offline = offline_parser or OfflineNLParser()
+
+    @staticmethod
+    def _load_hybrid_module():
+        for candidate in (_PROJECT_ROOT / "NL_Parser_Package", _REPO_ROOT / "NL_Parser_Package"):
+            if candidate.is_dir():
+                pkg_str = str(candidate)
+                if pkg_str not in sys.path:
+                    sys.path.insert(0, pkg_str)
+                try:
+                    import hybrid_parser as _hp  # type: ignore
+
+                    return _hp
+                except Exception:
+                    return None
+        return None
+
+    @staticmethod
+    def _solver_to_user_urgency(solver_prio: int) -> int:
+        if solver_prio >= 5:
+            return 1
+        if solver_prio == 4:
+            return 2
+        if solver_prio == 3:
+            return 3
+        return 4
+
+    def _enrich_with_hybrid(
+        self,
+        raw: str,
+        result: Dict[str, Any],
+        *,
+        now: Optional[str],
+        existing_count: int,
+        ui: Optional[Dict[str, Any]],
+        translation_backend: str,
+    ) -> Dict[str, Any]:
+        hp = self._load_hybrid_module()
+        if hp is None:
+            return result
+
+        bundle = hp.compile_hybrid_to_smartschedule(
+            raw,
+            ui=ui,
+            now=now,
+            existing_count=existing_count,
+            translation_backend=translation_backend or "rule",
+        )
+        hybrid = bundle["hybrid"]
+        adapter = bundle["solver_adapter"]
+
+        # Always attach hybrid diagnostics & translation metadata
+        if result.get("status") == "NO_TASK":
+            result["hybrid"] = hybrid
+            result["solver_adapter"] = adapter
+            result["translation"] = {
+                "applied": bool(hybrid.get("translation_applied")),
+                "backend": hybrid.get("translation_backend"),
+                "translated_prompt": hybrid.get("translated_prompt"),
+            }
+            return result
+
+        # Hard nonsense / injection rejection (only when E_NONSENSE_INPUT fires)
+        if "E_NONSENSE_INPUT" in (hybrid.get("errors") or []):
+            rejected = _reject_payload(
+                raw=raw,
+                reason="Đầu vào không phải đầu việc hợp lệ hoặc chứa nội dung không an toàn (E_NONSENSE_INPUT).",
+                engine_used=str(result.get("engine_used") or "OFFLINE_DETERMINISTIC"),
+                parser_mode=str(result.get("validation", {}).get("parser_mode") or "HYBRID_DETERMINISTIC"),
+                status="NO_TASK",
+            )
+            rejected["hybrid"] = hybrid
+            rejected["solver_adapter"] = adapter
+            rejected["translation"] = {
+                "applied": bool(hybrid.get("translation_applied")),
+                "backend": hybrid.get("translation_backend"),
+                "translated_prompt": hybrid.get("translated_prompt"),
+            }
+            rejected["validation"]["hybrid_errors"] = list(hybrid.get("errors") or [])
+            rejected["validation"]["hybrid_warnings"] = list(hybrid.get("warnings") or [])
+            return rejected
+
+        draft = result.get("draft")
+        if isinstance(draft, dict):
+            ui_dict = dict(ui) if isinstance(ui, dict) else {}
+            raw_ui_prio = ui_dict.get("priority")
+            try:
+                explicit_ui_prio = int(raw_ui_prio) if raw_ui_prio not in (None, "", "not_sure") else None
+            except (TypeError, ValueError):
+                explicit_ui_prio = None
+
+            # Priority synchronization: user 1=Urgent..4=Low <-> solver 5..1
+            explicit_text_prio = (
+                hybrid.get("priority") in (1, 2, 3, 4)
+                and "W_PRIORITY_DEFAULTED" not in (hybrid.get("warnings") or [])
+                and bool(re.search(r"\[?\bp[1-4]\b\]?|\b(?:priority|prio)\s*[:=]?\s*[1-4]\b", raw.lower()))
+            )
+            if explicit_ui_prio in (1, 2, 3, 4) or explicit_text_prio:
+                draft["user_priority"] = hybrid.get("priority")
+                if hybrid.get("solver_priority") is not None:
+                    draft["priority"] = int(hybrid["solver_priority"])
+            else:
+                inferred_urg = self._solver_to_user_urgency(int(draft.get("priority") or 3))
+                draft["user_priority"] = inferred_urg
+                if "W_PRIORITY_DEFAULTED" in (hybrid.get("warnings") or []):
+                    hybrid["priority"] = inferred_urg
+                    hybrid["solver_priority"] = int(draft.get("priority") or 3)
+
+            # WorkRhythm & Chunking reconciliation
+            draft["work_rhythm"] = hybrid.get("work_rhythm") or "BALANCED"
+            explicit_ui_session = ui_dict.get("session") in ("single", "splittable")
+            explicit_ui_pacing = ui_dict.get("pacing") in ("LIGHT", "BALANCED", "FLOW", "CUSTOM")
+            explicit_chunk_hint = bool(
+                re.search(
+                    r"~\d+m\b|\b\d+\s*(?:minutes?|mins?|m)\s+each\b|\bsplit\s+into\s+\d+-minute|\bpomodoro\b|\bless\s+than\s+(?:an?\s+)?hour\b",
+                    raw.lower(),
+                )
+            )
+            if explicit_ui_session and hybrid.get("is_task_splittable") is not None:
+                draft["is_splittable"] = bool(hybrid["is_task_splittable"])
+
+            splitting = hybrid.get("splitting")
+            if not draft.get("is_splittable", False):
+                draft["min_chunk_min"] = int(draft.get("duration_min") or 60)
+                draft["max_chunk_min"] = None
+            elif isinstance(splitting, dict) and (explicit_ui_session or explicit_ui_pacing or explicit_chunk_hint):
+                min_c = max(15, int(splitting.get("min", 30)))
+                max_c = max(min_c, int(splitting.get("max", 60)))
+                draft["min_chunk_min"] = min_c
+                draft["max_chunk_min"] = max_c
+                draft["preferred_chunk_min"] = int(splitting.get("pref", min_c))
+            elif isinstance(splitting, dict):
+                draft["max_chunk_min"] = max(int(draft.get("min_chunk_min") or 45), int(splitting.get("max", 90)))
+                draft["preferred_chunk_min"] = int(splitting.get("pref", draft.get("min_chunk_min") or 45))
+
+            # Multi-subtask total duration override when M1 regex only caught the first chunk
+            subtasks = hybrid.get("subtasks") or []
+            if len(subtasks) >= 2 and hybrid.get("total_work_minutes"):
+                rounded_sum = _round_15_min(int(hybrid["total_work_minutes"]))
+                draft["duration_min"] = rounded_sum
+                if "duration_min" in result.get("missing_fields", []):
+                    result["missing_fields"] = [f for f in result["missing_fields"] if f != "duration_min"]
+                    result["suggestions"] = _build_missing_suggestions(
+                        result["missing_fields"], _resolve_now_day(now)
+                    )
+                    if not result["missing_fields"]:
+                        result["parse_status"] = "SUCCESS"
+
+            draft["start_after"] = hybrid.get("start_after")
+            draft["subtasks"] = subtasks
+            draft["breakdown_required"] = bool(hybrid.get("breakdown_required", False))
+            draft["work_minutes_lower_bound"] = hybrid.get("work_minutes_lower_bound")
+
+        result["hybrid"] = hybrid
+        result["solver_adapter"] = adapter
+        result["translation"] = {
+            "applied": bool(hybrid.get("translation_applied")),
+            "backend": hybrid.get("translation_backend"),
+            "translated_prompt": hybrid.get("translated_prompt"),
+        }
+        val = result.setdefault("validation", {})
+        val["hybrid_status"] = hybrid.get("status")
+        val["hybrid_errors"] = list(hybrid.get("errors") or [])
+        val["hybrid_warnings"] = list(hybrid.get("warnings") or [])
+        return result
 
     def parse(
         self,
@@ -943,6 +1114,8 @@ class NLParserController:
         now: Optional[str] = None,
         existing_count: int = 0,
         engine: Optional[str] = None,
+        ui: Optional[Dict[str, Any]] = None,
+        translation_backend: str = "rule",
     ) -> Dict[str, Any]:
         raw = (prompt or "").strip()
         if not raw:
@@ -956,15 +1129,23 @@ class NLParserController:
         if requested_engine != "offline" and api_key and genai is not None:
             try:
                 ai_engine = GeminiNLParser(api_key=api_key)
-                return ai_engine.parse(raw, now_day=now_day, existing_count=existing_count)
+                res = ai_engine.parse(raw, now_day=now_day, existing_count=existing_count)
+                return self._enrich_with_hybrid(
+                    raw, res, now=now, existing_count=existing_count, ui=ui, translation_backend=translation_backend
+                )
             except Exception as exc:
                 result = self.offline.parse(raw, now_day=now_day, existing_count=existing_count)
                 result.setdefault("assumptions", []).append(
                     f"AI Engine unavailable ({type(exc).__name__}); automatically fell back to Offline Deterministic engine."
                 )
-                return result
+                return self._enrich_with_hybrid(
+                    raw, result, now=now, existing_count=existing_count, ui=ui, translation_backend=translation_backend
+                )
 
-        return self.offline.parse(raw, now_day=now_day, existing_count=existing_count)
+        result = self.offline.parse(raw, now_day=now_day, existing_count=existing_count)
+        return self._enrich_with_hybrid(
+            raw, result, now=now, existing_count=existing_count, ui=ui, translation_backend=translation_backend
+        )
 
 
 _DEFAULT_CONTROLLER = NLParserController()
@@ -976,14 +1157,20 @@ def parse_natural_language_task(
     now: Optional[str] = None,
     existing_count: int = 0,
     engine: Optional[str] = None,
+    ui: Optional[Dict[str, Any]] = None,
+    translation_backend: str = "rule",
 ) -> Dict[str, Any]:
     """
-    Public M1 NL Parser entry point used by FastAPI and tests.
-    Supports `engine="auto" | "offline" | "ai"` with automatic offline fallback.
+    Public M1 + Hybrid NL Parser entry point used by FastAPI and tests.
+    Supports `engine="auto" | "offline" | "ai"`, optional sidebar `ui` controls
+    (`priority` in `1=Urgent..4=Low`, `session`, `pacing`, `custom`, `attachments`),
+    and `translation_backend` (`"rule"` | `"nllb"` | `"opus_mt"`).
     """
     return _DEFAULT_CONTROLLER.parse(
         prompt,
         now=now,
         existing_count=existing_count,
         engine=engine,
+        ui=ui,
+        translation_backend=translation_backend,
     )
