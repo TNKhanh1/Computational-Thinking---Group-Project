@@ -39,6 +39,12 @@ pydantic>=2.0.0
 pytest>=7.4.0
 httpx>=0.24.0
 python-dateutil>=2.8.2
+google-genai>=0.1.0
+python-dotenv>=1.0.0
+PyYAML>=6.0
+ctranslate2>=4.5.0
+sentencepiece>=0.2.0
+huggingface-hub>=0.25.0
 ```
 
 ### Detailed Breakdown & Architectural Layer Scoping
@@ -67,7 +73,7 @@ python-dateutil>=2.8.2
 - **Purpose:** Scalable testing framework for unit, integration, invariant, and benchmark testing.
 - **Architectural Scope:** **Layer 5: Verification Infrastructure** (`verification_tests/`).
 - **Used For:**
-  - Running 113 automated verification tests (`107` `--pass` operational + `5` `--gaps` Improve Plan + `1` open Sprint-Mode baseline gap) across `ui_tests/`, `architecture_tests/`, `logical_tests/`, `benchmark_tests/`, and `development_gap_tests/`.
+  - Running **141 pytest verification tests** (`136` `--pass` operational including M1 Hybrid NL & unbiased generalization + `5` `--gaps` Improve Plan feature tests) across `ui_tests/`, `architecture_tests/`, `logical_tests/`, `benchmark_tests/`, and `development_gap_tests/`.
   - Driven cleanly via `verification_tests/clean_runner.py` with custom plugin hooks (`InterpretableConsolePlugin`).
 
 #### 5. `httpx>=0.24.0`
@@ -79,10 +85,25 @@ python-dateutil>=2.8.2
 
 #### 6. `python-dateutil>=2.8.2`
 - **Purpose:** Robust extensions to the standard Python `datetime` module.
-- **Architectural Scope:** **Layer 1 & Layer 4** (`src/utils.py`, `src/models.py`, `web/api.py`).
+- **Architectural Scope:** **Layer 1 & Layer 4** (`src/utils.py`, `src/models.py`, `web/api.py`, `NL_Parser_Package/`).
 - **Used For:**
   - Parsing ISO-8601 timestamps and calendar date strings (`dateutil.parser.isoparse`).
   - Calculating relative week start dates (`datetime + timedelta`) and timezone offset calculations (`+07:00`).
+
+#### 7. `google-genai>=0.1.0` & `python-dotenv>=1.0.0` (Optional Cloud LLM NL Mode)
+- **Purpose:** Google Gemini structured JSON extraction SDK and `.env` loader (`GEMINI_API_KEY`).
+- **Architectural Scope:** **Layer 4: NL Adapter (`src/nl_parser.py`)**.
+- **Used For:** Powering optional `AI_GEMINI` extraction in `NLParserController` while automatically falling back to zero-network `OFFLINE_DETERMINISTIC` + Hybrid 6-Stage parsing when offline or unconfigured.
+
+#### 8. `ctranslate2>=4.5.0`, `sentencepiece>=0.2.0` & `huggingface-hub>=0.25.0` (Offline Neural VI→EN Translation)
+- **Purpose:** Fast quantized neural machine translation runtime (`NLLB-200` / `Opus-MT`), subword tokenizer, and local model hub downloader.
+- **Architectural Scope:** **Layer 4: NL Package (`NL_Parser_Package/translator.py`)**.
+- **Used For:** Translating Vietnamese prompts into structured English inside `NL_Parser_Package/hybrid_parser.py` (`backend="nllb"` / `"opus_mt"`), with instant stdlib `backend="rule"` fallback if weights or libraries are absent.
+
+#### 9. `PyYAML>=6.0`
+- **Purpose:** YAML parser for loading structured NLP verification datasets.
+- **Architectural Scope:** **Layer 5: Verification (`verification_tests/NL_Parser_test_cases/`)**.
+- **Used For:** Parsing the 200-case hybrid NLP evaluation suite (`validate_cases.py`, `verify_hybrid_200.py`).
 
 ---
 

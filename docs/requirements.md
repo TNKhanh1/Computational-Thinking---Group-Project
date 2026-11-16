@@ -31,7 +31,7 @@
 
 ## 2. Giải Thích Từng Thư Viện Cần Cài Đặt (`requirements.txt`)
 
-Nội dung file [`requirements.txt`](../group03-smartschedule-baseline/requirements.txt) gồm có 6 thư viện:
+Nội dung file [`requirements.txt`](../group03-smartschedule-baseline/requirements.txt) gồm có 12 thư viện:
 
 ```text
 fastapi>=0.100.0
@@ -40,6 +40,12 @@ pydantic>=2.0.0
 pytest>=7.4.0
 httpx>=0.24.0
 python-dateutil>=2.8.2
+google-genai>=0.1.0
+python-dotenv>=1.0.0
+PyYAML>=6.0
+ctranslate2>=4.5.0
+sentencepiece>=0.2.0
+huggingface-hub>=0.25.0
 ```
 
 ### Chi tiết vì sao nhóm cần từng thư viện:
@@ -61,7 +67,7 @@ python-dateutil>=2.8.2
 - **Định nghĩa các đối tượng:** `Task` (công việc), `FixedEvent` (lịch cố định), `SleepSchedule` (giờ ngủ), `ScheduleOutput` (lịch đã xếp). Giúp dữ liệu đồng nhất chuẩn ISO-8601 (§7.3 Improve Plan).
 
 #### 4. `pytest>=7.4.0` (Bộ Khung Kiểm Thử Tự Động)
-- **Dùng để làm gì:** Bộ công cụ kiểm thử chuẩn của Python giúp chạy tự động toàn bộ **113 bài test** (107 bài vận hành `--pass` + 5 bài mục tiêu Improve Plan `--gaps` + 1 bài test mở Sprint Mode liên quan `Q9`).
+- **Dùng để làm gì:** Bộ công cụ kiểm thử chuẩn của Python giúp chạy tự động toàn bộ **141 bài test** (**136** bài vận hành `--pass` gồm cả M1 Hybrid NL & test tổng quát hóa + **5** bài mục tiêu Improve Plan `--gaps`).
 - **Dùng ở tầng nào:** **Tầng 5 (Hệ Thống Kiểm Thử)** trong `verification_tests/`.
 - **Chạy bằng cách nào:** Chạy qua bộ lọc console sạch `clean_runner.py` để không bị rác màn hình.
 
@@ -72,6 +78,18 @@ python-dateutil>=2.8.2
 #### 6. `python-dateutil>=2.8.2` (Xử Lý Ngày Giờ Mở Rộng)
 - **Dùng để làm gì:** Bổ sung các tính năng tính toán ngày giờ mạnh mẽ mà thư viện chuẩn `datetime` của Python còn thiếu.
 - **Dùng ở đâu:** Dùng để đọc và phân tích các chuỗi thời gian chuẩn quốc tế ISO-8601 (ví dụ `"2026-11-02T00:00:00+07:00"`), tính toán độ lệch múi giờ Việt Nam (`+07:00`), và tự động xác định ngày đầu tuần.
+
+#### 7. `google-genai>=0.1.0` & `python-dotenv>=1.0.0` (Tùy chọn AI Gemini cho NL Parser)
+- **Dùng để làm gì:** SDK gọi mô hình Google Gemini xuất JSON có cấu trúc và đọc biến môi trường từ `.env` (`GEMINI_API_KEY`).
+- **Dùng ở tầng nào:** **Tầng 4 (Bộ chuyển đổi NL)** trong `src/nl_parser.py` — tự động fallback về bộ phân tích Hybrid offline khi không có API key.
+
+#### 8. `ctranslate2>=4.5.0`, `sentencepiece>=0.2.0` & `huggingface-hub>=0.25.0` (Dịch NMT VI→EN Offline)
+- **Dùng để làm gì:** Chạy mô hình dịch máy nơ-ron lượng tử hóa (`NLLB-200` / `Opus-MT`) tốc độ cao, tokenizer SentencePiece và tải/cache weight cục bộ.
+- **Dùng ở tầng nào:** **Tầng 4 (`NL_Parser_Package/translator.py`)** phục vụ dịch câu Tiếng Việt sang Tiếng Anh cho `NL_Parser_Package/hybrid_parser.py` (tự fallback sang từ điển `rule` 2ms nếu chưa tải weight).
+
+#### 9. `PyYAML>=6.0` (Đọc bộ test 200 ca Hybrid NL)
+- **Dùng để làm gì:** Đọc các file YAML kiểm thử nội dung phân tích ngôn ngữ tự nhiên.
+- **Dùng ở tầng nào:** **Tầng 5 (`verification_tests/NL_Parser_test_cases/`)** cho `validate_cases.py` và `verify_hybrid_200.py`.
 
 ---
 
@@ -116,5 +134,5 @@ source .venv/bin/activate
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
-Sau khi cài xong, bạn có thể gõ `python -B verification_tests/clean_runner.py --pass` để kiểm tra, nếu màn hình báo `107 Passed | Status: ALL PASSED` là môi trường đã chuẩn 100%!
+Sau khi cài xong, bạn có thể gõ `python -B verification_tests/clean_runner.py --pass` để kiểm tra, nếu màn hình báo `136 Passed | Status: ALL PASSED` (hoặc `--all` đạt `142 Passed`) là môi trường đã chuẩn 100%!
 

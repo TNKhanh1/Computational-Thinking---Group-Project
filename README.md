@@ -3,7 +3,7 @@
 
 > **Môn học:** Tư duy Tính toán (CS252) — Khoa Công nghệ Thông tin, Trường Đại học Khoa học Tự nhiên, ĐHQG-HCM (FIT-HCMUS)  
 > **Nhóm thực hiện:** Group 03 (*The Seven Dwarfs*)  
-> **Phiên bản:** Baseline System (V0) + Proposal & Presentation2 Sync (8 Behavioral Patterns, `SCORED_GREEDY`, Dual-Mode UI, M1 Dual-Engine Gemini/Offline NL Parser, Overload Triage, 125 Automated Tests)
+> **Phiên bản:** Baseline System (V0) + Proposal & Presentation2 Sync (8 Behavioral Patterns, `SCORED_GREEDY`, Dual-Mode UI, Hybrid 6-Stage EN/VI NL Parser + Cross-Browser Modal UX, Overload Triage `Q9` Option A, 142 `pytest` Tests + 200 YAML NL Cases)
 
 ---
 
@@ -48,17 +48,18 @@ Computational-Thinking---Group-Project/
 │
 ├── group03-smartschedule-baseline/         # ⭐ MÃ NGUỒN CHÍNH THỨC CỦA HỆ THỐNG
 │   ├── README.md                          # Sổ tay kỹ thuật chi tiết hướng dẫn cài đặt, Gemini .env, chạy & REST API
-│   ├── requirements.txt                   # Danh sách thư viện Python (FastAPI, Pydantic, Pytest, google-genai, dotenv...)
+│   ├── requirements.txt                   # Thư viện Python (FastAPI, Pydantic, Pytest, google-genai, PyYAML, CTranslate2...)
 │   ├── .env.example                       # Mẫu cấu hình API Key Google Gemini (copy thành .env cục bộ, đã ignore trên Git)
 │   ├── setup_env.bat                      # Script 1-click tạo .venv và cài thư viện trên Windows
 │   ├── run_app.bat                        # File khởi chạy nhanh Web Workbench (1-click)
 │   ├── main.py                            # CLI Runner cho lập lịch nhanh
 │   ├── benchmark_runner.py                # Runner thực nghiệm tự động 10 kịch bản T01–T10
 │   ├── benchmark_alpha_grid.py            # Grid Search 1D cho α ∈ [1.00, 1.60] & stress test +25%/+50%
+│   ├── NL_Parser_Package/                 # Gói Hybrid EN/VI NL Parser 6 tầng (tokenizer, regex, translator, schema, parser)
 │   ├── src/                               # Động cơ cốt lõi (TimeGrid, Solvers, Buffer, OverloadTriage, NL Parser, Metrics)
-│   ├── web/                               # Giao diện Web Workbench Dual-Mode (HTML5/Tailwind/FastAPI)
+│   ├── web/                               # Giao diện Web Workbench Dual-Mode (HTML5/Tailwind/FastAPI + Drag-Drop Citations)
 │   ├── data/                              # Dữ liệu tuần mẫu (Minh, Lan) & 10 kịch bản T01–T10
-│   └── verification_tests/                # Hệ thống kiểm thử chuyên sâu 125 tests & Test Studio
+│   └── verification_tests/                # Hệ thống kiểm thử 142 pytest tests, 200 YAML NL cases & Test Studio
 │
 ├── agents/                                # 🤖 AI AGENT & DEVELOPER KNOWLEDGE HUB (English)
 │   ├── requirements.md                    # Môi trường, dependency và kiến trúc bất biến (INV-1..6)
@@ -90,13 +91,17 @@ Computational-Thinking---Group-Project/
    - **Chế độ Sinh viên (Student Mode):** Thiết kế thân thiện, hỗ trợ 3 góc nhìn (Ngày / 3 Ngày / Tuần), tính năng thu gọn khung giờ ngủ, ghim lịch cố định (📌 Pinning), đánh dấu hoàn thành (✔️ Check-in), và pop-up giải thích vị trí xếp lịch (*"Tại sao ở đây? 💡"*).
    - **Chế độ Thí nghiệm (Lab Mode):** Dành cho nghiên cứu và kiểm thử thuật toán, nạp nhanh 10 kịch bản benchmark `T01–T10`, so sánh solver (EDF vs. LLF vs. Energy-First), và xem JSON I/O trực tiếp.
 
-4. **Bộ Đệm Thời Gian Ngăn Ngừa Ảo Tưởng Lập Kế Hoạch (Planning Fallacy Buffer — Feature 001):**
-   - Tự động áp dụng hệ số an toàn $1.25\times$ cho các tác vụ lớn, làm tròn số nguyên theo bước 15 phút.
-   - Bảo toàn nguyên vẹn thời lượng các tác vụ ngắn $\le 15$ phút, chống lãng phí thời gian biểu.
+4. **Bộ Phân Tích Ngôn Ngữ Tự Nhiên Hybrid EN/VI & UX Modal Hiện Đại:**
+   - Kết hợp pipeline offline 6 tầng (`NL_Parser_Package/` + M1 `src/nl_parser.py`) hỗ trợ song ngữ EN/VI (`rule`, `nllb`, `opus_mt`), thang khẩn cấp `1=Khẩn..4=Thấp` tự động ánh xạ Solver `5..1`, và `WorkRhythm` (Pomodoro / Balanced / Deep Focus).
+   - Modal Thêm Công Việc (`#stTaskModal`) hỗ trợ **tự động lưu nháp (`localStorage`)**, chọn **cắt nhỏ / làm liền 1 buổi** ngay trong vùng nhập tự nhiên, nhập/chọn **`Task ID` phụ thuộc**, **kéo-thả tệp an toàn trên Edge/Chrome/Firefox/Safari**, và đối chiếu **trích dẫn không mất dữ liệu `[[filename]]` / `@[path]`** với cảnh báo đỏ khi sai định dạng hoặc thiếu tệp đính kèm.
 
-5. **Hệ Thống Kiểm Thử 125 Tests & Test Studio:**
-   - `119` bài kiểm thử vận hành đạt chuẩn (`--pass`, Pass 100%) + `5/5` bài kiểm thử mục tiêu Improve Plan (`--gaps`, Pass 100%), cộng `1` ca giới hạn Sprint Mode mở (`--all`: `124/125` pass, gắn với quyết định `Q9`).
-   - Giao diện **Test Studio** và công cụ **Interpretable Console Runner** xuất báo cáo trực quan cho từng commit.
+5. **Bộ Đệm Thời Gian & Xử Lý Quá Tải (`Q9` Phương án A):**
+   - Tự động áp dụng hệ số an toàn $1.25\times$ cho các tác vụ lớn, làm tròn số nguyên theo bước 15 phút và bảo toàn tác vụ ngắn $\le 15$ phút.
+   - Chế độ Sprint Mode áp dụng **Phương án A (`Q9`)**: phát hiện quá tải không mất dữ liệu (`INFEASIBLE_CAPACITY`), bật cảnh báo gia hạn sớm (`Early Extension Alert`), và giải cứu có xác nhận qua `SHORTEN_TASK` / Tier-1 `Cut breaks`.
+
+6. **Hệ Thống Kiểm Thử 142 `pytest` Tests + 200 Ca YAML Hybrid NL:**
+   - `136` bài kiểm thử vận hành (`--pass`, 100% đạt) + `5/5` bài kiểm thử Improve Plan (`--gaps`, 100% đạt) + `1` bài kiểm thử `Q9` Sprint Mode Option A (`--all`: **`142/142` xanh 100%**).
+   - Kèm bộ **200 ca benchmark EN/VI** (`verification_tests/NL_Parser_test_cases/`, đạt `200/200` / `100.0%` trên engine `rule`) và giao diện **Test Studio**.
 
 ---
 
@@ -145,7 +150,7 @@ Hệ thống vẫn chạy **100% offline** nếu không có key (chế độ `�
 👉 Truy cập trình duyệt tại địa chỉ: **`http://127.0.0.1:8000`**
 
 ### 5. Chạy Kiểm Thử Toàn Diện (Verification Tests & Studio)
-- **Chạy toàn bộ 119 bài kiểm thử vận hành (`--pass`):**
+- **Chạy toàn bộ 136 bài kiểm thử vận hành (`--pass`):**
   ```powershell
   cd group03-smartschedule-baseline
   python -B verification_tests/clean_runner.py --pass
@@ -155,10 +160,16 @@ Hệ thống vẫn chạy **100% offline** nếu không có key (chế độ `�
   cd group03-smartschedule-baseline
   python -B verification_tests/clean_runner.py --gaps
   ```
-- **Chạy đầy đủ cả 125 tests (`--all` — `124 Passed | 1 Failed` ca Sprint Mode `Q9`):**
+- **Chạy đầy đủ cả 142 tests (`--all` — `142 Passed | 0 Failed`, gồm ca `Q9` Option A):**
   ```powershell
   cd group03-smartschedule-baseline
   python -B verification_tests/clean_runner.py --all
+  ```
+- **Kiểm tra 200 test case Hybrid EN/VI NL Parser:**
+  ```powershell
+  cd group03-smartschedule-baseline
+  python -B verification_tests/NL_Parser_test_cases/validate_cases.py
+  python -B verification_tests/NL_Parser_test_cases/verify_hybrid_200.py
   ```
 - **Khởi chạy Test Studio trực quan:**
   ```powershell

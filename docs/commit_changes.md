@@ -34,12 +34,22 @@ Dự án SmartSchedule đang ở bước chuyển tiếp quan trọng từ **B�
 
 - **Bản Baseline (V0):** Đã hoàn thiện và chạy rất mượt. Bộ giải toán CSP trên lưới 672 ô (15 phút/ô) với các thuật toán tham lam EDF, LST, WSPT đảm bảo 5 ràng buộc cứng $H_1$–$H_5$.
 - **Giao diện Web Workbench:** Đang chạy tại `http://127.0.0.1:8000`, hiển thị thời khóa biểu tuần trực quan và cho phép kéo thả thử nghiệm.
-- **Hệ thống Kiểm thử (Verification Tests):** Hiện có **107 bài test vận hành chạy xanh 100%** (`--pass`) + **5/5 bài test Improve Plan** (`--gaps`, `100% pass`) + **1 bài test mở Sprint Mode** (`test_fail_edge_sprint_mode_compression_recovery`, theo dõi tại `Q9`). Tổng cộng: **113 bài test tự động** (`112 Passed | 1 Failed` trên `--all` và `pytest -v`).
-- **Nhánh đồng bộ mới nhất (`ltbinh/sync-proposal`):** Hoàn tất đồng bộ mã nguồn `src/` và `web/` theo `Proposal/` và `Presentation2.pdf` kèm đợt vá kiểm toán bổ sung (`validate-move` `proposed_block`, opt-out `buffer_mode="NONE"`, `SHORTEN_TASK`, `repair_overrun` Pin Guard, đồng bộ CLI/Benchmark/Tài liệu và tổng hợp biểu quyết `Q1–Q10`).
+- **Hệ thống Kiểm thử (Verification Tests):** Hiện có **136 bài test vận hành chạy xanh 100%** (`--pass`) + **5/5 bài test Improve Plan** (`--gaps`, `100% pass`) + **1 bài test Sprint Mode đã giải quyết theo Phương án A (`Q9`)** (`test_fail_edge_sprint_mode_compression_recovery`). Tổng cộng: **142/142 bài test `pytest` đạt 100%** (`--all`), cùng **200/200 ca Benchmark Hybrid NL Parser** (`verify_hybrid_200.py`, `100.0%`).
+- **Nhánh đồng bộ mới nhất (`ltbinh/sync-proposal`):** Tích hợp Hybrid EN/VI NL Parser (`NL_Parser_Package/` + M1), nâng cấp Student Task Modal với kéo-thả đa trình duyệt + trích dẫn không mất dữ liệu `[[filename]]`, và chốt phương án A cho câu hỏi mở `Q9` (`142/142` pytest xanh 100%).
 
 ---
 
 ## 2. Nhật Ký Chi Tiết Các Thay Đổi Mã Nguồn
+
+### Lần cập nhật 009 — 2026-11-16 | Tích Hợp Hybrid EN/VI NL Parser, Nâng Cấp Modal Nhập Liệu & Chốt Phương Án A (`Q9`) (`ltbinh/sync-proposal`)
+- **Người thực hiện:** ltbinh (hỗ trợ bởi Antigravity AI)
+- **Nhánh Git:** `ltbinh/sync-proposal`
+- **Tóm tắt thay đổi:**
+  1. **Bộ phân tích ngôn ngữ tự nhiên Hybrid 6 tầng EN/VI (`NL_Parser_Package/`, `src/nl_parser.py`, `web/api.py`):** Di chuyển `NL_Parser_Package/` vào `group03-smartschedule-baseline/NL_Parser_Package/` và tinh gọn chỉ giữ 7 module chạy thực tế (`__init__.py`, `hybrid_parser.py`, `parser.py`, `regex_parser.py`, `schema.py`, `tokenizer.py`, `translator.py`). Bổ sung ánh xạ `1=Khẩn..4=Thấp -> 5..1`, tách & kiểm tra định dạng trích dẫn `[[filename]]`/`@[path/file]` (`E_INVALID_CITATION_FORMAT`), đối chiếu `ui.linked_files` (sửa lỗi khớp chuỗi con), đồng bộ độ ưu tiên theo `category`, và hỗ trợ backend dịch VI→EN (`rule`, `nllb`, `opus_mt`).
+  2. **Nâng cấp UI/UX Modal Công Việc & Kéo-Thả Đa Trình Duyệt (`web/index.html`, `web/app.js`):** Mở rộng `#stTaskModal` (`max-w-3xl lg:max-w-4xl`, `max-h-[90vh]`, cuộn mượt), thêm nút đóng `✕` + Esc/click nền, lưu nháp tự động `localStorage` (`#stModalDraftBadge`, `#btnStClearDraft`), thiết kế ô chat `#stNlPromptBox` + `#stNlFileLinkBox` hiện cảnh báo đỏ khi sai định dạng hoặc thiếu tệp, đưa nút cắt nhỏ (`✂️ Cho phép cắt nhỏ` | `🔒 Làm liền 1 buổi`) lên thanh nhập tự nhiên, thêm `#stInpTaskId` + chip `#stExistingTaskIdChips` cho `"Task cần phải làm trước đó (Task ID)"`, và gia cố kéo-thả trên Chrome, Edge, Firefox, Safari.
+  3. **Chốt `Q9` Phương án A & Kiểm thử khách quan (`verification_tests/`):** Cập nhật `test_fail_edge_sprint_mode_compression_recovery` kiểm chứng `INFEASIBLE_CAPACITY` + `Early Extension Alert` + xác nhận nén `SHORTEN_TASK` và Tier-1 `Cut breaks` (`crunch_tier_used == 1`). Thêm `verification_tests/NL_Parser_test_cases/` (200 ca YAML + `validate_cases.py` + `verify_hybrid_200.py`), `test_hybrid_nl_integration.py` (8 tests), và `test_hybrid_unbiased_generalization.py` (9 tests).
+  4. **Đồng bộ thư viện (`requirements.txt`, `agents/requirements.md`, `docs/requirements.md`):** Cập nhật `PyYAML>=6.0`, `ctranslate2>=4.5.0`, `sentencepiece>=0.2.0`, `huggingface-hub>=0.25.0`.
+- **Kiểm thử xác nhận (trước khi cập nhật tài liệu cuối):** `validate_cases.py` (`200/200`), `verify_hybrid_200.py` (`200/200` / `458.1 ms`), `clean_runner.py --pass` (`136/136`), `clean_runner.py --gaps` (`5/5`), `pytest` (`142 passed`).
 
 ### Lần cập nhật 008 — 2026-11-15 | Vá Lỗi Kiểm Toán & Đồng Bộ Tài Liệu (`ltbinh/sync-proposal`)
 - **Người thực hiện:** ltbinh (hỗ trợ bởi Antigravity AI)
