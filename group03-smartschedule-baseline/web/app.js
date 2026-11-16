@@ -52,6 +52,16 @@ const state = {
   undoSnapshot: null, // { commitments, tasks, schedule, pinnedBlocks }
   nlEngineMode: "auto", // 'auto' | 'offline'
   nlSuggestedFixedEvent: null, // Suggested FixedEvent payload from M1 parser
+  nlTransBackend: "rule", // 'rule' | 'nllb'
+  nlSession: "splittable", // 'splittable' | 'single'
+  nlPacing: "BALANCED", // 'LIGHT' | 'BALANCED' | 'FLOW' | 'CUSTOM'
+  nlUrgency: null, // null | 1 | 2 | 3 | 4 (1=Urgent..4=Low)
+  nlAttachments: [], // [{ name, size_mb }]
+  nlMinChunk: 30,
+  nlMaxChunk: 60,
+  stModalDraft: null,
+  lastAnalyzedHybrid: null,
+  lastAnalyzedTranslation: null,
 };
 
 function _storageKey() {
@@ -96,6 +106,52 @@ document.addEventListener("DOMContentLoaded", async () => {
   await loadScenariosDropdown();
   await loadPreset("minh");
   switchAppMode("STUDENT");
+
+  const modal = document.getElementById("stTaskModal");
+  if (modal) {
+    modal.addEventListener("input", () => saveStudentModalDraft());
+    modal.addEventListener("change", () => saveStudentModalDraft());
+  }
+  // Prevent Chrome, Edge, Firefox & Safari from opening dragged files in a new tab anywhere on window/document;
+  // route drops inside open #stTaskModal cleanly into the NL Link Box.
+  const clearDropHighlights = () => {
+    const promptBox = document.getElementById("stNlPromptBox");
+    const linkBox = document.getElementById("stNlFileLinkBox");
+    if (promptBox) promptBox.classList.remove("border-indigo-500", "bg-indigo-50/30");
+    if (linkBox) linkBox.classList.remove("border-indigo-500", "bg-indigo-50/40");
+  };
+  ["dragenter", "dragover"].forEach((evtName) => {
+    window.addEventListener(evtName, (e) => {
+      e.preventDefault();
+      if (e.dataTransfer) {
+        const stModal = document.getElementById("stTaskModal");
+        try {
+          e.dataTransfer.dropEffect = (stModal && !stModal.classList.contains("hidden")) ? "copy" : "none";
+        } catch (_) {}
+      }
+    }, false);
+    document.addEventListener(evtName, (e) => {
+      e.preventDefault();
+    }, false);
+  });
+  window.addEventListener("dragend", clearDropHighlights, false);
+  window.addEventListener("drop", (e) => {
+    e.preventDefault();
+    clearDropHighlights();
+    const stModal = document.getElementById("stTaskModal");
+    if (stModal && !stModal.classList.contains("hidden")) {
+      handleStNlFileDrop(e, "linkbox");
+    }
+  }, false);
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      const stModal = document.getElementById("stTaskModal");
+      if (stModal && !stModal.classList.contains("hidden")) {
+        closeStudentTaskModal();
+      }
+    }
+  });
 });
 
 function pad2(n) {
@@ -412,7 +468,72 @@ function applyQuickAdd() {
 
   inp.value = "";
   document.getElementById("quickAddChips").innerHTML = "";
+  const diagBox = document.getElementById("quickAddHybridDiag");
+  if (diagBox) diagBox.innerHTML = "";
   saveTaskFromForm();
+}
+
+async function analyzeQuickAddHybrid() {
+  const inp = document.getElementById("quickAddInput");
+  const diagBox = document.getElementById("quickAddHybridDiag");
+  const chipsBox = document.getElementById("quickAddChips");
+  const prompt = (inp?.value || "").trim();
+  if (!prompt) return;
+
+  if (diagBox) {
+    diagBox.innerHTML = `<div class="text-[10px] text-indigo-600 font-medium">⏳ Đang phân tích Hybrid 6-Stage...</div>`;
+  }
+
+  try {
+    const res = await fetch("/api/tasks/natural-add", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        prompt,
+        now: state.commitments?.now || null,
+        existing_count: state.tasks.length,
+        engine: "offline",
+        translation_backend: state.nlTransBackend || "rule",
+      }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+
+    if (data.status === "NO_TASK" || data.status === "INVALID") {
+      if (diagBox) {
+        renderHybridDiagnostics(diagBox, data.hybrid, data.translation, data.rejection_reason);
+      }
+      return;
+    }
+
+    const d = data.draft || {};
+    document.getElementById("inpTaskId").value = d.task_id || `TASK-${state.tasks.length + 1}`;
+    document.getElementById("inpTaskTitle").value = d.title || prompt;
+    document.getElementById("inpTaskDuration").value = d.duration_min || 60;
+    document.getElementById("inpTaskDeadlineDay").value = d.deadline_day || "Friday";
+    document.getElementById("inpTaskDeadlineTime").value = d.deadline_time || "23:59";
+    setPriority(d.priority || 3);
+    document.getElementById("inpTaskSplittable").checked = d.is_splittable !== false;
+    document.getElementById("inpTaskMinChunk").value = d.min_chunk_min || 30;
+    document.getElementById("inpTaskDependsOn").value = (d.depends_on || []).join(", ");
+    updateSlotEquivalent();
+
+    if (chipsBox) {
+      chipsBox.innerHTML = `
+        <span class="px-1.5 py-0.5 bg-indigo-100 text-indigo-800 rounded text-[10px] font-semibold">📌 ${_escHtml(d.title || prompt)}</span>
+        <span class="px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded text-[10px] mono">⏱ ${d.duration_min || 60}p</span>
+        <span class="px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded text-[10px] mono">📅 ${_escHtml(d.deadline_day || "Habit")} ${_escHtml(d.deadline_time || "")}</span>
+        <span class="px-1.5 py-0.5 bg-purple-100 text-purple-800 rounded text-[10px] mono">★ P${d.priority || 3} (${_escHtml(d.work_rhythm || "BALANCED")})</span>
+      `;
+    }
+    if (diagBox) {
+      renderHybridDiagnostics(diagBox, data.hybrid, data.translation);
+    }
+  } catch (err) {
+    if (diagBox) {
+      diagBox.innerHTML = `<div class="text-[10px] text-rose-600 font-medium">Lỗi Hybrid: ${_escHtml(err.message)}</div>`;
+    }
+  }
 }
 
 function resetTaskForm() {
@@ -1878,6 +1999,61 @@ function renderStudentTaskQueue() {
 }
 
 // Student Task Modal controls
+function _escHtml(str) {
+  return String(str ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+const HYBRID_DIAG_LABELS = {
+  E_DEADLINE_IN_THE_PAST: "Hạn chót nằm trong quá khứ",
+  E_DEADLINE_CONTRADICTION: "Xung đột nhiều hạn chót / sai thứ-ngày",
+  E_START_AFTER_DEADLINE: "Thời điểm bắt đầu muộn hơn hạn chót",
+  E_SUBTASK_DEADLINE_AFTER_PARENT: "Bước con có hạn muộn hơn task chính",
+  E_CYCLIC_DEPENDENCY: "Phát hiện chu trình phụ thuộc A→B→A",
+  E_DURATION_CONTRADICTION: "Tổng thời lượng mâu thuẫn với tổng bước con",
+  E_SESSION_CONTRADICTION: "Mâu thuẫn chế độ Chia nhỏ vs 1 Buổi liền",
+  E_SEMANTIC_CONTRADICTION: "Mâu thuẫn ngữ nghĩa nội tại (vd: nghỉ ngơi vs cường độ cao)",
+  E_CUSTOM_RANGE_INVALID: "Khoảng Tùy chỉnh Min > Max không hợp lệ",
+  E_ATTACHMENT_TOO_LARGE: "Tệp đính kèm vượt giới hạn 20MB",
+  E_ATTACHMENT_TYPE: "Định dạng tệp không hỗ trợ (.pdf,.txt,.md,.html)",
+  E_INVALID_CITATION_FORMAT: "Sai cú pháp dấu ngoặc vuông kép [[tên tệp]] hoặc tên tệp chứa ký tự không hợp lệ",
+  E_INFEASIBLE_WORKLOAD: "Tổng thời lượng vượt quỹ thời gian tới hạn chót",
+  E_NO_ACTIONABLE_TASK: "Thiếu hành động/đầu việc cụ thể",
+  E_NONSENSE_INPUT: "Đầu vào không hợp lệ / ngoài phạm vi lập lịch",
+  W_DOC_MENTIONED_NOT_ATTACHED: "Trích dẫn / nhắc tới tài liệu nhưng CHƯA đính kèm tệp tương ứng",
+  W_ATTACHMENT_UNREFERENCED: "Có tệp đính kèm nhưng chưa được trích dẫn bằng [[tên tệp]] trong prompt",
+  W_BREAKDOWN_RECOMMENDED: "Task phức tạp/đa miền — nên chia bước nhỏ",
+  W_UNREALISTIC_LOAD: "Khối lượng 1 buổi liền quá nặng (≥6h)",
+  W_TIGHT_SCHEDULE: "Quỹ thời gian sát — nên ưu tiên sớm",
+  W_SESSION_CONFLICT: "Chế độ phiên xung đột với yêu cầu trong câu (tự ưu tiên theo câu)",
+  W_PRIORITY_CONFLICT: "Độ ưu tiên nút chọn khác với thẻ [p1..p4] trong câu",
+  W_CHUNK_CONFLICT: "Cỡ block mâu thuẫn với ràng buộc trong câu",
+  W_OPEN_LOOP: "Đầu việc có vòng lặp mở chưa rõ điểm dừng",
+  W_EXTERNAL_DEPENDENCY: "Phụ thuộc bên ngoài / chờ phản hồi người khác",
+  W_NO_DURATION: "Chưa nêu rõ thời lượng thực hiện (hãy chọn chip hoặc nhập thời lượng gốc bên dưới)",
+  W_NO_DEADLINE: "Chưa nêu rõ ngày/giờ hạn chót (tạm suy luận mặc định hoặc chọn Không hạn chót)",
+  W_VAGUE_DURATION: "Thời lượng còn ước lượng mơ hồ (nên xác nhận lại số phút)",
+  W_VAGUE_DEADLINE: "Hạn chót diễn đạt mơ hồ (vd: sớm / đầu tuần tới)",
+  W_AMBIGUOUS_DATE: "Ngày/tháng có thể gây hiểu nhầm (nên viết rõ thứ và ngày)",
+  W_MULTIPLE_GOALS: "Câu chứa nhiều mục tiêu độc lập (cân nhắc tách thành nhiều task)",
+  W_DEPENDENCY_UNCLEAR: "Thứ tự phụ thuộc giữa các phần chưa rõ ràng",
+  W_MIXED_LANGUAGE: "Phát hiện trộn lẫn Tiếng Việt & Tiếng Anh",
+  W_STATUS_INFERRED: "Một số bước có dấu hiệu đã xong hoặc đang thực hiện",
+  W_TYPO_CORRECTED: "Đã tự động sửa một số lỗi chính tả phổ biến",
+  W_SELF_CORRECTION: "Phát hiện tự sửa ý giữa câu — đã lấy mốc điều chỉnh mới nhất",
+  W_RECURRING_NO_END: "Lịch lặp lại định kỳ chưa có ngày kết thúc",
+  W_RECURRING_NO_DURATION: "Lịch lặp lại chưa nêu thời lượng mỗi phiên",
+  W_PROMPT_INJECTION: "Phát hiện mẫu Prompt/SQL Injection — đã kích hoạt lá chắn an toàn",
+};
+
+const CRITICAL_CITATION_CODES = new Set([
+  "W_DOC_MENTIONED_NOT_ATTACHED",
+  "W_ATTACHMENT_UNREFERENCED",
+]);
+
 function setStudentNlEngine(mode) {
   state.nlEngineMode = mode === "offline" ? "offline" : "auto";
   const btnAuto = document.getElementById("btnNlEngineAuto");
@@ -1888,8 +2064,829 @@ function setStudentNlEngine(mode) {
   if (btnOff) btnOff.className = state.nlEngineMode === "offline" ? activeCls : idleCls;
 }
 
+function setStNlTransBackend(backend) {
+  state.nlTransBackend = backend === "nllb" ? "nllb" : "rule";
+}
+
+function _refreshStNlChunkUI() {
+  const paceGrp = document.getElementById("stNlPacingGroup");
+  if (paceGrp) {
+    if (state.nlSession === "single") {
+      paceGrp.classList.add("opacity-45");
+    } else {
+      paceGrp.classList.remove("opacity-45");
+    }
+  }
+  const advSum = document.getElementById("stAdvSyncedSummary");
+  if (advSum) {
+    const urgText = state.nlUrgency ? `P${state.nlUrgency} (Solver P${_mapUserUrgencyToSolver(state.nlUrgency)})` : "Tự động theo ngữ cảnh";
+    const splitText = state.nlSession === "single"
+      ? "Làm liền 1 buổi (Không cắt)"
+      : `Cho phép cắt nhỏ (${state.nlMinChunk}–${state.nlMaxChunk}p · ${state.nlPacing})`;
+    advSum.innerHTML = `Đồng bộ từ mục trên: <strong>Khẩn cấp ${_escHtml(urgText)}</strong> · <strong>${_escHtml(splitText)}</strong>`;
+  }
+}
+
+function setStNlSession(mode) {
+  state.nlSession = mode === "single" ? "single" : "splittable";
+  const bSplit = document.getElementById("stNlSessionSplit");
+  const bSingle = document.getElementById("stNlSessionSingle");
+  const onCls = "px-2.5 py-1 rounded-md font-semibold bg-indigo-600 text-white transition";
+  const offCls = "px-2.5 py-1 rounded-md font-semibold bg-white border border-slate-300 text-slate-600 transition";
+  if (bSplit) bSplit.className = state.nlSession === "splittable" ? onCls : offCls;
+  if (bSingle) bSingle.className = state.nlSession === "single" ? onCls : offCls;
+  const chk = document.getElementById("stInpSplittable");
+  if (chk) chk.checked = state.nlSession === "splittable";
+  _refreshStNlChunkUI();
+}
+
+function syncStSessionFromSplittableCheckbox(checked) {
+  setStNlSession(checked ? "splittable" : "single");
+}
+
+function setStNlPacing(pacing) {
+  state.nlPacing = pacing || "BALANCED";
+  if (state.nlPacing === "LIGHT") {
+    state.nlMinChunk = 15;
+    state.nlMaxChunk = 30;
+  } else if (state.nlPacing === "FLOW") {
+    state.nlMinChunk = 45;
+    state.nlMaxChunk = 120;
+  } else if (state.nlPacing === "CUSTOM") {
+    const cMin = parseInt(document.getElementById("stNlCustomMin")?.value || "20", 10);
+    const cMax = parseInt(document.getElementById("stNlCustomMax")?.value || "45", 10);
+    state.nlMinChunk = Math.max(15, cMin);
+    state.nlMaxChunk = Math.max(state.nlMinChunk, cMax);
+  } else {
+    state.nlMinChunk = 15;
+    state.nlMaxChunk = 60;
+  }
+
+  const paceMap = {
+    LIGHT: "stNlPaceLight",
+    BALANCED: "stNlPaceBalanced",
+    FLOW: "stNlPaceFlow",
+    CUSTOM: "stNlPaceCustom",
+  };
+  const onCls = "px-2.5 py-1 rounded-md font-semibold bg-indigo-100 border border-indigo-400 text-indigo-800 transition";
+  const offCls = "px-2.5 py-1 rounded-md font-semibold bg-white border border-slate-300 text-slate-600 transition";
+  Object.entries(paceMap).forEach(([key, elId]) => {
+    const el = document.getElementById(elId);
+    if (el) el.className = state.nlPacing === key ? onCls : offCls;
+  });
+
+  const customWrap = document.getElementById("stNlCustomWrap");
+  if (customWrap) customWrap.classList.toggle("hidden", state.nlPacing !== "CUSTOM");
+  if (state.nlSession === "single") setStNlSession("splittable");
+  _refreshStNlChunkUI();
+}
+
+function _mapUserUrgencyToSolver(urg) {
+  const u = Number(urg);
+  if (u === 1) return 5;
+  if (u === 2) return 4;
+  if (u === 3) return 3;
+  if (u === 4) return 1;
+  return 3;
+}
+
+function _mapSolverToUserUrgency(solverVal) {
+  const s = Number(solverVal);
+  if (s >= 5) return 1;
+  if (s === 4) return 2;
+  if (s === 3) return 3;
+  return 4;
+}
+
+function _renderUrgencyPills(activeUrg) {
+  const urgIds = [
+    [null, "stNlUrgAuto", "text-indigo-800"],
+    [1, "stNlUrg1", "text-rose-700"],
+    [2, "stNlUrg2", "text-amber-700"],
+    [3, "stNlUrg3", "text-slate-700"],
+    [4, "stNlUrg4", "text-emerald-700"],
+  ];
+  urgIds.forEach(([val, id, txtCls]) => {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    btn.className = activeUrg === val
+      ? `px-2 py-0.5 rounded font-bold bg-indigo-100 border border-indigo-400 ${txtCls} transition`
+      : `px-2 py-0.5 rounded font-semibold bg-white border border-slate-300 ${txtCls} transition`;
+  });
+}
+
+function setStNlUrgency(urgency) {
+  state.nlUrgency = urgency === null || urgency === undefined ? null : Number(urgency);
+  _renderUrgencyPills(state.nlUrgency);
+  const priSel = document.getElementById("stInpPriority");
+  if (priSel && state.nlUrgency !== null) {
+    priSel.value = String(_mapUserUrgencyToSolver(state.nlUrgency));
+  }
+  _refreshStNlChunkUI();
+  // Keep live diagnostic urgency badge synchronized immediately if already analyzed
+  if (state.lastAnalyzedHybrid && state.nlUrgency !== null) {
+    state.lastAnalyzedHybrid.priority = state.nlUrgency;
+    state.lastAnalyzedHybrid.solver_priority = _mapUserUrgencyToSolver(state.nlUrgency);
+    const diagEl = document.getElementById("stNlDiagnostics");
+    if (diagEl && !diagEl.classList.contains("hidden")) {
+      renderHybridDiagnostics(diagEl, state.lastAnalyzedHybrid, state.lastAnalyzedTranslation);
+    }
+  }
+}
+
+function syncStUrgencyFromSolverSelect(solverVal) {
+  const mappedUrg = _mapSolverToUserUrgency(solverVal);
+  state.nlUrgency = mappedUrg;
+  _renderUrgencyPills(mappedUrg);
+  _refreshStNlChunkUI();
+}
+
+function _setPromptRedState(hasErrorOrMissingCitation) {
+  const box = document.getElementById("stNlPromptBox") || document.getElementById("stNlPrompt");
+  if (!box) return;
+  if (hasErrorOrMissingCitation) {
+    box.className = "flex-1 rounded-lg border-2 border-rose-500 ring-2 ring-rose-200 bg-rose-50/40 focus-within:border-rose-600 px-2.5 py-1.5 space-y-1.5 transition";
+  } else {
+    box.className = "flex-1 rounded-lg border border-slate-300 bg-white focus-within:border-indigo-600 focus-within:ring-1 focus-within:ring-indigo-500 px-2.5 py-1.5 space-y-1.5 transition";
+  }
+}
+
+function extractBracketedCitations(text) {
+  const src = String(text || "");
+  const valid = [];
+  let hasMalformed = false;
+  const reDbl = /\[\[([^\[\]\n]*?)\]\]/g;
+  let m;
+  while ((m = reDbl.exec(src)) !== null) {
+    const inner = m[1].trim();
+    if (!inner || /[<>:"/\\|?*]/.test(inner)) {
+      hasMalformed = true;
+    } else if (!valid.some((v) => v.toLowerCase() === inner.toLowerCase())) {
+      valid.push(inner);
+    }
+  }
+  // Also recognize @[path/to/filename] chat-style file mentions
+  const reAt = /@\[([^\[\]\n]+?)\]/g;
+  while ((m = reAt.exec(src)) !== null) {
+    const rawPath = m[1].trim();
+    const baseFn = rawPath.split(/[/\\]/).pop().trim();
+    if (baseFn && !valid.some((v) => v.toLowerCase() === baseFn.toLowerCase())) {
+      valid.push(baseFn);
+    }
+  }
+  const remainder = src.replace(/\[\[[^\[\]\n]*?\]\]/g, " ").replace(/@\[[^\[\]\n]+?\]/g, " ");
+  if (/\[\[|\]\]/.test(remainder)) {
+    hasMalformed = true;
+  }
+  return { valid, hasMalformed };
+}
+
+function parseLinkedFileEntry(rawInput) {
+  let clean = String(rawInput || "").trim();
+  if (!clean) return null;
+  if ((clean.startsWith("@[") && clean.endsWith("]")) || (clean.startsWith("[[") && clean.endsWith("]]"))) {
+    clean = clean.slice(2, -2).trim();
+  }
+  clean = clean.replace(/^["']|["']$/g, "").trim();
+  if (!clean) return null;
+  let normalized = clean.replace(/^file:\/\/\/+/i, "");
+  try {
+    normalized = decodeURIComponent(normalized);
+  } catch (_) {}
+  const name = normalized.split(/[?#]/)[0].split(/[/\\]/).pop().trim();
+  if (!name) return null;
+  return {
+    name,
+    path_or_uri: clean,
+    size_mb: 0,
+    source: normalized !== name ? "path" : "manual",
+  };
+}
+
+function _upsertLinkedAttachment(entry) {
+  if (!entry || !entry.name) return;
+  if (!Array.isArray(state.nlAttachments)) state.nlAttachments = [];
+  const lowName = entry.name.toLowerCase();
+  const idx = state.nlAttachments.findIndex((a) => String(a.name || "").toLowerCase() === lowName);
+  if (idx >= 0) {
+    state.nlAttachments[idx] = { ...state.nlAttachments[idx], ...entry };
+  } else {
+    state.nlAttachments.push(entry);
+  }
+}
+
+function onStNlPromptLiveCheck(val) {
+  const { valid, hasMalformed } = extractBracketedCitations(val);
+  const statusEl = document.getElementById("stNlBracketLiveStatus");
+  const chipsEl = document.getElementById("stNlCitationBlockChips");
+  const attLow = new Set((state.nlAttachments || []).map((a) => String(a.name || "").trim().toLowerCase()));
+
+  if (statusEl) {
+    if (hasMalformed) {
+      statusEl.className = "text-[10px] font-bold text-rose-600";
+      statusEl.textContent = "⛔ Lỗi ngoặc kép [[...]] chưa đóng hoặc rỗng!";
+    } else if (valid.length > 0) {
+      const missingCount = valid.filter((f) => !attLow.has(f.toLowerCase())).length;
+      if (missingCount > 0) {
+        statusEl.className = "text-[10px] font-bold text-rose-600";
+        statusEl.textContent = `⚠️ ${missingCount} tệp trích dẫn chưa có trong Link Box`;
+      } else {
+        statusEl.className = "text-[10px] font-bold text-emerald-700";
+        statusEl.textContent = `✓ Khớp ${valid.length} tệp`;
+      }
+    } else {
+      statusEl.textContent = "";
+    }
+  }
+
+  if (chipsEl) {
+    if (valid.length === 0) {
+      chipsEl.classList.add("hidden");
+      chipsEl.innerHTML = "";
+    } else {
+      chipsEl.innerHTML = valid.map((fname) => {
+        const isMatched = attLow.has(fname.toLowerCase());
+        const badgeCls = isMatched
+          ? "bg-indigo-50 border-2 border-indigo-400 text-indigo-900 shadow-xs"
+          : "bg-rose-50 border-2 border-rose-400 text-rose-900 font-semibold";
+        const icon = isMatched ? "✓" : "✕ Thiếu Link Box";
+        return `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md ${badgeCls} mono">
+          <span>📄 ${_escHtml(fname)}</span>
+          <span class="font-sans text-[9px] px-1 rounded bg-white/70">${icon}</span>
+          <button type="button" onclick="removeCitationBlock('${_escHtml(fname).replace(/'/g, "\\'")}')" title="Gỡ hộp tệp khỏi ô nhập" class="hover:text-rose-700 font-bold ml-0.5">×</button>
+        </span>`;
+      }).join("");
+      chipsEl.classList.remove("hidden");
+    }
+  }
+
+  _setPromptRedState(hasMalformed);
+}
+
+function insertNamedCitationBlock(filename, skipReanalyze = false) {
+  const clean = String(filename || "").replace(/^\[\[|\]\]$/g, "").trim();
+  if (!clean) return;
+  const promptEl = document.getElementById("stNlPrompt");
+  if (!promptEl) return;
+  const block = `[[${clean}]]`;
+  if (!promptEl.value.toLowerCase().includes(block.toLowerCase()) && !promptEl.value.toLowerCase().includes(clean.toLowerCase() + "]")) {
+    const cur = promptEl.value.trim();
+    promptEl.value = cur ? `${cur} ${block}` : block;
+  }
+  onStNlPromptLiveCheck(promptEl.value);
+  saveStudentModalDraft();
+  if (!skipReanalyze && state.lastAnalyzedHybrid) {
+    analyzeStudentNlPrompt();
+  }
+}
+
+function promptInsertCitationBox() {
+  const promptEl = document.getElementById("stNlPrompt");
+  if (!promptEl) return;
+  const val = promptEl.value || "";
+  const start = promptEl.selectionStart ?? val.length;
+  const end = promptEl.selectionEnd ?? val.length;
+  const selected = val.slice(start, end).trim();
+  const inner = selected || "Ten_tai_lieu.pdf";
+  const prefix = start > 0 && !/\s$/.test(val.slice(0, start)) ? " " : "";
+  const suffix = end < val.length && !/^\s/.test(val.slice(end)) ? " " : "";
+  const inserted = `${prefix}[[${inner}]]${suffix}`;
+  promptEl.value = val.slice(0, start) + inserted + val.slice(end);
+  promptEl.focus();
+  const selStart = start + prefix.length + 2;
+  promptEl.setSelectionRange(selStart, selStart + inner.length);
+  onStNlPromptLiveCheck(promptEl.value);
+  saveStudentModalDraft();
+}
+
+function handleStNlFileDrop(event, dropZone) {
+  event.preventDefault();
+  event.stopPropagation();
+  const promptBox = document.getElementById("stNlPromptBox");
+  const linkBox = document.getElementById("stNlFileLinkBox");
+  if (promptBox) promptBox.classList.remove("border-indigo-500", "bg-indigo-50/30");
+  if (linkBox) linkBox.classList.remove("border-indigo-500", "bg-indigo-50/40");
+
+  const dt = event.dataTransfer;
+  if (!dt) return;
+  const droppedNames = [];
+
+  if (dt.files && dt.files.length > 0) {
+    Array.from(dt.files).forEach((f) => {
+      const entry = {
+        name: f.name,
+        path_or_uri: `dragged://${f.name}`,
+        size_mb: Number((f.size / (1024 * 1024)).toFixed(2)),
+        source: "drop",
+      };
+      _upsertLinkedAttachment(entry);
+      droppedNames.push(entry.name);
+    });
+  } else if (dt.items && dt.items.length > 0) {
+    Array.from(dt.items).forEach((item) => {
+      if (item.kind === "file" && typeof item.getAsFile === "function") {
+        const f = item.getAsFile();
+        if (f && f.name) {
+          _upsertLinkedAttachment({
+            name: f.name,
+            path_or_uri: `dragged://${f.name}`,
+            size_mb: Number((f.size / (1024 * 1024)).toFixed(2)),
+            source: "drop",
+          });
+          droppedNames.push(f.name);
+        }
+      }
+    });
+  }
+  if (droppedNames.length === 0) {
+    let rawDropText = "";
+    try {
+      rawDropText = (dt.getData("text/uri-list") || dt.getData("text/plain") || "").trim();
+    } catch (_) {}
+    if (rawDropText) {
+      rawDropText.split(/\r?\n/).forEach((line) => {
+        if (line && !line.startsWith("#")) {
+          const parsed = parseLinkedFileEntry(line);
+          if (parsed) {
+            _upsertLinkedAttachment(parsed);
+            droppedNames.push(parsed.name);
+          }
+        }
+      });
+    }
+  }
+
+  if (droppedNames.length === 0) return;
+  renderStNlAttachmentChips();
+
+  const shouldInsert = dropZone === "prompt" || (document.getElementById("stNlOptInsertBoxedToPrompt")?.checked ?? true);
+  if (shouldInsert) {
+    droppedNames.forEach((fn) => insertNamedCitationBlock(fn, true));
+  } else {
+    onStNlPromptLiveCheck(document.getElementById("stNlPrompt")?.value || "");
+    saveStudentModalDraft();
+  }
+  if ((document.getElementById("stNlPrompt")?.value || "").trim()) {
+    analyzeStudentNlPrompt();
+  }
+}
+
+function wrapUnbracketedCitation(filename) {
+  const promptEl = document.getElementById("stNlPrompt");
+  if (!promptEl || !filename) return;
+  const cur = promptEl.value;
+  const escaped = filename.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const replaced = cur.replace(new RegExp(`["']?${escaped}["']?`, "gi"), `[[${filename}]]`);
+  promptEl.value = replaced;
+  onStNlPromptLiveCheck(promptEl.value);
+  saveStudentModalDraft();
+  analyzeStudentNlPrompt();
+}
+
+function removeCitationBlock(filename) {
+  const promptEl = document.getElementById("stNlPrompt");
+  if (!promptEl || !filename) return;
+  const escaped = filename.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  promptEl.value = promptEl.value
+    .replace(new RegExp(`\\s*\\[\\[\\s*${escaped}\\s*\\]\\]`, "gi"), "")
+    .replace(new RegExp(`\\s*@\\[[^\\]\\n]*?${escaped}\\s*\\]`, "gi"), "")
+    .trim();
+  onStNlPromptLiveCheck(promptEl.value);
+  saveStudentModalDraft();
+  if (state.lastAnalyzedHybrid && promptEl.value) {
+    analyzeStudentNlPrompt();
+  }
+}
+
+function onStNlAttachmentsChange(inputEl) {
+  const files = Array.from(inputEl?.files || []);
+  const addedNames = [];
+  files.forEach((f) => {
+    const entry = {
+      name: f.name,
+      path_or_uri: `local://${f.name}`,
+      size_mb: Number((f.size / (1024 * 1024)).toFixed(2)),
+      source: "picker",
+    };
+    _upsertLinkedAttachment(entry);
+    addedNames.push(f.name);
+  });
+  renderStNlAttachmentChips();
+  const shouldInsert = document.getElementById("stNlOptInsertBoxedToPrompt")?.checked ?? true;
+  if (shouldInsert) {
+    addedNames.forEach((fn) => insertNamedCitationBlock(fn, true));
+  } else {
+    onStNlPromptLiveCheck(document.getElementById("stNlPrompt")?.value || "");
+    saveStudentModalDraft();
+  }
+  if (inputEl) inputEl.value = "";
+  if ((document.getElementById("stNlPrompt")?.value || "").trim()) {
+    analyzeStudentNlPrompt();
+  }
+}
+
+function renderStNlAttachmentChips() {
+  const box = document.getElementById("stNlAttachChips");
+  if (!box) return;
+  if (!state.nlAttachments || state.nlAttachments.length === 0) {
+    box.classList.add("hidden");
+    box.innerHTML = "";
+    return;
+  }
+  box.innerHTML = `<span class="text-slate-500 font-semibold mr-0.5">Trong Link Box (${state.nlAttachments.length}):</span>` + state.nlAttachments.map((a, idx) => {
+    const tooBig = (a.size_mb || 0) > 20;
+    const sizeLabel = a.size_mb > 0 ? `${a.size_mb} MB${tooBig ? " >20MB!" : ""}` : "Link";
+    const cls = tooBig
+      ? "bg-rose-50 border-rose-400 text-rose-800 font-semibold"
+      : "bg-emerald-50 border-emerald-200 text-emerald-800";
+    const pathTitle = a.path_or_uri ? ` title="${_escHtml(a.path_or_uri)}"` : "";
+    return `<span${pathTitle} class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border ${cls}">
+      <span>📄 ${_escHtml(a.name)} (${sizeLabel})</span>
+      <button type="button" onclick="insertNamedCitationBlock('${_escHtml(a.name).replace(/'/g, "\\'")}')" title="Chèn hộp [[${_escHtml(a.name)}]] vào ô nhập" class="px-1 rounded bg-white border border-indigo-200 text-indigo-700 hover:bg-indigo-50 text-[9px] font-bold">+ 📦 Hộp</button>
+      <button type="button" onclick="removeStNlAttachment(${idx})" title="Gỡ khỏi Link Box" class="hover:text-rose-700 font-bold">×</button>
+    </span>`;
+  }).join("");
+  box.classList.remove("hidden");
+}
+
+function removeStNlAttachment(idx) {
+  state.nlAttachments.splice(idx, 1);
+  renderStNlAttachmentChips();
+  onStNlPromptLiveCheck(document.getElementById("stNlPrompt")?.value || "");
+  saveStudentModalDraft();
+  if (state.lastAnalyzedHybrid && (document.getElementById("stNlPrompt")?.value || "").trim()) {
+    analyzeStudentNlPrompt();
+  }
+}
+
+function renderHybridDiagnostics(containerEl, hybridData, translationData, fallbackReason = "") {
+  if (!containerEl) return;
+  if (!hybridData) {
+    containerEl.classList.add("hidden");
+    containerEl.innerHTML = "";
+    _setPromptRedState(false);
+    return;
+  }
+
+  const errors = hybridData.errors || [];
+  const rawWarns = hybridData.warnings || [];
+  const quietDefaults = new Set(["W_SESSION_DEFAULTED", "W_PACING_DEFAULTED", "W_PRIORITY_DEFAULTED"]);
+  const shownWarns = rawWarns.filter((w) => !quietDefaults.has(w));
+  const criticalWarns = shownWarns.filter((w) => CRITICAL_CITATION_CODES.has(w));
+  const softWarns = shownWarns.filter((w) => !CRITICAL_CITATION_CODES.has(w));
+  const subtasks = hybridData.subtasks || [];
+  const cits = hybridData.citations || {};
+  const missingCits = cits.missing_attachments || [];
+  const extraAtts = cits.extra_attachments || [];
+  const unbracketedCits = cits.unbracketed || [];
+  const malformedCits = cits.malformed_brackets || [];
+
+  const hasRedAlert = errors.length > 0 || criticalWarns.length > 0 || missingCits.length > 0 || malformedCits.length > 0;
+  if (containerEl.id === "stNlDiagnostics") {
+    _setPromptRedState(hasRedAlert);
+  }
+
+  const blocks = [];
+
+  // Summary ribbon
+  const st = hybridData.status || "OK";
+  const stBadgeCls =
+    hasRedAlert && (errors.length > 0 || missingCits.length > 0)
+      ? "bg-rose-100 text-rose-800 border-rose-400"
+      : st === "OK" ? "bg-emerald-100 text-emerald-800 border-emerald-300"
+      : st === "OK_WITH_WARNINGS" ? "bg-amber-100 text-amber-800 border-amber-300"
+      : "bg-rose-100 text-rose-800 border-rose-400";
+  const pUrg = hybridData.priority ? `UI P${hybridData.priority} (Solver P${hybridData.solver_priority || "?"})` : "Tự động";
+  const splitTxt = hybridData.splitting
+    ? `${hybridData.splitting.min}–${hybridData.splitting.max}p (gợi ý ${hybridData.splitting.pref}p)`
+    : (hybridData.is_task_splittable === false ? "1 Buổi liền" : "Mặc định");
+  const saTxt = hybridData.start_after ? ` · ⏱ Bắt đầu sau: ${_escHtml(hybridData.start_after)}` : "";
+  blocks.push(
+    `<div class="flex flex-wrap items-center gap-1.5 text-[10px]">
+      <span class="px-1.5 py-0.5 rounded border font-bold ${stBadgeCls}">Hybrid: ${_escHtml(st)}</span>
+      <span class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200 font-medium">${_escHtml(hybridData.work_rhythm || "BALANCED")} · ${_escHtml(splitTxt)}</span>
+      <span class="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-800 border border-indigo-200 font-medium">${_escHtml(pUrg)}${saTxt}</span>
+    </div>`
+  );
+
+  if (translationData?.applied && translationData?.translated_prompt) {
+    const transBox = document.getElementById("stNlTransBadge");
+    if (transBox && containerEl.id === "stNlDiagnostics") {
+      transBox.innerHTML = `<strong>🌐 VI→EN (${_escHtml(translationData.backend || "rule")}):</strong> ${_escHtml(translationData.translated_prompt)}`;
+      transBox.classList.remove("hidden");
+    } else {
+      blocks.push(
+        `<div class="text-[10px] px-2 py-1 rounded bg-sky-50 border border-sky-200 text-sky-900">
+          <strong>🌐 VI→EN (${_escHtml(translationData.backend || "rule")}):</strong> ${_escHtml(translationData.translated_prompt)}
+        </div>`
+      );
+    }
+  }
+
+  // RED CRITICAL BLOCKS: Formatting/Logic Errors (E_*) & Missing/Mismatched Citations
+  if (errors.length > 0 || criticalWarns.length > 0) {
+    const redItems = [];
+    errors.forEach((e) => {
+      const desc = HYBRID_DIAG_LABELS[e] || fallbackReason || e;
+      redItems.push(`<li><span class="px-1 py-0.2 rounded bg-rose-200/70 font-bold mono">${_escHtml(e)}</span>: ${_escHtml(desc)}</li>`);
+    });
+    criticalWarns.forEach((w) => {
+      const desc = HYBRID_DIAG_LABELS[w] || w;
+      redItems.push(`<li><span class="px-1 py-0.2 rounded bg-rose-200/70 font-bold mono">${_escHtml(w)}</span>: ${_escHtml(desc)}</li>`);
+    });
+    blocks.push(
+      `<div class="p-2.5 rounded-lg bg-rose-50 border-2 border-rose-400 text-[10px] text-rose-950 shadow-sm">
+        <div class="font-bold mb-1 flex items-center gap-1 text-rose-800">
+          <span>🛑</span>
+          <span>Lỗi định dạng / Thiếu tài liệu trích dẫn (${redItems.length}):</span>
+        </div>
+        <ul class="list-disc pl-4 space-y-1">${redItems.join("")}</ul>
+      </div>`
+    );
+  }
+
+  // CITATION CROSS-COMPARISON MATRIX (Cited [[...]] / Quoted vs Attached Files)
+  if ((cits.cited_files && cits.cited_files.length > 0) || (cits.attached_files && cits.attached_files.length > 0)) {
+    const cmpRows = [];
+    (cits.matched || []).forEach((fn) => {
+      cmpRows.push(
+        `<div class="flex items-center justify-between gap-2 px-2 py-1 rounded bg-emerald-50 border border-emerald-300 text-emerald-900">
+          <span class="mono font-semibold">✓ [[${_escHtml(fn)}]]</span>
+          <span class="text-[9px] font-bold">Đã khớp tệp đính kèm</span>
+        </div>`
+      );
+    });
+    missingCits.forEach((fn) => {
+      const needsWrap = unbracketedCits.includes(fn);
+      cmpRows.push(
+        `<div class="flex flex-wrap items-center justify-between gap-2 px-2 py-1.5 rounded bg-rose-100 border border-rose-400 text-rose-950">
+          <span class="mono font-bold">✕ ${_escHtml(needsWrap ? `"${fn}"` : `[[${fn}]]`)} — Thiếu tệp đính kèm!</span>
+          <span class="flex items-center gap-1">
+            ${needsWrap ? `<button type="button" onclick="wrapUnbracketedCitation('${_escHtml(fn).replace(/'/g, "\\'")}')" class="px-1.5 py-0.5 rounded bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[9px]">🔒 Bọc [[...]]</button>` : ""}
+            <label for="stNlAttachments" class="cursor-pointer px-1.5 py-0.5 rounded bg-rose-700 hover:bg-rose-800 text-white font-bold text-[9px]">📎 Đính kèm ngay</label>
+          </span>
+        </div>`
+      );
+    });
+    extraAtts.forEach((fn) => {
+      cmpRows.push(
+        `<div class="flex items-center justify-between gap-2 px-2 py-1 rounded bg-rose-50 border border-rose-300 text-rose-900">
+          <span class="mono">⚠️ Đính kèm <strong>${_escHtml(fn)}</strong> nhưng chưa trích dẫn [[${_escHtml(fn)}]]</span>
+          <button type="button" onclick="insertNamedCitationBlock('${_escHtml(fn).replace(/'/g, "\\'")}')" class="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-white font-bold text-[9px] whitespace-nowrap">➕ Chèn [[file]]</button>
+        </div>`
+      );
+    });
+    if (cmpRows.length > 0) {
+      blocks.push(
+        `<div class="p-2 rounded-lg bg-slate-50 border border-slate-300 text-[10px] space-y-1">
+          <div class="font-bold text-slate-800">📊 Đối chiếu Trích dẫn trong ô nhập ↔ Link Box Tệp:</div>
+          ${cmpRows.join("")}
+        </div>`
+      );
+    }
+  }
+
+  if (softWarns.length > 0) {
+    const warnItems = softWarns.map((w) => {
+      const desc = HYBRID_DIAG_LABELS[w] || w;
+      return `<li><code class="font-semibold">${_escHtml(w)}</code>: ${_escHtml(desc)}</li>`;
+    }).join("");
+    blocks.push(
+      `<div class="p-2 rounded-lg bg-amber-50 border border-amber-200 text-[10px] text-amber-900">
+        <div class="font-bold mb-0.5">⚠️ Gợi ý chuẩn hóa (${softWarns.length}):</div>
+        <ul class="list-disc pl-4 space-y-0.5">${warnItems}</ul>
+      </div>`
+    );
+  }
+
+  if (hybridData.breakdown_required || subtasks.length > 0) {
+    const bdBanner = hybridData.breakdown_required
+      ? `<div class="font-bold text-purple-900 mb-1">📐 Đề xuất chia nhỏ (Breakdown Recommended) — ${subtasks.length} bước phát hiện:</div>`
+      : `<div class="font-bold text-purple-900 mb-1">🧩 Danh sách bước con trích xuất (${subtasks.length}):</div>`;
+    const subRows = subtasks.map((stItem, i) => {
+      const minTag = stItem.work_minutes != null ? `${stItem.work_minutes}p` : "?p";
+      const priTag = stItem.priority != null ? `P${stItem.priority}` : "";
+      const stIcon = stItem.status === "DONE" ? "✅" : (stItem.status === "IN_PROGRESS" ? "⏳" : "⬜");
+      return `<li class="flex items-center justify-between gap-2">
+        <span>${stIcon} <strong>${i + 1}.</strong> ${_escHtml(stItem.title || stItem.id)}</span>
+        <span class="mono text-[9px] text-purple-700 whitespace-nowrap">${_escHtml(minTag)} ${_escHtml(priTag)}</span>
+      </li>`;
+    }).join("");
+    blocks.push(
+      `<div class="p-2 rounded-lg bg-purple-50 border border-purple-200 text-[10px] text-purple-950">
+        ${bdBanner}
+        ${subtasks.length > 0 ? `<ul class="space-y-0.5">${subRows}</ul>` : ""}
+      </div>`
+    );
+  }
+
+  containerEl.innerHTML = blocks.join("");
+  containerEl.classList.remove("hidden");
+}
+
+const ST_MODAL_DRAFT_KEY = "smartschedule_st_modal_draft_v1";
+
+function saveStudentModalDraft() {
+  const prompt = document.getElementById("stNlPrompt")?.value || "";
+  const taskId = document.getElementById("stInpTaskId")?.value || "";
+  const title = document.getElementById("stInpTitle")?.value || "";
+  const duration = document.getElementById("stInpDuration")?.value || "60";
+  const deadlineDay = document.getElementById("stInpDeadlineDay")?.value ?? "Wednesday";
+  const deadlineTime = document.getElementById("stInpDeadlineTime")?.value || "23:59";
+  const category = document.getElementById("stInpCategory")?.value || "ASSIGNMENT";
+  const cognitiveLoad = document.getElementById("stInpCognitiveLoad")?.value || "2";
+  const priority = document.getElementById("stInpPriority")?.value || "5";
+  const splittable = document.getElementById("stInpSplittable")?.checked ?? true;
+  const buffer = document.getElementById("stInpBuffer")?.checked ?? true;
+  const dependsOn = document.getElementById("stInpDependsOn")?.value || "";
+  const customMin = document.getElementById("stNlCustomMin")?.value || "20";
+  const customMax = document.getElementById("stNlCustomMax")?.value || "45";
+
+  // Check if anything meaningful has been entered or modified
+  const hasContent = Boolean(
+    prompt.trim() ||
+    taskId.trim() ||
+    title.trim() ||
+    duration !== "60" ||
+    deadlineDay !== "Wednesday" ||
+    deadlineTime !== "23:59" ||
+    category !== "ASSIGNMENT" ||
+    priority !== "5" ||
+    dependsOn.trim() ||
+    (state.nlAttachments && state.nlAttachments.length > 0) ||
+    state.lastAnalyzedHybrid
+  );
+
+  const badge = document.getElementById("stModalDraftBadge");
+  const btnClear = document.getElementById("btnStClearDraft");
+
+  if (!hasContent) {
+    try {
+      localStorage.removeItem(ST_MODAL_DRAFT_KEY);
+    } catch (e) {}
+    state.stModalDraft = null;
+    if (badge) badge.classList.add("hidden");
+    if (btnClear) btnClear.classList.add("hidden");
+    return;
+  }
+
+  const draftData = {
+    prompt,
+    taskId,
+    title,
+    duration,
+    deadlineDay,
+    deadlineTime,
+    category,
+    cognitiveLoad,
+    priority,
+    splittable,
+    buffer,
+    dependsOn,
+    customMin,
+    customMax,
+    nlEngineMode: state.nlEngineMode,
+    nlTransBackend: state.nlTransBackend,
+    nlSession: state.nlSession,
+    nlPacing: state.nlPacing,
+    nlUrgency: state.nlUrgency,
+    nlAttachments: state.nlAttachments || [],
+    insertBoxedToPrompt: document.getElementById("stNlOptInsertBoxedToPrompt")?.checked ?? true,
+    nlMinChunk: state.nlMinChunk,
+    nlMaxChunk: state.nlMaxChunk,
+    hybrid: state.lastAnalyzedHybrid || null,
+    translation: state.lastAnalyzedTranslation || null,
+    suggestedFixedEvent: state.nlSuggestedFixedEvent || null,
+    updatedAt: Date.now(),
+  };
+
+  try {
+    localStorage.setItem(ST_MODAL_DRAFT_KEY, JSON.stringify(draftData));
+    state.stModalDraft = draftData;
+    if (badge) badge.classList.remove("hidden");
+    if (btnClear) btnClear.classList.remove("hidden");
+  } catch (e) {
+    console.warn("Could not save modal draft:", e);
+  }
+}
+
+function restoreStudentModalDraft() {
+  let draftData = null;
+  try {
+    const raw = localStorage.getItem(ST_MODAL_DRAFT_KEY);
+    if (raw) draftData = JSON.parse(raw);
+  } catch (e) {
+    console.warn("Could not parse modal draft:", e);
+  }
+
+  const badge = document.getElementById("stModalDraftBadge");
+  const btnClear = document.getElementById("btnStClearDraft");
+
+  if (!draftData) {
+    if (badge) badge.classList.add("hidden");
+    if (btnClear) btnClear.classList.add("hidden");
+    return false;
+  }
+
+  if (document.getElementById("stNlPrompt")) document.getElementById("stNlPrompt").value = draftData.prompt || "";
+  if (document.getElementById("stInpTaskId")) document.getElementById("stInpTaskId").value = draftData.taskId || "";
+  if (document.getElementById("stInpTitle")) document.getElementById("stInpTitle").value = draftData.title || "";
+  if (document.getElementById("stInpDuration")) document.getElementById("stInpDuration").value = draftData.duration || "60";
+  if (document.getElementById("stInpDeadlineDay")) document.getElementById("stInpDeadlineDay").value = draftData.deadlineDay ?? "Wednesday";
+  if (document.getElementById("stInpDeadlineTime")) document.getElementById("stInpDeadlineTime").value = draftData.deadlineTime || "23:59";
+  if (document.getElementById("stInpCategory")) document.getElementById("stInpCategory").value = draftData.category || "ASSIGNMENT";
+  if (document.getElementById("stInpCognitiveLoad")) document.getElementById("stInpCognitiveLoad").value = String(draftData.cognitiveLoad || 2);
+  if (document.getElementById("stInpPriority")) document.getElementById("stInpPriority").value = String(draftData.priority || 5);
+  if (document.getElementById("stInpSplittable")) document.getElementById("stInpSplittable").checked = draftData.splittable !== false;
+  if (document.getElementById("stInpBuffer")) document.getElementById("stInpBuffer").checked = draftData.buffer !== false;
+  if (document.getElementById("stInpDependsOn")) document.getElementById("stInpDependsOn").value = draftData.dependsOn || "";
+  if (document.getElementById("stNlCustomMin")) document.getElementById("stNlCustomMin").value = draftData.customMin || "20";
+  if (document.getElementById("stNlCustomMax")) document.getElementById("stNlCustomMax").value = draftData.customMax || "45";
+  if (document.getElementById("stNlOptInsertBoxedToPrompt")) {
+    document.getElementById("stNlOptInsertBoxedToPrompt").checked = draftData.insertBoxedToPrompt !== false;
+  }
+
+  if (draftData.nlEngineMode) setStudentNlEngine(draftData.nlEngineMode);
+  if (draftData.nlTransBackend) {
+    setStNlTransBackend(draftData.nlTransBackend);
+    const sel = document.getElementById("stNlTransBackend");
+    if (sel) sel.value = draftData.nlTransBackend;
+  }
+  if (draftData.nlSession) setStNlSession(draftData.nlSession);
+  if (draftData.nlPacing) setStNlPacing(draftData.nlPacing);
+  if (draftData.nlUrgency !== undefined) setStNlUrgency(draftData.nlUrgency);
+
+  state.nlAttachments = draftData.nlAttachments || [];
+  renderStNlAttachmentChips();
+  onStNlPromptLiveCheck(draftData.prompt || "");
+
+  if (draftData.hybrid) {
+    state.lastAnalyzedHybrid = draftData.hybrid;
+    state.lastAnalyzedTranslation = draftData.translation;
+    const diagEl = document.getElementById("stNlDiagnostics");
+    renderHybridDiagnostics(diagEl, draftData.hybrid, draftData.translation);
+  }
+
+  if (draftData.suggestedFixedEvent) {
+    state.nlSuggestedFixedEvent = draftData.suggestedFixedEvent;
+    const banner = document.getElementById("stNlFixedBanner");
+    const desc = document.getElementById("stNlFixedDesc");
+    if (banner && desc) {
+      const fe = draftData.suggestedFixedEvent;
+      desc.textContent = `${fe.day_of_week} ${fe.start_time}–${fe.end_time} (${fe.category})`;
+      banner.classList.remove("hidden");
+    }
+  }
+
+  if (badge) badge.classList.remove("hidden");
+  if (btnClear) btnClear.classList.remove("hidden");
+  updateStBufferPreview();
+  return true;
+}
+
+function clearStudentModalDraft(confirmFirst = false) {
+  if (confirmFirst && !confirm("Bạn có chắc chắn muốn xóa bản nháp và nhập lại từ đầu?")) {
+    return;
+  }
+  try {
+    localStorage.removeItem(ST_MODAL_DRAFT_KEY);
+  } catch (e) {}
+  state.stModalDraft = null;
+  state.lastAnalyzedHybrid = null;
+  state.lastAnalyzedTranslation = null;
+  state.nlSuggestedFixedEvent = null;
+  state.nlAttachments = [];
+
+  if (document.getElementById("stNlPrompt")) document.getElementById("stNlPrompt").value = "";
+  if (document.getElementById("stInpTaskId")) document.getElementById("stInpTaskId").value = "";
+  if (document.getElementById("stInpTitle")) document.getElementById("stInpTitle").value = "";
+  if (document.getElementById("stInpDuration")) document.getElementById("stInpDuration").value = "60";
+  if (document.getElementById("stInpDeadlineDay")) document.getElementById("stInpDeadlineDay").value = "Wednesday";
+  if (document.getElementById("stInpDeadlineTime")) document.getElementById("stInpDeadlineTime").value = "23:59";
+  if (document.getElementById("stInpCategory")) document.getElementById("stInpCategory").value = "ASSIGNMENT";
+  if (document.getElementById("stInpCognitiveLoad")) document.getElementById("stInpCognitiveLoad").value = "2";
+  if (document.getElementById("stInpPriority")) document.getElementById("stInpPriority").value = "5";
+  if (document.getElementById("stInpSplittable")) document.getElementById("stInpSplittable").checked = true;
+  if (document.getElementById("stInpBuffer")) document.getElementById("stInpBuffer").checked = true;
+  if (document.getElementById("stInpDependsOn")) document.getElementById("stInpDependsOn").value = "";
+
+  setStNlSession("splittable");
+  setStNlPacing("BALANCED");
+  setStNlUrgency(null);
+  renderStNlAttachmentChips();
+  onStNlPromptLiveCheck("");
+  resetStudentNlFeedback();
+  updateStBufferPreview();
+
+  const badge = document.getElementById("stModalDraftBadge");
+  if (badge) badge.classList.add("hidden");
+  const btnClear = document.getElementById("btnStClearDraft");
+  if (btnClear) btnClear.classList.add("hidden");
+}
+
 function resetStudentNlFeedback() {
   state.nlSuggestedFixedEvent = null;
+  _setPromptRedState(false);
   const nlSt = document.getElementById("stNlStatus");
   if (nlSt) {
     nlSt.className = "text-[10px] text-slate-500 hidden";
@@ -1900,24 +2897,87 @@ function resetStudentNlFeedback() {
     badge.className = "hidden px-1.5 py-0.5 rounded text-[9px] font-bold";
     badge.textContent = "";
   }
+  const transBadge = document.getElementById("stNlTransBadge");
+  if (transBadge) {
+    transBadge.classList.add("hidden");
+    transBadge.innerHTML = "";
+  }
   const chips = document.getElementById("stNlChips");
   if (chips) {
     chips.classList.add("hidden");
     chips.innerHTML = "";
   }
+  const diagEl = document.getElementById("stNlDiagnostics");
+  if (diagEl) {
+    diagEl.classList.add("hidden");
+    diagEl.innerHTML = "";
+  }
   const fixedBanner = document.getElementById("stNlFixedBanner");
   if (fixedBanner) fixedBanner.classList.add("hidden");
 }
 
+function renderStDependsOnCandidates() {
+  const box = document.getElementById("stExistingTaskIdChips");
+  if (!box) return;
+  const tasks = state.tasks || [];
+  if (tasks.length === 0) {
+    box.innerHTML = `<span class="text-slate-400">Chưa có task nào trong hàng đợi để tham chiếu.</span>`;
+    return;
+  }
+  const curIds = new Set(
+    (document.getElementById("stInpDependsOn")?.value || "")
+      .split(",")
+      .map((s) => s.trim().toUpperCase())
+      .filter(Boolean)
+  );
+  box.innerHTML = `<span class="text-slate-500 font-semibold mr-0.5">Chọn nhanh Task ID hiện có:</span>` + tasks.map((t) => {
+    const tid = String(t.task_id || t.id || "").trim();
+    const active = curIds.has(tid.toUpperCase());
+    const cls = active
+      ? "bg-indigo-100 border-indigo-400 text-indigo-900 font-bold"
+      : "bg-slate-100 border-slate-300 text-slate-700 hover:bg-slate-200";
+    return `<button type="button" onclick="toggleStDependsOnId('${_escHtml(tid).replace(/'/g, "\\'")}')"
+      class="px-2 py-0.5 rounded border ${cls} mono transition">
+      ${active ? "✓" : "+"} ${_escHtml(tid)} <span class="font-sans text-slate-500">(${_escHtml((t.title || "").slice(0, 18))})</span>
+    </button>`;
+  }).join("");
+}
+
+function toggleStDependsOnId(tid) {
+  const inp = document.getElementById("stInpDependsOn");
+  if (!inp || !tid) return;
+  const items = inp.value.split(",").map((s) => s.trim()).filter(Boolean);
+  const idx = items.findIndex((s) => s.toUpperCase() === tid.toUpperCase());
+  if (idx >= 0) {
+    items.splice(idx, 1);
+  } else {
+    items.push(tid);
+  }
+  inp.value = items.join(", ");
+  renderStDependsOnCandidates();
+  saveStudentModalDraft();
+}
+
 function openStudentTaskModal() {
-  resetStudentNlFeedback();
+  const restored = restoreStudentModalDraft();
+  if (!restored) {
+    resetStudentNlFeedback();
+  }
+  const tidInp = document.getElementById("stInpTaskId");
+  if (tidInp) {
+    tidInp.placeholder = `VD: TASK-${state.tasks.length + 1} (tự tạo)`;
+  }
+  renderStDependsOnCandidates();
   document.getElementById("stTaskModal")?.classList.remove("hidden");
-  document.getElementById("stInpTitle")?.focus();
+  const targetFocus = (document.getElementById("stNlPrompt")?.value)
+    ? document.getElementById("stInpTitle")
+    : (document.getElementById("stNlPrompt") || document.getElementById("stInpTitle"));
+  targetFocus?.focus();
   updateStBufferPreview();
 }
 
 function closeStudentTaskModal() {
-  resetStudentNlFeedback();
+  saveStudentModalDraft();
   document.getElementById("stTaskModal")?.classList.add("hidden");
 }
 
@@ -2027,6 +3087,7 @@ async function analyzeStudentNlPrompt() {
   const inp = document.getElementById("stNlPrompt");
   const statusEl = document.getElementById("stNlStatus");
   const badgeEl = document.getElementById("stNlEngineBadge");
+  const diagEl = document.getElementById("stNlDiagnostics");
   const fixedBannerEl = document.getElementById("stNlFixedBanner");
   const fixedDescEl = document.getElementById("stNlFixedDesc");
   const prompt = (inp?.value || "").trim();
@@ -2035,8 +3096,23 @@ async function analyzeStudentNlPrompt() {
   resetStudentNlFeedback();
   if (statusEl) {
     statusEl.className = "text-[10px] text-indigo-600 font-medium";
-    statusEl.textContent = "⏳ Đang phân tích ngôn ngữ tự nhiên...";
+    statusEl.textContent = "⏳ Đang phân tích ngôn ngữ tự nhiên (Hybrid Pipeline)...";
   }
+
+  // Gather UI WorkRhythm + 1=Urgent..4=Low + Attachments context
+  const uiCustom = state.nlPacing === "CUSTOM"
+    ? {
+        min: parseInt(document.getElementById("stNlCustomMin")?.value || "20", 10),
+        max: parseInt(document.getElementById("stNlCustomMax")?.value || "45", 10),
+      }
+    : null;
+  const uiContext = {
+    session: state.nlSession || "splittable",
+    pacing: state.nlPacing || "BALANCED",
+    custom: uiCustom,
+    priority: state.nlUrgency,
+    attachments: state.nlAttachments || [],
+  };
 
   try {
     const res = await fetch("/api/tasks/natural-add", {
@@ -2047,6 +3123,8 @@ async function analyzeStudentNlPrompt() {
         now: state.commitments?.now || null,
         existing_count: state.tasks.length,
         engine: state.nlEngineMode || "auto",
+        translation_backend: state.nlTransBackend || "rule",
+        ui: uiContext,
       }),
     });
     if (!res.ok) throw new Error(await res.text());
@@ -2054,7 +3132,7 @@ async function analyzeStudentNlPrompt() {
 
     if (badgeEl) {
       const isAi = data.engine_used === "AI_GEMINI";
-      badgeEl.textContent = isAi ? "✨ Gemini AI" : "⚡ Offline Regex";
+      badgeEl.textContent = isAi ? "✨ Gemini AI + Hybrid" : "⚡ Offline Hybrid";
       badgeEl.className = isAi
         ? "px-1.5 py-0.5 rounded text-[9px] font-bold bg-indigo-100 text-indigo-700"
         : "px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-200 text-slate-700";
@@ -2065,6 +3143,7 @@ async function analyzeStudentNlPrompt() {
         statusEl.className = "text-[10px] text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-2 py-1.5 font-medium";
         statusEl.textContent = `🚫 ${data.rejection_reason || "Câu nhập không phải công việc cần xếp lịch."}`;
       }
+      renderHybridDiagnostics(diagEl, data.hybrid, data.translation, data.rejection_reason);
       return;
     }
 
@@ -2074,6 +3153,8 @@ async function analyzeStudentNlPrompt() {
     if (document.getElementById("stInpDeadlineDay")) document.getElementById("stInpDeadlineDay").value = d.deadline_day || "";
     if (document.getElementById("stInpDeadlineTime")) document.getElementById("stInpDeadlineTime").value = d.deadline_time || "23:59";
     if (document.getElementById("stInpPriority")) document.getElementById("stInpPriority").value = String(d.priority || 3);
+    _renderUrgencyPills(d.user_priority || _mapSolverToUserUrgency(d.priority || 3));
+
     const catEl = document.getElementById("stInpCategory");
     if (catEl) {
       const targetCat = d.category || "ASSIGNMENT";
@@ -2082,9 +3163,15 @@ async function analyzeStudentNlPrompt() {
     }
     if (document.getElementById("stInpCognitiveLoad")) document.getElementById("stInpCognitiveLoad").value = String(d.cognitive_load || 2);
     if (document.getElementById("stInpSplittable")) document.getElementById("stInpSplittable").checked = d.is_splittable !== false;
+
+    state.nlMinChunk = d.min_chunk_min || 30;
+    state.nlMaxChunk = d.max_chunk_min || 60;
+    state.nlSession = d.is_splittable === false ? "single" : "splittable";
+    _refreshStNlChunkUI();
     updateStBufferPreview();
 
     renderStudentNlChips(data.suggestions || []);
+    renderHybridDiagnostics(diagEl, data.hybrid, data.translation);
 
     if (data.suggested_fixed_event && fixedBannerEl && fixedDescEl) {
       const fe = data.suggested_fixed_event;
@@ -2103,8 +3190,11 @@ async function analyzeStudentNlPrompt() {
         : "text-[10px] text-emerald-700 font-medium";
       statusEl.textContent = warns.length > 0
         ? `⚠️ Đã điền (${dlText}${locBadge}): ${warns.join(" ")}`
-        : `✓ Đã phân tích M1: ${d.category} · P${d.priority} · Load-${d.cognitive_load} · ${dlText}${locBadge}`;
+        : `✓ Đã phân tích Hybrid: ${d.category} · Solver P${d.priority} (UI P${d.user_priority || "?"}) · ${d.work_rhythm || "BALANCED"} · ${dlText}${locBadge}`;
     }
+    state.lastAnalyzedHybrid = data.hybrid;
+    state.lastAnalyzedTranslation = data.translation;
+    saveStudentModalDraft();
   } catch (err) {
     if (statusEl) {
       statusEl.className = "text-[10px] text-rose-600 font-medium";
@@ -2114,6 +3204,7 @@ async function analyzeStudentNlPrompt() {
 }
 
 async function saveStudentTask() {
+  const rawTid = (document.getElementById("stInpTaskId")?.value || "").trim().toUpperCase().replace(/\s+/g, "_");
   const title = document.getElementById("stInpTitle")?.value.trim() || "Bài tập mới";
   const rawDur = Math.max(15, parseInt(document.getElementById("stInpDuration")?.value || "60", 10));
   const isBuffer = document.getElementById("stInpBuffer")?.checked ?? true;
@@ -2125,8 +3216,14 @@ async function saveStudentTask() {
   const isSplittable = document.getElementById("stInpSplittable")?.checked ?? true;
   const dependsOnStr = document.getElementById("stInpDependsOn")?.value.trim() || "";
 
-  const tid = `TASK_${Date.now().toString().slice(-4)}`;
+  let tid = rawTid || `TASK_${state.tasks.length + 1}`;
+  const existingIds = new Set(state.tasks.map((t) => String(t.task_id || t.id || "").toUpperCase()));
+  if (existingIds.has(tid.toUpperCase())) {
+    tid = `${tid}_${Date.now().toString().slice(-3)}`;
+  }
   const dependsOn = dependsOnStr ? dependsOnStr.split(",").map((s) => s.trim()).filter(Boolean) : [];
+  const effMinChunk = isSplittable ? Math.max(15, parseInt(state.nlMinChunk || 30, 10)) : rawDur;
+  const effMaxChunk = isSplittable ? Math.max(effMinChunk, parseInt(state.nlMaxChunk || 60, 10)) : rawDur;
 
   // Send raw duration_min cleanly — backend applies Planning Fallacy buffer ONCE (zero double-buffering)
   const newTask = {
@@ -2137,8 +3234,8 @@ async function saveStudentTask() {
     deadline_time: deadlineTime,
     priority,
     is_splittable: isSplittable,
-    min_chunk_min: 45,
-    max_chunk_min: 90,
+    min_chunk_min: effMinChunk,
+    max_chunk_min: effMaxChunk,
     depends_on: dependsOn,
     category: deadlineDay ? category : "HABIT",
     cognitive_load: cognitiveLoad,
@@ -2149,19 +3246,8 @@ async function saveStudentTask() {
   }
 
   state.tasks.push(newTask);
-  closeStudentTaskModal();
-
-  // Reset modal fields
-  const inpT = document.getElementById("stInpTitle");
-  if (inpT) inpT.value = "";
-  const inpNl = document.getElementById("stNlPrompt");
-  if (inpNl) inpNl.value = "";
-  const nlSt = document.getElementById("stNlStatus");
-  if (nlSt) nlSt.classList.add("hidden");
-  const inpD = document.getElementById("stInpDuration");
-  if (inpD) inpD.value = "60";
-  const inpDep = document.getElementById("stInpDependsOn");
-  if (inpDep) inpDep.value = "";
+  clearStudentModalDraft(false);
+  document.getElementById("stTaskModal")?.classList.add("hidden");
 
   syncAllLeftPanels();
   await solveSchedule();

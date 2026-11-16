@@ -437,46 +437,162 @@
   </div>
 
   <!-- ============================================================================ -->
-  <!-- MODAL: THÊM CÔNG VIỆC TỐI GIẢN (CLEAN 3-FIELD TASK MODAL)                     -->
+  <!-- MODAL: THÊM CÔNG VIỆC TỐI GIẢN (CLEAN TASK MODAL + HYBRID NL ENGINE)          -->
   <!-- ============================================================================ -->
-  <div id="stTaskModal" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 space-y-4 border border-slate-200">
-      <div class="flex items-center justify-between border-b border-slate-100 pb-3">
-        <div class="flex items-center gap-2">
-          <div class="w-7 h-7 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-sm">📝</div>
-          <h3 class="text-sm font-bold text-slate-900">Thêm Công Việc Mới</h3>
+  <div id="stTaskModal" onclick="if(event.target===this) closeStudentTaskModal()" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 md:p-6">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-3xl lg:max-w-4xl w-full max-h-[90vh] flex flex-col border border-slate-200 overflow-hidden">
+      
+      <!-- Modal Header (fixed/sticky) -->
+      <div class="flex items-center justify-between border-b border-slate-100 px-5 py-3.5 bg-white flex-shrink-0">
+        <div class="flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-sm">📝</div>
+          <div>
+            <div class="flex items-center gap-2">
+              <h3 class="text-sm font-bold text-slate-900">Thêm Công Việc Mới</h3>
+              <span id="stModalDraftBadge" class="hidden text-[10px] bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full border border-amber-200 font-semibold flex items-center gap-1">
+                <span>💾</span> Đã lưu nháp
+              </span>
+            </div>
+            <p class="text-[11px] text-slate-500">Nhập ngôn ngữ tự nhiên (AI + Hybrid) hoặc điền biểu mẫu chi tiết bên dưới</p>
+          </div>
         </div>
-        <button onclick="closeStudentTaskModal()" class="text-slate-400 hover:text-slate-700 text-lg font-bold px-2">✕</button>
+        <div class="flex items-center gap-1.5">
+          <button type="button" onclick="clearStudentModalDraft(true)" id="btnStClearDraft" title="Xóa nháp và điền lại từ đầu" class="hidden text-[11px] text-slate-500 hover:text-rose-600 hover:bg-rose-50 px-2.5 py-1 rounded-lg transition font-medium">
+            🗑️ Xóa nháp
+          </button>
+          <button type="button" onclick="closeStudentTaskModal()" title="Đóng & Lưu nháp (Esc)" aria-label="Đóng" class="w-8 h-8 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 flex items-center justify-center font-bold text-lg transition">
+            ✕
+          </button>
+        </div>
       </div>
 
-      <div class="space-y-3.5 text-xs">
-        <!-- M1 Hybrid NL Quick-Add inside Student Modal (Dual-Engine W04 Standardized) -->
-        <div class="bg-slate-50 border border-slate-200 rounded-xl p-2.5 space-y-2">
+      <!-- Modal Body (Scrollable with horizontal room) -->
+      <div class="flex-1 overflow-y-auto px-5 py-4 space-y-4 text-xs">
+        <!-- M1 Hybrid NL Quick-Add inside Student Modal (Dual-Engine W04 + 6-Stage Hybrid Pipeline) -->
+        <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2.5">
           <div class="flex items-center justify-between gap-2 flex-wrap">
             <label class="font-bold text-slate-700 text-[11px] flex items-center gap-1.5">
               <span>✨ Nhập tự nhiên (M1 Hybrid EN/VI)</span>
               <span id="stNlEngineBadge" class="hidden px-1.5 py-0.5 rounded text-[9px] font-bold"></span>
             </label>
-            <div class="inline-flex rounded-lg bg-slate-200/80 p-0.5 text-[10px] font-semibold" role="group" aria-label="NL Engine Mode">
-              <button type="button" id="btnNlEngineAuto" onclick="setStudentNlEngine('auto')"
-                class="px-2 py-0.5 rounded-md bg-white text-indigo-700 shadow-sm transition">
-                ✨ Auto (AI)
-              </button>
-              <button type="button" id="btnNlEngineOffline" onclick="setStudentNlEngine('offline')"
-                class="px-2 py-0.5 rounded-md text-slate-600 hover:text-slate-900 transition">
-                ⚡ Offline
-              </button>
+            <div class="flex items-center gap-1.5 flex-wrap">
+              <div class="inline-flex rounded-lg bg-slate-200/80 p-0.5 text-[10px] font-semibold" role="group" aria-label="NL Engine Mode">
+                <button type="button" id="btnNlEngineAuto" onclick="setStudentNlEngine('auto')"
+                  class="px-2 py-0.5 rounded-md bg-white text-indigo-700 shadow-sm transition">
+                  ✨ Auto (AI)
+                </button>
+                <button type="button" id="btnNlEngineOffline" onclick="setStudentNlEngine('offline')"
+                  class="px-2 py-0.5 rounded-md text-slate-600 hover:text-slate-900 transition">
+                  ⚡ Offline
+                </button>
+              </div>
+              <select id="stNlTransBackend" onchange="setStNlTransBackend(this.value)"
+                title="Chọn bộ dịch Tiếng Việt -> Tiếng Anh cho Hybrid Pipeline"
+                class="text-[10px] px-1.5 py-0.5 rounded-md border border-slate-300 bg-white text-slate-700 font-semibold">
+                <option value="rule" selected>VI→EN: Rule (2ms)</option>
+                <option value="nllb">VI→EN: NLLB-200 Neural</option>
+              </select>
             </div>
           </div>
-          <div class="flex gap-1.5">
-            <input id="stNlPrompt" type="text" placeholder="VD: Ôn thi Giải tích 2 tiếng trước 17h thứ 6 #deep"
-              onkeydown="if(event.key==='Enter'){event.preventDefault();analyzeStudentNlPrompt();}"
-              class="flex-1 text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white focus:border-indigo-600 outline-none" />
-            <button type="button" onclick="analyzeStudentNlPrompt()" class="px-3 py-1.5 bg-indigo-100 hover:bg-indigo-200 text-indigo-800 font-bold rounded-lg transition whitespace-nowrap">Phân tích</button>
+
+          <!-- Chat-style Unified Prompt Input Box with Drop Target + Inline Bounded File Chips -->
+          <div class="flex gap-1.5 items-stretch">
+            <div id="stNlPromptBox"
+              ondragenter="event.preventDefault();event.stopPropagation();this.classList.add('border-indigo-500','bg-indigo-50/30');"
+              ondragover="event.preventDefault();event.stopPropagation();try{if(event.dataTransfer)event.dataTransfer.dropEffect='copy';}catch(_){}this.classList.add('border-indigo-500','bg-indigo-50/30');"
+              ondragleave="event.stopPropagation();if(!this.contains(event.relatedTarget))this.classList.remove('border-indigo-500','bg-indigo-50/30');"
+              ondrop="handleStNlFileDrop(event,'prompt')"
+              class="flex-1 rounded-lg border border-slate-300 bg-white focus-within:border-indigo-600 focus-within:ring-1 focus-within:ring-indigo-500 px-2.5 py-1.5 space-y-1.5 transition">
+              <div id="stNlCitationBlockChips" class="hidden flex flex-wrap items-center gap-1.5 text-[10px]"></div>
+              <input id="stNlPrompt" type="text" placeholder="Kéo thả tệp vào đây hoặc gõ trực tiếp [[Tên tệp.pdf]], VD: Ôn thi Giải tích 2h T6 [[Ch1. Logic_apcs.pdf]]..."
+                oninput="onStNlPromptLiveCheck(this.value)"
+                onkeydown="if(event.key==='Enter'){event.preventDefault();analyzeStudentNlPrompt();}"
+                class="w-full text-xs bg-transparent border-none outline-none p-0.5" />
+            </div>
+            <button type="button" onclick="analyzeStudentNlPrompt()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg transition whitespace-nowrap shadow-sm">Phân tích</button>
           </div>
+
+          <!-- Splittability & WorkRhythm Quick-Pills (explicitly inside Natural Language panel) -->
+          <div class="flex flex-wrap items-center gap-1.5 text-[10px]">
+            <span class="text-slate-500 font-semibold mr-0.5">Cắt nhỏ & Nhịp học:</span>
+            <button type="button" id="stNlSessionSplit" onclick="setStNlSession('splittable')"
+              class="px-2.5 py-1 rounded-md font-semibold bg-indigo-600 text-white transition">✂️ Cho phép cắt nhỏ</button>
+            <button type="button" id="stNlSessionSingle" onclick="setStNlSession('single')"
+              class="px-2.5 py-1 rounded-md font-semibold bg-white border border-slate-300 text-slate-600 transition">🔒 Làm liền 1 buổi</button>
+            <span class="text-slate-300 mx-0.5">|</span>
+            <div id="stNlPacingGroup" class="inline-flex flex-wrap items-center gap-1 transition">
+              <button type="button" id="stNlPaceLight" onclick="setStNlPacing('LIGHT')"
+                class="px-2.5 py-1 rounded-md font-semibold bg-white border border-slate-300 text-slate-600 transition">⚡ Nhẹ 25m</button>
+              <button type="button" id="stNlPaceBalanced" onclick="setStNlPacing('BALANCED')"
+                class="px-2.5 py-1 rounded-md font-semibold bg-indigo-100 border border-indigo-400 text-indigo-800 transition">⚖️ Vừa 45m</button>
+              <button type="button" id="stNlPaceFlow" onclick="setStNlPacing('FLOW')"
+                class="px-2.5 py-1 rounded-md font-semibold bg-white border border-slate-300 text-slate-600 transition">🌊 Sâu 90m</button>
+              <button type="button" id="stNlPaceCustom" onclick="setStNlPacing('CUSTOM')"
+                class="px-2.5 py-1 rounded-md font-semibold bg-white border border-slate-300 text-slate-600 transition">🎛️ Tùy chỉnh</button>
+              <span id="stNlCustomWrap" class="hidden inline-flex items-center gap-1 ml-1">
+                <input id="stNlCustomMin" type="number" min="15" max="120" step="5" value="20"
+                  class="w-12 text-[10px] px-1.5 py-0.5 rounded border border-slate-300 bg-white text-center" />
+                <span>–</span>
+                <input id="stNlCustomMax" type="number" min="15" max="240" step="5" value="45"
+                  class="w-12 text-[10px] px-1.5 py-0.5 rounded border border-slate-300 bg-white text-center" />
+                <span class="text-slate-400">m</span>
+              </span>
+            </div>
+          </div>
+
+          <!-- User Urgency Scale (1 = Urgent .. 4 = Low) -->
+          <div class="flex flex-wrap items-center justify-between gap-1.5 text-[10px]">
+            <div class="flex flex-wrap items-center gap-1">
+              <span class="text-slate-500 font-semibold" title="Thang khẩn cấp người dùng 1=Urgent..4=Low (tự ánh xạ sang Solver)">Khẩn cấp (1–4):</span>
+              <button type="button" id="stNlUrgAuto" onclick="setStNlUrgency(null)"
+                class="px-2 py-0.5 rounded font-semibold bg-indigo-100 border border-indigo-400 text-indigo-800 transition">? Tự động</button>
+              <button type="button" id="stNlUrg1" onclick="setStNlUrgency(1)"
+                class="px-2 py-0.5 rounded font-semibold bg-white border border-slate-300 text-rose-700 transition">P1 Khẩn</button>
+              <button type="button" id="stNlUrg2" onclick="setStNlUrgency(2)"
+                class="px-2 py-0.5 rounded font-semibold bg-white border border-slate-300 text-amber-700 transition">P2 Cao</button>
+              <button type="button" id="stNlUrg3" onclick="setStNlUrgency(3)"
+                class="px-2 py-0.5 rounded font-semibold bg-white border border-slate-300 text-slate-700 transition">P3 Vừa</button>
+              <button type="button" id="stNlUrg4" onclick="setStNlUrgency(4)"
+                class="px-2 py-0.5 rounded font-semibold bg-white border border-slate-300 text-emerald-700 transition">P4 Thấp</button>
+            </div>
+          </div>
+
+          <!-- Clean File Dropzone & Link Box (NO extra text input — drag/pick files & optionally auto-wrap [[filename]] inside main prompt) -->
+          <div id="stNlFileLinkBox"
+            ondragenter="event.preventDefault();event.stopPropagation();this.classList.add('border-indigo-500','bg-indigo-50/40');"
+            ondragover="event.preventDefault();event.stopPropagation();try{if(event.dataTransfer)event.dataTransfer.dropEffect='copy';}catch(_){}this.classList.add('border-indigo-500','bg-indigo-50/40');"
+            ondragleave="event.stopPropagation();if(!this.contains(event.relatedTarget))this.classList.remove('border-indigo-500','bg-indigo-50/40');"
+            ondrop="handleStNlFileDrop(event,'linkbox')"
+            class="bg-white border border-dashed border-slate-300 hover:border-indigo-400 rounded-xl p-2.5 space-y-1.5 text-[10px] transition">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="font-bold text-slate-700">📎 Kéo thả tệp vào đây để đối chiếu trích dẫn</span>
+                <span id="stNlBracketLiveStatus" class="font-medium"></span>
+              </div>
+              <div class="flex flex-wrap items-center gap-2">
+                <label class="inline-flex items-center gap-1.5 cursor-pointer text-slate-700 font-semibold select-none">
+                  <input id="stNlOptInsertBoxedToPrompt" type="checkbox" checked onchange="saveStudentModalDraft()" class="rounded text-indigo-600" />
+                  <span>Tự chèn <code class="px-1 py-0.5 rounded bg-indigo-50 text-indigo-700 font-mono">[[tên tệp]]</code> vào ô nhập</span>
+                </label>
+                <button type="button" onclick="promptInsertCitationBox()" title="Chèn cặp khung [[ ]] ngay tại con trỏ trong ô nhập chính"
+                  class="px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-700 font-semibold whitespace-nowrap transition">
+                  + Khung [[ ]] vào prompt
+                </button>
+                <label for="stNlAttachments"
+                  class="cursor-pointer px-2.5 py-1 rounded-lg border border-indigo-300 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 font-bold inline-flex items-center gap-1 whitespace-nowrap">
+                  <span>📂 Chọn từ máy</span>
+                  <input id="stNlAttachments" type="file" multiple accept=".pdf,.txt,.md,.html" class="hidden" onchange="onStNlAttachmentsChange(this)" />
+                </label>
+              </div>
+            </div>
+            <div id="stNlAttachChips" class="hidden flex flex-wrap items-center gap-1.5 pt-0.5"></div>
+          </div>
+
           <div id="stNlStatus" class="text-[10px] text-slate-500 hidden"></div>
+          <div id="stNlTransBadge" class="hidden text-[10px] px-2.5 py-1.5 rounded-lg bg-sky-50 border border-sky-200 text-sky-900"></div>
           <div id="stNlChips" class="hidden flex flex-wrap items-center gap-1.5 pt-0.5"></div>
-          <div id="stNlFixedBanner" class="hidden bg-amber-50 border border-amber-300 rounded-lg p-2 flex items-center justify-between gap-2">
+          <div id="stNlDiagnostics" class="hidden space-y-1.5 pt-0.5"></div>
+          <div id="stNlFixedBanner" class="hidden bg-amber-50 border border-amber-300 rounded-lg p-2.5 flex items-center justify-between gap-2">
             <div class="text-[11px] text-amber-950">
               <div class="font-bold">📌 Phát hiện lịch hẹn cố định (không dời được)</div>
               <div id="stNlFixedDesc" class="text-[10px] text-amber-800 mt-0.5"></div>
@@ -488,34 +604,44 @@
           </div>
         </div>
 
-        <!-- Field 1: Title -->
-        <div>
-          <label class="block font-semibold text-slate-700 mb-1">1. Tên Bài Tập / Công Việc <span class="text-rose-500">*</span></label>
-          <input id="stInpTitle" type="text" placeholder="VD: Ôn tập môn Cấu trúc dữ liệu & Giải thuật..."
-            class="w-full text-xs px-3 py-2 rounded-xl border border-slate-300 focus:border-indigo-600 focus:ring-1 focus:ring-indigo-500 outline-none" />
-        </div>
-
-        <!-- Field 2: Duration with quick chips -->
-        <div>
-          <div class="flex items-center justify-between mb-1">
-            <label class="font-semibold text-slate-700">2. Thời Lượng Ước Tính Gốc <span class="text-rose-500">*</span></label>
-            <span id="stDurationPreview" class="text-indigo-600 font-semibold mono">60 phút</span>
+        <!-- Structured Input Fields Grid (Horizontal Task ID + Title + Duration Layout) -->
+        <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
+          <!-- Field 0: Task ID -->
+          <div class="md:col-span-3">
+            <label for="stInpTaskId" class="block font-semibold text-slate-700 mb-1">Mã Task (`Task ID`)</label>
+            <input id="stInpTaskId" type="text" placeholder="VD: LAB-1 (tự tạo)"
+              class="w-full text-xs px-3 py-2 rounded-xl border border-slate-300 mono uppercase focus:border-indigo-600 focus:ring-1 focus:ring-indigo-500 outline-none" />
           </div>
-          <div class="flex items-center gap-2">
-            <input id="stInpDuration" type="number" min="15" step="15" value="60" oninput="updateStBufferPreview()"
-              class="w-24 text-xs px-3 py-2 rounded-xl border border-slate-300 font-semibold mono focus:border-indigo-600 outline-none" />
-            <div class="flex flex-wrap gap-1">
-              <button type="button" onclick="setStDuration(30)" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 font-medium">30p</button>
-              <button type="button" onclick="setStDuration(45)" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 font-medium">45p</button>
-              <button type="button" onclick="setStDuration(60)" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 font-medium">60p</button>
-              <button type="button" onclick="setStDuration(90)" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 font-medium">90p</button>
-              <button type="button" onclick="setStDuration(120)" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 font-medium">120p</button>
+
+          <!-- Field 1: Title -->
+          <div class="md:col-span-5">
+            <label class="block font-semibold text-slate-700 mb-1">1. Tên Bài Tập / Công Việc <span class="text-rose-500">*</span></label>
+            <input id="stInpTitle" type="text" placeholder="VD: Ôn tập môn Cấu trúc dữ liệu & Giải thuật..."
+              class="w-full text-xs px-3 py-2 rounded-xl border border-slate-300 focus:border-indigo-600 focus:ring-1 focus:ring-indigo-500 outline-none" />
+          </div>
+
+          <!-- Field 2: Duration with quick chips -->
+          <div class="md:col-span-4">
+            <div class="flex items-center justify-between mb-1">
+              <label class="font-semibold text-slate-700">2. Thời Lượng Gốc <span class="text-rose-500">*</span></label>
+              <span id="stDurationPreview" class="text-indigo-600 font-semibold mono">60 phút</span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <input id="stInpDuration" type="number" min="15" step="15" value="60" oninput="updateStBufferPreview()"
+                class="w-20 text-xs px-2.5 py-2 rounded-xl border border-slate-300 font-semibold mono focus:border-indigo-600 outline-none" />
+              <div class="flex flex-wrap gap-1">
+                <button type="button" onclick="setStDuration(30)" class="px-1.5 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 font-medium text-[10px]">30p</button>
+                <button type="button" onclick="setStDuration(45)" class="px-1.5 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 font-medium text-[10px]">45p</button>
+                <button type="button" onclick="setStDuration(60)" class="px-1.5 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 font-medium text-[10px]">60p</button>
+                <button type="button" onclick="setStDuration(90)" class="px-1.5 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 font-medium text-[10px]">90p</button>
+                <button type="button" onclick="setStDuration(120)" class="px-1.5 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 font-medium text-[10px]">120p</button>
+              </div>
             </div>
           </div>
         </div>
 
-        <!-- Field 3: Deadline Day & Time -->
-        <div class="grid grid-cols-2 gap-2.5">
+        <!-- Field 3: Deadline Day & Time, Category & Cognitive Load in 4-Col Grid -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-2.5">
           <div>
             <label class="block font-semibold text-slate-700 mb-1">3. Thứ Hạn Chót <span class="text-rose-500">*</span></label>
             <select id="stInpDeadlineDay" class="w-full text-xs px-2.5 py-2 rounded-xl border border-slate-300 bg-white focus:border-indigo-600 outline-none">
@@ -534,13 +660,9 @@
             <label class="block font-semibold text-slate-700 mb-1">Giờ Hạn Chót</label>
             <input id="stInpDeadlineTime" type="time" value="23:59" class="w-full text-xs px-2.5 py-2 rounded-xl border border-slate-300 mono focus:border-indigo-600 outline-none" />
           </div>
-        </div>
-
-        <!-- Category & Cognitive Load (Pattern 1 & 3) -->
-        <div class="grid grid-cols-2 gap-2.5">
           <div>
             <label class="block font-semibold text-slate-700 mb-1">Phân loại (`category`)</label>
-            <select id="stInpCategory" onchange="updateStBufferPreview()" class="w-full text-xs px-2.5 py-1.5 rounded-xl border border-slate-300 bg-white">
+            <select id="stInpCategory" onchange="updateStBufferPreview()" class="w-full text-xs px-2.5 py-2 rounded-xl border border-slate-300 bg-white">
               <option value="ASSIGNMENT" selected>ASSIGNMENT (Bài tập)</option>
               <option value="EXAM">EXAM (Thi cử)</option>
               <option value="QUIZ">QUIZ (Kiểm tra)</option>
@@ -551,11 +673,11 @@
             </select>
           </div>
           <div>
-            <label class="block font-semibold text-slate-700 mb-1">Tải nhận thức (`cognitive_load`)</label>
-            <select id="stInpCognitiveLoad" onchange="updateStBufferPreview()" class="w-full text-xs px-2.5 py-1.5 rounded-xl border border-slate-300 bg-white">
+            <label class="block font-semibold text-slate-700 mb-1">Tải nhận thức (`load`)</label>
+            <select id="stInpCognitiveLoad" onchange="updateStBufferPreview()" class="w-full text-xs px-2.5 py-2 rounded-xl border border-slate-300 bg-white">
               <option value="1">1 - Nhẹ (Low Energy)</option>
               <option value="2" selected>2 - Trung bình</option>
-              <option value="3">3 - Nặng / Deep Work (Peak)</option>
+              <option value="3">3 - Nặng / Deep Work</option>
             </select>
           </div>
         </div>
@@ -574,43 +696,37 @@
         <!-- Collapsible Advanced Options -->
         <details class="group border border-slate-200 rounded-xl overflow-hidden">
           <summary class="px-3.5 py-2 bg-slate-50 cursor-pointer text-slate-700 font-semibold flex items-center justify-between">
-            <span>⚙️ Tùy Chọn Nâng Cao (Cắt nhỏ, Mức ưu tiên, Tiên quyết)</span>
+            <span>⚙️ Tùy Chọn Nâng Cao (Task tiên quyết)</span>
             <span class="group-open:rotate-180 transition text-slate-400">▼</span>
           </summary>
-          <div class="p-3.5 space-y-3 bg-white">
-            <div class="grid grid-cols-2 gap-2.5 items-center">
-              <div>
-                <label class="block font-medium text-slate-600 mb-1">Mức độ ưu tiên (1–5)</label>
-                <select id="stInpPriority" class="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-300">
-                  <option value="5" selected>5 - Rất quan trọng / Thi cử</option>
-                  <option value="4">4 - Quan trọng / Đồ án</option>
-                  <option value="3">3 - Bình thường</option>
-                  <option value="2">2 - Thấp</option>
-                  <option value="1">1 - Việc vặt / Không gấp</option>
-                </select>
-              </div>
-              <div>
-                <label class="flex items-center gap-1.5 font-medium text-slate-700 cursor-pointer">
-                  <input id="stInpSplittable" type="checkbox" checked class="rounded text-indigo-600" />
-                  <span>Cho phép cắt nhỏ (45-90p)</span>
-                </label>
-              </div>
+          <div class="p-3.5 space-y-2.5 bg-white">
+            <!-- Hidden synced mirrors of top-level Khẩn cấp (1–4) & Cho phép cắt nhỏ controls -->
+            <input type="hidden" id="stInpPriority" value="5" />
+            <input id="stInpSplittable" type="checkbox" checked class="hidden" />
+            <div id="stAdvSyncedSummary" class="text-[11px] px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-slate-600">
+              Đồng bộ từ mục trên: <strong>Khẩn cấp Tự động</strong> · <strong>Cho phép cắt nhỏ (BALANCED)</strong>
             </div>
 
             <div>
-              <label class="block font-medium text-slate-600 mb-0.5">Bài phụ thuộc phải làm trước (Mã Task)</label>
-              <input id="stInpDependsOn" type="text" placeholder="Để trống hoặc ghi mã task tiên quyết (VD: PRJ-1)" class="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 mono" />
+              <label for="stInpDependsOn" class="block font-medium text-slate-700 mb-1">Task cần phải làm trước đó (Task ID)</label>
+              <input id="stInpDependsOn" type="text" placeholder="Để trống hoặc ghi Task ID cần hoàn thành trước (VD: PRJ-1)" class="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 mono uppercase" />
+              <div id="stExistingTaskIdChips" class="flex flex-wrap items-center gap-1 pt-1.5 text-[10px]"></div>
             </div>
           </div>
         </details>
       </div>
 
-      <!-- Footer Buttons -->
-      <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-        <button onclick="closeStudentTaskModal()" class="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition">Hủy</button>
-        <button onclick="saveStudentTask()" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl shadow-md transition flex items-center gap-1.5">
-          <span>➕</span> Thêm & Lên Lịch Ngay
-        </button>
+      <!-- Sticky Modal Footer -->
+      <div class="flex items-center justify-between border-t border-slate-100 px-5 py-3 bg-slate-50/80 flex-shrink-0">
+        <div class="text-[11px] text-slate-500 flex items-center gap-1.5">
+          <span>💡 Đóng cửa sổ sẽ tự động lưu lại các thay đổi chưa nạp.</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <button type="button" onclick="closeStudentTaskModal()" class="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-200 rounded-xl transition">Đóng</button>
+          <button type="button" onclick="saveStudentTask()" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl shadow-md transition flex items-center gap-1.5">
+            <span>➕</span> Thêm & Lên Lịch Ngay
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -804,8 +920,13 @@
             <button onclick="applyQuickAdd()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold rounded transition">
               Nạp Form
             </button>
+            <button type="button" onclick="analyzeQuickAddHybrid()" title="Phân tích câu tự nhiên EN/VI bằng Hybrid 6-Stage Pipeline"
+              class="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded transition whitespace-nowrap">
+              🧠 Hybrid
+            </button>
           </div>
           <div id="quickAddChips" class="mt-1.5 flex flex-wrap gap-1 empty:hidden"></div>
+          <div id="quickAddHybridDiag" class="mt-1.5 space-y-1 empty:hidden"></div>
         </div>
 
         <!-- Structured Task Input Form (Option A in baseline_plan.md §7.4 & §7.5) -->
