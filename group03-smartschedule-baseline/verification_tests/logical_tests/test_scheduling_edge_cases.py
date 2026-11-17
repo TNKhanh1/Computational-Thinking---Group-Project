@@ -132,21 +132,55 @@ def test_edge_extreme_15min_fragmentation():
 
 def test_fail_edge_sprint_mode_compression_recovery():
     """
-    EDGE CASE (Improve Plan §4.1 & §5.1 Sprint Mode):
-    When tasks miss deadline by only 15 minutes in a tight cluster,
-    Improve Plan specifies activating 'Sprint Mode' (temporarily reducing buffer or breaks with confirmation).
-    WHY V0 CURRENTLY FAILS:
-    V0 does not support Sprint Mode compression; it rigidly drops the task into unplaced.
+    EDGE CASE (Q9 Option A — Lossless Sprint Safety + User-Confirmed Triage Recovery):
+    A single 90m raw task (`T_SPRINT`) faces a 75m free window before deadline (`06:30–07:45`).
+    Under Option A (no silent truncation of user raw work):
+      1. Pass 1 refuses to silently chop 90m -> 75m (`INFEASIBLE_CAPACITY`, `tasks_placed == 0`),
+         notifying the user with an `Early Extension Alert` and `SHORTEN_TASK` (`90 -> 75m`)
+         confirmed-triage recovery option.
+      2. Once the student explicitly confirms `SHORTEN_TASK`, Pass 2 schedules the task (`tasks_placed == 1`)
+         with zero hard constraint violations.
+      3. Conversely, when a tight deadline shortage is ONLY due to a 15m rest break, Tier-1 Sprint Mode
+         (`Cut breaks`, `crunch_tier_used == 1`) automatically rescues placement without altering raw duration.
     """
-    # 90m task needing 90m before 08:00, but only 75m is free (06:30-07:45)
+    from src.overload_triage import OverloadTriageEngine
+
+    # 90m task needing 90m before 08:00, while only 75m is free (06:30-07:45)
     profile = _make_profile([
         FixedEvent(event_id="C_SPRINT", title="Early Class", day_of_week="Monday", start_time="07:45", end_time="12:00")
     ])
     task = Task(task_id="T_SPRINT", title="Urgent Sprint Task", duration_min=90, deadline_day="Monday", deadline_time="08:00", priority=5)
 
     out, _ = ScheduleController.solve_schedule(profile, [task], algorithm="EDF")
-    assert "sprint_mode" in out.solver_used.lower() or out.summary.tasks_placed == 1, (
-        "[BASELINE LIMITATION] Sprint mode compression recovery is not implemented in V0. "
-        "Task missing deadline by 15m was dropped rather than compressed."
+    assert out.status == "INFEASIBLE_CAPACITY"
+    assert out.summary.tasks_placed == 0
+    assert out.overload is not None
+    assert out.summary.early_extension_alerts, "Expected caution notification via Early Extension Alert"
+    shorten_opts = [o for o in out.overload.options if o.get("code") == "SHORTEN_TASK"]
+    assert shorten_opts and shorten_opts[0]["new_duration_min"] == 75
+
+    # Confirm user-approved SHORTEN_TASK triage option -> task is now cleanly placed
+    resolved_tasks, action_meta = OverloadTriageEngine.apply_triage_option(
+        profile=profile,
+        tasks=[task],
+        option_code="SHORTEN_TASK",
+        target_task_id="T_SPRINT",
+        available_options=out.overload.options,
     )
+    assert action_meta["new_duration_min"] == 75
+    recovered_out, _ = ScheduleController.solve_schedule(profile, resolved_tasks, algorithm="EDF")
+    assert recovered_out.summary.tasks_placed == 1
+    assert recovered_out.summary.hard_constraint_violations == 0
+
+    # Tier-1 Sprint Mode ('Cut breaks') auto-rescues when raw duration fits if 15m rest break is shed:
+    # 06:30-08:30 (120m free) with two 60m DEEP tasks due 08:30 -> Tier 0 needs 60+15+60=135m, Tier 1 fits 120m!
+    profile_breaks = _make_profile([
+        FixedEvent(event_id="C_DAY", title="All Day Class", day_of_week="Monday", start_time="08:30", end_time="23:30")
+    ])
+    t1 = Task(task_id="T_SP1", title="Deep Drill 1", duration_min=60, deadline_day="Monday", deadline_time="08:30", priority=5, cognitive_load=3)
+    t2 = Task(task_id="T_SP2", title="Deep Drill 2", duration_min=60, deadline_day="Monday", deadline_time="08:30", priority=4, cognitive_load=3)
+    sp_out, _ = ScheduleController.solve_schedule(profile_breaks, [t1, t2], algorithm="EDF")
+    assert sp_out.summary.tasks_placed == 2
+    assert sp_out.summary.crunch_tier_used == 1
+    assert sp_out.summary.hard_constraint_violations == 0
 

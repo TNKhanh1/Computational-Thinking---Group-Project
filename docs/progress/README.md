@@ -24,12 +24,12 @@
    - 5 bài test mục tiêu đang chờ cài đặt mã nguồn.
 
 4. **[`kiem_thu_va_benchmark.md`](kiem_thu_va_benchmark.md)**
-   - Hướng dẫn chạy và theo dõi 89 bài kiểm thử tự động (84 bài test vận hành xanh 100% + 5 bài test mục tiêu).
+   - Hướng dẫn chạy và theo dõi hệ thống kiểm thử tự động (đã mở rộng lên **142 bài test `pytest` đạt 100%**, gồm `136 --pass`, `5 --gaps`, `1` ca `Q9` Phương án A, và **200 ca YAML Hybrid NL Parser**).
    - Hướng dẫn dùng ứng dụng đồ họa Test Studio (`run_test_studio.bat`) và dòng lệnh batch.
    - Cách đọc màn hình console chẩn đoán lỗi mới (rõ ràng, không rác terminal).
 
 5. **[`requirements.md`](../requirements.md)**
-   - Giải thích chi tiết mục đích của 6 thư viện (`fastapi`, `uvicorn`, `pydantic`, `pytest`, `httpx`, `python-dateutil`).
+   - Giải thích chi tiết mục đích các thư viện (`fastapi`, `uvicorn`, `pydantic`, `pytest`, `httpx`, `python-dateutil`, `google-genai`, `python-dotenv`, `PyYAML`, `ctranslate2`, `sentencepiece`, `huggingface-hub`).
    - Phân định tầng kiến trúc được phép dùng và hướng dẫn cài đặt tự động 1-click bằng `setup_env.bat`.
    - Quy định bắt buộc đồng bộ đồng thời khi thêm thư viện mới.
 
@@ -39,6 +39,10 @@
 
 7. **[`giao_dien_sinh_vien.md`](giao_dien_sinh_vien.md)**
    - Hướng dẫn dùng Chế độ Sinh Viên mới: Nút chuyển Dual-Mode, 3 góc nhìn (Tuần, Hôm nay, Hàng đợi), ghim việc (📌), điểm danh (✔️), và xem lý do (💡).
+
+8. **[`bo_phan_tich_ngon_ngu_hybrid.md`](bo_phan_tich_ngon_ngu_hybrid.md)**
+   - Kiến trúc pipeline Hybrid EN/VI 6 tầng (`NL_Parser_Package/` + M1), ánh xạ khẩn cấp `1=Khẩn..4=Thấp -> 5..1`, và backend dịch VI→EN (`rule`, `nllb`, `opus_mt`).
+   - Hướng dẫn Modal Công Việc nâng cấp (tự động lưu nháp, trích dẫn `[[filename]]` không mất dữ liệu, kéo-thả đa trình duyệt, `Task ID` phụ thuộc và nút cắt nhỏ).
 
 ---
 

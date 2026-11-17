@@ -28,9 +28,9 @@
 
 ---
 
-## 2. External Package Inventory (`requirements.txt`)
+## 2. External Package Inventory (`requirements.txt` + Optional `requirements-nllb.txt`)
 
-Below is the complete inventory of external packages specified in [`requirements.txt`](../group03-smartschedule-baseline/requirements.txt):
+Below are the core packages specified in [`requirements.txt`](../group03-smartschedule-baseline/requirements.txt):
 
 ```text
 fastapi>=0.100.0
@@ -39,6 +39,17 @@ pydantic>=2.0.0
 pytest>=7.4.0
 httpx>=0.24.0
 python-dateutil>=2.8.2
+google-genai>=0.1.0
+python-dotenv>=1.0.0
+PyYAML>=6.0
+```
+
+Optional neural machine translation packages were split into [`requirements-nllb.txt`](../group03-smartschedule-baseline/requirements-nllb.txt) so standard installs stay fast and lightweight (~<50MB instead of heavyweight NMT weights/runtimes):
+
+```text
+ctranslate2>=4.5.0
+sentencepiece>=0.2.0
+huggingface-hub>=0.25.0
 ```
 
 ### Detailed Breakdown & Architectural Layer Scoping
@@ -52,7 +63,7 @@ python-dateutil>=2.8.2
 #### 2. `uvicorn>=0.23.0`
 - **Purpose:** Lightning-fast ASGI (Asynchronous Server Gateway Interface) web server implementation for Python.
 - **Architectural Scope:** **Layer 4: Server Runtime** (`web/` and CLI startup scripts).
-- **Used For:** Hosting the FastAPI web application and serving the static Technical Workbench (`web/static/`).
+- **Used For:** Hosting the FastAPI web application and serving the Dual-Mode Web Workbench (`web/index.html`, `web/app.js`).
 - **Standard Command:** `uvicorn web.api:app --host 127.0.0.1 --port 8000`.
 
 #### 3. `pydantic>=2.0.0`
@@ -67,7 +78,7 @@ python-dateutil>=2.8.2
 - **Purpose:** Scalable testing framework for unit, integration, invariant, and benchmark testing.
 - **Architectural Scope:** **Layer 5: Verification Infrastructure** (`verification_tests/`).
 - **Used For:**
-  - Running the 56 automated verification tests across `ui_tests/`, `architecture_tests/`, `logical_tests/`, `benchmark_tests/`, and `development_gap_tests/`.
+  - Running **141 pytest verification tests** (`136` `--pass` operational including M1 Hybrid NL & unbiased generalization + `5` `--gaps` Improve Plan feature tests) across `ui_tests/`, `architecture_tests/`, `logical_tests/`, `benchmark_tests/`, and `development_gap_tests/`.
   - Driven cleanly via `verification_tests/clean_runner.py` with custom plugin hooks (`InterpretableConsolePlugin`).
 
 #### 5. `httpx>=0.24.0`
@@ -79,10 +90,29 @@ python-dateutil>=2.8.2
 
 #### 6. `python-dateutil>=2.8.2`
 - **Purpose:** Robust extensions to the standard Python `datetime` module.
-- **Architectural Scope:** **Layer 1 & Layer 4** (`src/utils.py`, `src/models.py`, `web/api.py`).
+- **Architectural Scope:** **Layer 1 & Layer 4** (`src/utils.py`, `src/models.py`, `web/api.py`, `NL_Parser_Package/`).
 - **Used For:**
   - Parsing ISO-8601 timestamps and calendar date strings (`dateutil.parser.isoparse`).
   - Calculating relative week start dates (`datetime + timedelta`) and timezone offset calculations (`+07:00`).
+
+#### 7. `google-genai>=0.1.0` & `python-dotenv>=1.0.0` (Optional Cloud LLM NL Mode)
+- **Purpose:** Google Gemini structured JSON extraction SDK and `.env` loader (`GEMINI_API_KEY`).
+- **Architectural Scope:** **Layer 4: NL Adapter (`src/nl_parser.py`)**.
+- **Used For:** Powering optional `AI_GEMINI` extraction in `NLParserController` while automatically falling back to zero-network `OFFLINE_DETERMINISTIC` + Hybrid 6-Stage parsing when offline or unconfigured.
+
+#### 8. `ctranslate2>=4.5.0`, `sentencepiece>=0.2.0` & `huggingface-hub>=0.25.0` (Optional Offline Neural VI→EN Translation — `requirements-nllb.txt`)
+- **Purpose:** Fast quantized neural machine translation runtime (`NLLB-200` / `Opus-MT`), subword tokenizer, and local model hub downloader.
+- **Architectural Scope:** **Layer 4: NL Package (`NL_Parser_Package/translator.py`)**.
+- **Used For:** Translating Vietnamese prompts into structured English inside `NL_Parser_Package/hybrid_parser.py` (`backend="nllb"` / `"opus_mt"`), with instant stdlib `backend="rule"` fallback if `requirements-nllb.txt` is not installed.
+
+#### 9. `sqlite3` (Python Standard Library — `src/storage.py`)
+- **Purpose:** Embedded relational persistence for user workspace state (`commitments`, `tasks`, `pinned_blocks`, `done_blocks`, `actual_durations`, `algorithm`) and M7 task completion logs (`data/local_state.db`, overridable via `SMARTSCHEDULE_DB_PATH`).
+- **Architectural Scope:** **Layer 1 / Storage Leaf (`src/storage.py`)**, consumed by **Layer 4 (`web/api.py`)**; zero solver/web dependencies (`INV-1..6` compliant).
+
+#### 9. `PyYAML>=6.0`
+- **Purpose:** YAML parser for loading structured NLP verification datasets.
+- **Architectural Scope:** **Layer 5: Verification (`verification_tests/NL_Parser_test_cases/`)**.
+- **Used For:** Parsing the 200-case hybrid NLP evaluation suite (`validate_cases.py`, `verify_hybrid_200.py`).
 
 ---
 

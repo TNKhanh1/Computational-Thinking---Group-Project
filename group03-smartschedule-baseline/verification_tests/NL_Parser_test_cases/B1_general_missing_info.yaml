@@ -1,0 +1,1757 @@
+# Category B (Part 1 of 2) — General Speech with Missing / Uncertain Info (36 cases, 30% of dataset)
+# Covers B1.1 (Deadlines), B1.2 (Durations), B1.3 (Priorities), B1.4 (Session & Pacing)
+# Reference clock: 2026-11-06T09:00 (Friday)
+
+cases:
+- id: B-01
+  domain: housework
+  group: B1.1 Missing or vague deadlines
+  covers:
+  - no_deadline
+  - floating_schedule
+  input:
+    prompt: Descale the espresso machine for 30 minutes and wipe down the coffee bar for 15 minutes.
+    ui:
+      session: splittable
+      pacing: LIGHT
+      priority: 3
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Descale espresso machine and wipe coffee bar
+    total_work_minutes: 45
+    deadline: null
+    priority: 3
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 25
+      max: 30
+    subtasks:
+    - id: s1
+      title: Descale espresso machine
+      status: TODO
+      minutes: 30
+      priority: 3
+      depends_on: []
+    - id: s2
+      title: Wipe down coffee bar
+      status: TODO
+      minutes: 15
+      priority: 3
+      depends_on: []
+    warnings:
+    - W_NO_DEADLINE
+    - W_DEPENDENCY_UNCLEAR
+  rationale: User states two housework steps with clear durations but omits any deadline or ordering cue.
+- id: B-02
+  domain: office
+  group: B1.1 Missing or vague deadlines
+  covers:
+  - vague_deadline_soon
+  - priority_inferred_from_asap
+  input:
+    prompt: Send the revised vendor NDA to legal ASAP, takes 25 minutes in one sitting.
+    ui:
+      session: single
+      pacing: BALANCED
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Send revised vendor NDA to legal
+    total_work_minutes: 25
+    deadline: null
+    priority: 1
+    is_task_splittable: false
+    splitting: null
+    warnings:
+    - W_VAGUE_DEADLINE
+    - W_PRIORITY_CONFLICT
+  rationale: ASAP implies urgent priority (overriding UI=2) but gives no concrete calendar timestamp.
+- id: B-03
+  domain: study
+  group: B1.1 Missing or vague deadlines
+  covers:
+  - early_next_week
+  - vague_deadline
+  input:
+    prompt: Finish reading 2 survey papers on graph neural networks by early next week, 45 minutes each.
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Read 2 survey papers on graph neural networks
+    total_work_minutes: 90
+    deadline: 2026-11-10T23:59
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    warnings:
+    - W_VAGUE_DEADLINE
+  rationale: '''Early next week'' resolves to Tuesday 2026-11-10 23:59 with W_VAGUE_DEADLINE.'
+- id: B-04
+  domain: office
+  group: B1.1 Missing or vague deadlines
+  covers:
+  - bare_same_weekday_friday
+  - ambiguous_date
+  input:
+    prompt: Prepare the sprint retrospective slide deck by Friday for 60 minutes.
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Prepare sprint retrospective slide deck
+    total_work_minutes: 60
+    deadline: 2026-11-06T23:59
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    warnings:
+    - W_AMBIGUOUS_DATE
+  rationale: Base day is Friday (11-06); bare 'Friday' resolves to today 23:59 but warns it could mean 11-13.
+- id: B-05
+  domain: lifestyle
+  group: B1.1 Missing or vague deadlines
+  covers:
+  - slash_date_ambiguous
+  - mm_dd_vs_dd_mm
+  input:
+    prompt: Renew passport application online by 11/12, takes 40 minutes.
+    ui:
+      session: single
+      pacing: null
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Renew passport application online
+    total_work_minutes: 40
+    deadline: 2026-11-12T23:59
+    priority: 2
+    is_task_splittable: false
+    splitting: null
+    warnings:
+    - W_AMBIGUOUS_DATE
+  rationale: '''11/12'' could be Nov 12 (MM/DD) or Dec 11 (DD/MM); resolves to nearest future Nov 12 with W_AMBIGUOUS_DATE.'
+- id: B-06
+  domain: housework
+  group: B1.1 Missing or vague deadlines
+  covers:
+  - ordinal_day_no_month
+  - ambiguous_date
+  input:
+    prompt: Pay the apartment HOA utility bill by the 20th, takes 15 minutes.
+    ui:
+      session: single
+      pacing: null
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Pay apartment HOA utility bill
+    total_work_minutes: 15
+    deadline: 2026-11-20T23:59
+    priority: 2
+    is_task_splittable: false
+    splitting: null
+    warnings:
+    - W_AMBIGUOUS_DATE
+  rationale: '''the 20th'' without month resolves to nearest future 2026-11-20 23:59 with W_AMBIGUOUS_DATE.'
+- id: B-07
+  domain: study
+  group: B1.1 Missing or vague deadlines
+  covers:
+  - midnight_boundary_ambiguity
+  - ambiguous_date
+  input:
+    prompt: Submit the probability theory problem set by midnight Sunday, takes 90 minutes.
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 1
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Submit probability theory problem set
+    total_work_minutes: 90
+    deadline: 2026-11-08T23:59
+    priority: 1
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    warnings:
+    - W_AMBIGUOUS_DATE
+  rationale: '''midnight Sunday'' is end-of-Sunday (2026-11-08 23:59) by convention, flagged with W_AMBIGUOUS_DATE.'
+- id: B-08
+  domain: office
+  group: B1.1 Missing or vague deadlines
+  covers:
+  - hedged_two_dates
+  - earliest_deadline_chosen
+  input:
+    prompt: Draft the Q1 hiring plan by Tuesday or Wednesday next week, takes 2 hours.
+    ui:
+      session: splittable
+      pacing: FLOW
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Draft Q1 hiring plan
+    total_work_minutes: 120
+    deadline: 2026-11-10T23:59
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 45
+      pref: 90
+      max: 120
+    warnings:
+    - W_AMBIGUOUS_DATE
+  rationale: Hedged date choice 'Tuesday or Wednesday' resolves conservatively to Tuesday (2026-11-10) with W_AMBIGUOUS_DATE.
+- id: B-09
+  domain: lifestyle
+  group: B1.1 Missing or vague deadlines
+  covers:
+  - event_prep_deadline_offset
+  - subtask_chain
+  input:
+    prompt: 'Bake a birthday cake for Mom''s dinner party on Sunday: first bake sponge layers for 45m, then frost
+      and decorate for 35m.
+
+      '
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Bake birthday cake for Mom's dinner party
+    total_work_minutes: 80
+    deadline: 2026-11-07T23:59
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    subtasks:
+    - id: s1
+      title: Bake sponge layers
+      status: TODO
+      minutes: 45
+      priority: 2
+      depends_on: []
+    - id: s2
+      title: Frost and decorate
+      status: TODO
+      minutes: 35
+      priority: 2
+      depends_on:
+      - s1
+    warnings:
+    - W_AMBIGUOUS_DATE
+  rationale: Prep for an event on Sunday (11-08) defaults to the evening before (Sat 11-07 23:59) with W_AMBIGUOUS_DATE.
+- id: B-10
+  domain: exercise
+  group: B1.2 Missing, vague, or partial durations
+  covers:
+  - no_duration
+  - null_total_work
+  input:
+    prompt: Do a full-body kettlebell strength session before Sunday evening.
+    ui:
+      session: single
+      pacing: BALANCED
+      priority: 3
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Full-body kettlebell strength session
+    total_work_minutes: null
+    deadline: 2026-11-08T21:00
+    priority: 3
+    is_task_splittable: false
+    splitting: null
+    warnings:
+    - W_NO_DURATION
+  rationale: No duration is mentioned; parser leaves total_work_minutes null and emits W_NO_DURATION.
+- id: B-11
+  domain: study
+  group: B1.2 Missing, vague, or partial durations
+  covers:
+  - hedged_duration
+  - vague_duration
+  input:
+    prompt: Review linear algebra eigenvalues by Monday night, takes around 1.5 hours I guess.
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Review linear algebra eigenvalues
+    total_work_minutes: 90
+    deadline: 2026-11-09T23:59
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    warnings:
+    - W_VAGUE_DURATION
+  rationale: Hedged phrase 'around 1.5 hours I guess' resolves to 90 minutes with W_VAGUE_DURATION.
+- id: B-12
+  domain: office
+  group: B1.2 Missing, vague, or partial durations
+  covers:
+  - duration_range_upper_bound
+  - vague_duration
+  input:
+    prompt: Refactor the authentication middleware by next Wednesday, should take 2 to 3 hours.
+    ui:
+      session: splittable
+      pacing: FLOW
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Refactor authentication middleware
+    total_work_minutes: 180
+    total_range:
+    - 120
+    - 180
+    deadline: 2026-11-11T23:59
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 45
+      pref: 90
+      max: 120
+    warnings:
+    - W_VAGUE_DURATION
+  rationale: Range '2 to 3 hours' plans conservatively for upper bound (180m) while storing [120, 180].
+- id: B-13
+  domain: study
+  group: B1.2 Missing, vague, or partial durations
+  covers:
+  - inclusive_chapter_range
+  - per_section_multiplier
+  - doc_mentioned_missing
+  input:
+    prompt: Read chapters 4 to 7 of the biology textbook by next Wednesday, about 40 minutes per chapter.
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Read biology textbook chapters 4-7
+    total_work_minutes: 160
+    deadline: 2026-11-11T23:59
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    requires_document_analysis: true
+    warnings:
+    - W_VAGUE_DURATION
+    - W_DOC_MENTIONED_NOT_ATTACHED
+  rationale: Inclusive range 4..7 = 4 chapters * 40m = 160m; 'biology textbook' mentioned without attachment.
+- id: B-14
+  domain: housework
+  group: B1.2 Missing, vague, or partial durations
+  covers:
+  - partial_subtask_durations
+  - lower_bound_computation
+  input:
+    prompt: 'Clean the garage by Sunday night: first sort tool shelves for 45 minutes, then sweep floor for 20 minutes,
+      then haul scrap boxes to recycling center.
+
+      '
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 3
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Clean garage
+    total_work_minutes: null
+    work_minutes_lower_bound: 65
+    deadline: 2026-11-08T23:59
+    priority: 3
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    subtasks:
+    - id: s1
+      title: Sort tool shelves
+      status: TODO
+      minutes: 45
+      priority: 3
+      depends_on: []
+    - id: s2
+      title: Sweep floor
+      status: TODO
+      minutes: 20
+      priority: 3
+      depends_on:
+      - s1
+    - id: s3
+      title: Haul scrap boxes to recycling center
+      status: TODO
+      minutes: null
+      priority: 3
+      depends_on:
+      - s2
+    warnings:
+    - W_PARTIAL_DURATION
+  rationale: Subtask s3 has no duration, so total_work_minutes is null and work_minutes_lower_bound is 65m.
+- id: B-15
+  domain: housework
+  group: B1.2 Missing, vague, or partial durations
+  covers:
+  - passive_waiting_lag_excluded
+  - sequential_chain
+  input:
+    prompt: 'Repaint the hallway trim by Sunday at 22:00: first sand and apply primer for 40m, wait 2 hours for
+      primer to dry, then apply topcoat for 35m.
+
+      '
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 3
+      attachments: []
+  expected:
+    status: OK
+    title: Repaint hallway trim
+    total_work_minutes: 75
+    deadline: 2026-11-08T22:00
+    priority: 3
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    subtasks:
+    - id: s1
+      title: Sand and apply primer
+      status: TODO
+      minutes: 40
+      priority: 3
+      lag_after_minutes: 120
+      depends_on: []
+    - id: s2
+      title: Apply topcoat
+      status: TODO
+      minutes: 35
+      priority: 3
+      depends_on:
+      - s1
+  rationale: Passive 2-hour drying wait is stored as lag_after_minutes=120 and excluded from active work (40+35=75m).
+- id: B-16
+  domain: exercise
+  group: B1.2 Missing, vague, or partial durations
+  covers:
+  - recurring_count_range
+  - per_session_duration
+  input:
+    prompt: Do 3 or 4 mobility stretching sessions this week, 20 minutes each.
+    ui:
+      session: splittable
+      pacing: LIGHT
+      priority: 3
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Mobility stretching sessions
+    total_work_minutes: 80
+    total_range:
+    - 60
+    - 80
+    deadline: 2026-11-08T23:59
+    priority: 3
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 20
+      max: 30
+    warnings:
+    - W_VAGUE_DURATION
+  rationale: '''3 or 4 sessions'' * 20m plans for upper bound 4 * 20m = 80m with W_VAGUE_DURATION.'
+- id: B-17
+  domain: lifestyle
+  group: B1.2 Missing, vague, or partial durations
+  covers:
+  - colloquial_couple_of_hours
+  - vague_duration
+  input:
+    prompt: Organize digital family photos from the Japan trip by next Friday, takes a couple of hours.
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 4
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Organize digital family photos from Japan trip
+    total_work_minutes: 120
+    deadline: 2026-11-13T23:59
+    priority: 4
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    warnings:
+    - W_VAGUE_DURATION
+  rationale: Colloquial 'a couple of hours' maps to 120 minutes with W_VAGUE_DURATION.
+- id: B-18
+  domain: office
+  group: B1.2 Missing, vague, or partial durations
+  covers:
+  - all_subtasks_missing_duration
+  - null_total
+  input:
+    prompt: 'Prepare quarterly board packet by next Thursday: first collect KPI tables from finance, then draft
+      CEO commentary, finally format slide layout.
+
+      '
+    ui:
+      session: splittable
+      pacing: FLOW
+      priority: 1
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Prepare quarterly board packet
+    total_work_minutes: null
+    deadline: 2026-11-12T23:59
+    priority: 1
+    is_task_splittable: true
+    splitting:
+      min: 45
+      pref: 90
+      max: 120
+    subtasks:
+    - id: s1
+      title: Collect KPI tables from finance
+      status: TODO
+      minutes: null
+      priority: 1
+      depends_on: []
+    - id: s2
+      title: Draft CEO commentary
+      status: TODO
+      minutes: null
+      priority: 1
+      depends_on:
+      - s1
+    - id: s3
+      title: Format slide layout
+      status: TODO
+      minutes: null
+      priority: 1
+      depends_on:
+      - s2
+    warnings:
+    - W_NO_DURATION
+  rationale: None of the three ordered subtasks specifies a time estimate; total_work_minutes is null.
+- id: B-19
+  domain: housework
+  group: B1.3 Priorities & uncertainty
+  covers:
+  - priority_defaulted_when_blank
+  input:
+    prompt: Vacuum living room rugs and mop hallway by Sunday at 18:00, takes 50 minutes.
+    ui:
+      session: single
+      pacing: BALANCED
+      priority: null
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Vacuum living room rugs and mop hallway
+    total_work_minutes: 50
+    deadline: 2026-11-08T18:00
+    priority: 3
+    is_task_splittable: false
+    splitting: null
+    warnings:
+    - W_PRIORITY_DEFAULTED
+  rationale: UI priority is null and prompt has no urgency cues, so priority defaults to 3 (Medium).
+- id: B-20
+  domain: lifestyle
+  group: B1.3 Priorities & uncertainty
+  covers:
+  - priority_not_sure_ui
+  - priority_uncertain_flag
+  input:
+    prompt: Research mechanical keyboard switches by next Thursday for 45 minutes.
+    ui:
+      session: single
+      pacing: BALANCED
+      priority: NOT_SURE
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Research mechanical keyboard switches
+    total_work_minutes: 45
+    deadline: 2026-11-12T23:59
+    priority: null
+    priority_uncertain: true
+    is_task_splittable: false
+    splitting: null
+    warnings:
+    - W_PRIORITY_UNCERTAIN
+  rationale: User chose 'I'm Not Sure' for priority and gave no text cues; priority is null with priority_uncertain=true.
+- id: B-21
+  domain: office
+  group: B1.3 Priorities & uncertainty
+  covers:
+  - priority_not_sure_overridden_by_text_cue
+  input:
+    prompt: 'Urgent: patch production memory leak in payment worker by tonight at 22:00, takes 60 minutes.'
+    ui:
+      session: single
+      pacing: FLOW
+      priority: NOT_SURE
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Patch production memory leak in payment worker
+    total_work_minutes: 60
+    deadline: 2026-11-06T22:00
+    priority: 1
+    is_task_splittable: false
+    splitting: null
+    warnings:
+    - W_PRIORITY_INFERRED
+  rationale: User selected NOT_SURE in UI, but explicit 'Urgent:' in prompt infers priority=1 with W_PRIORITY_INFERRED.
+- id: B-22
+  domain: study
+  group: B1.3 Priorities & uncertainty
+  covers:
+  - prompt_priority_overrides_ui
+  - priority_conflict
+  input:
+    prompt: 'Critical exam prep: solve past midterm calculus problems by Sunday night for 120 minutes.'
+    ui:
+      session: splittable
+      pacing: FLOW
+      priority: 4
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Solve past midterm calculus problems
+    total_work_minutes: 120
+    deadline: 2026-11-08T23:59
+    priority: 1
+    is_task_splittable: true
+    splitting:
+      min: 45
+      pref: 90
+      max: 120
+    warnings:
+    - W_PRIORITY_CONFLICT
+  rationale: Prompt 'Critical exam prep' (P1) overrides UI Low (P4) and raises W_PRIORITY_CONFLICT.
+- id: B-23
+  domain: lifestyle
+  group: B1.3 Priorities & uncertainty
+  covers:
+  - low_priority_text_overrides_ui_high
+  input:
+    prompt: Whenever I have free time this week, reorganize my Spotify playlists for 30 minutes (optional, low priority).
+    ui:
+      session: single
+      pacing: LIGHT
+      priority: 1
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Reorganize Spotify playlists
+    total_work_minutes: 30
+    deadline: 2026-11-08T23:59
+    priority: 4
+    is_task_splittable: false
+    splitting: null
+    warnings:
+    - W_PRIORITY_CONFLICT
+  rationale: Explicit '(optional, low priority)' in text overrides accidental UI priority=1 with W_PRIORITY_CONFLICT.
+- id: B-24
+  domain: office
+  group: B1.3 Priorities & uncertainty
+  covers:
+  - parent_priority_derived_from_subtasks
+  - subtask_priority_defaulted
+  input:
+    prompt: 'Prepare client onboarding package by Tuesday at 18:00: (1) provision tenant credentials for 30m [urgent];
+      (2) customize welcome deck for 45m; (3) archive old trial sandbox for 15m [low priority].
+
+      '
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: null
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Prepare client onboarding package
+    total_work_minutes: 90
+    deadline: 2026-11-10T18:00
+    priority: 1
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    subtasks:
+    - id: s1
+      title: Provision tenant credentials
+      status: TODO
+      minutes: 30
+      priority: 1
+      depends_on: []
+    - id: s2
+      title: Customize welcome deck
+      status: TODO
+      minutes: 45
+      priority: 3
+      depends_on: []
+    - id: s3
+      title: Archive old trial sandbox
+      status: TODO
+      minutes: 15
+      priority: 4
+      depends_on: []
+    warnings:
+    - W_PRIORITY_INFERRED
+    - W_PRIORITY_DEFAULTED
+    - W_DEPENDENCY_UNCLEAR
+  rationale: Parent priority derives from most urgent subtask (P1); unspecified s2 gets default P3.
+- id: B-25
+  domain: exercise
+  group: B1.3 Priorities & uncertainty
+  covers:
+  - conflicting_priority_cues_in_prompt
+  input:
+    prompt: 'No rush, low priority — actually wait, my physical therapist said it''s urgent: do 30m rotator cuff
+      rehab exercises by tomorrow night.'
+    ui:
+      session: single
+      pacing: LIGHT
+      priority: null
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Rotator cuff rehab exercises
+    total_work_minutes: 30
+    deadline: 2026-11-07T23:59
+    priority: 1
+    is_task_splittable: false
+    splitting: null
+    warnings:
+    - W_PRIORITY_CONFLICT
+    - W_SELF_CORRECTION
+  rationale: Self-correction from low to urgent resolves to priority 1 with W_PRIORITY_CONFLICT and W_SELF_CORRECTION.
+- id: B-26
+  domain: housework
+  group: B1.3 Priorities & uncertainty
+  covers:
+  - subtask_inherits_parent_priority
+  - subtask_override
+  input:
+    prompt: 'Prep guest bedroom by Saturday at 20:00: first wash and iron bedsheets for 45m, then fix the leaking
+      radiator valve for 30m (urgent!).
+
+      '
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 3
+      attachments: []
+  expected:
+    status: OK
+    title: Prep guest bedroom
+    total_work_minutes: 75
+    deadline: 2026-11-07T20:00
+    priority: 3
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    subtasks:
+    - id: s1
+      title: Wash and iron bedsheets
+      status: TODO
+      minutes: 45
+      priority: 3
+      depends_on: []
+    - id: s2
+      title: Fix leaking radiator valve
+      status: TODO
+      minutes: 30
+      priority: 1
+      depends_on:
+      - s1
+  rationale: Subtask s1 inherits parent UI priority 3, while s2 overrides its own priority to 1.
+- id: B-27
+  domain: study
+  group: B1.3 Priorities & uncertainty
+  covers:
+  - important_keyword_maps_to_p2
+  input:
+    prompt: 'Important: complete database normalization homework by Monday at 23:59, takes 75 minutes.'
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: null
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Complete database normalization homework
+    total_work_minutes: 75
+    deadline: 2026-11-09T23:59
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    warnings:
+    - W_PRIORITY_INFERRED
+  rationale: '''Important:'' cue infers priority=2 when UI priority is left blank.'
+- id: B-28
+  domain: study
+  group: B1.4 Session, pacing & chunk reconciliation
+  covers:
+  - session_defaulted_splittable_over_30m
+  - pacing_defaulted
+  input:
+    prompt: Write literature review on transformer attention mechanisms by next Wednesday, takes 120 minutes.
+    ui:
+      session: null
+      pacing: null
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Write literature review on transformer attention mechanisms
+    total_work_minutes: 120
+    deadline: 2026-11-11T23:59
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    warnings:
+    - W_SESSION_DEFAULTED
+    - W_PACING_DEFAULTED
+  rationale: Duration > 30m with blank session & pacing defaults to splittable + BALANCED {15,45,60}.
+- id: B-29
+  domain: housework
+  group: B1.4 Session, pacing & chunk reconciliation
+  covers:
+  - session_not_sure_short_task_atomic
+  input:
+    prompt: Water balcony plants and refill humidifier by tonight at 21:00, takes 20 minutes.
+    ui:
+      session: not_sure
+      pacing: null
+      priority: 3
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Water balcony plants and refill humidifier
+    total_work_minutes: 20
+    deadline: 2026-11-06T21:00
+    priority: 3
+    is_task_splittable: false
+    splitting: null
+    warnings:
+    - W_SESSION_DEFAULTED
+  rationale: Task <= 30m with session=not_sure defaults to atomic single session (splitting=null).
+- id: B-30
+  domain: office
+  group: B1.4 Session, pacing & chunk reconciliation
+  covers:
+  - prompt_single_overrides_ui_splittable
+  input:
+    prompt: Record the product demo walkthrough video in one uninterrupted session by Monday at 17:00, takes 45
+      minutes.
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Record product demo walkthrough video
+    total_work_minutes: 45
+    deadline: 2026-11-09T17:00
+    priority: 2
+    is_task_splittable: false
+    splitting: null
+    warnings:
+    - W_SESSION_CONFLICT
+  rationale: Prompt 'in one uninterrupted session' overrides UI session=splittable and sets splitting=null.
+- id: B-31
+  domain: study
+  group: B1.4 Session, pacing & chunk reconciliation
+  covers:
+  - prompt_splittable_overrides_ui_single
+  input:
+    prompt: Study compiler lexical analysis for 2 hours by Tuesday night, split into 30-minute chunks.
+    ui:
+      session: single
+      pacing: BALANCED
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Study compiler lexical analysis
+    total_work_minutes: 120
+    deadline: 2026-11-10T23:59
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 30
+      max: 30
+    warnings:
+    - W_SESSION_CONFLICT
+  rationale: Prompt 'split into 30-minute chunks' overrides UI session=single with W_SESSION_CONFLICT.
+- id: B-32
+  domain: study
+  group: B1.4 Session, pacing & chunk conflict detection
+  covers:
+  - custom_min_exceeds_prompt_max_flagged
+  input:
+    prompt: Practice competitive programming DP problems for 3 hours by next Thursday, each session must be under
+      45 minutes.
+    ui:
+      session: splittable
+      pacing: CUSTOM
+      custom:
+      - 75
+      - 90
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Practice competitive programming DP problems
+    total_work_minutes: 180
+    deadline: 2026-11-12T23:59
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 75
+      pref: 82
+      max: 90
+    prompt_max_chunk: 44
+    warnings:
+    - W_CHUNK_CONFLICT
+  rationale: Parser extracts both UI custom [75,90] and prompt token 'under 45 minutes' (prompt_max_chunk=44) without
+    auto-clamping, emitting W_CHUNK_CONFLICT for Engine Solver resolution.
+- id: B-33
+  domain: office
+  group: B1.4 Session, pacing & chunk reconciliation
+  covers:
+  - subtask_defaults_inherited_from_defaulted_parent
+  input:
+    prompt: 'Prepare security compliance audit by Wednesday at 18:00: first export IAM role matrix for 40m, then
+      review anomalous access logs for 50m.
+
+      '
+    ui:
+      session: splittable
+      pacing: null
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Prepare security compliance audit
+    total_work_minutes: 90
+    deadline: 2026-11-11T18:00
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    subtasks:
+    - id: s1
+      title: Export IAM role matrix
+      status: TODO
+      minutes: 40
+      priority: 2
+      depends_on: []
+    - id: s2
+      title: Review anomalous access logs
+      status: TODO
+      minutes: 50
+      priority: 2
+      depends_on:
+      - s1
+    warnings:
+    - W_PACING_DEFAULTED
+    - W_SUBTASK_DEFAULTS_INHERITED
+  rationale: Neither parent nor subtasks specify pacing; parent defaults to BALANCED and subtasks inherit it.
+- id: B-34
+  domain: lifestyle
+  group: B1.4 Session, pacing & chunk reconciliation
+  covers:
+  - per_subtask_pacing_override
+  input:
+    prompt: 'Write a blog post on home espresso dialing by next Friday: first do deep work drafting the technical
+      guide for 90m, then do light 25m Pomodoro proofreading for 25m.
+
+      '
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 3
+      attachments: []
+  expected:
+    status: OK
+    title: Write blog post on home espresso dialing
+    total_work_minutes: 115
+    deadline: 2026-11-13T23:59
+    priority: 3
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    subtasks:
+    - id: s1
+      title: Draft technical guide
+      status: TODO
+      minutes: 90
+      priority: 3
+      pacing: FLOW
+      depends_on: []
+    - id: s2
+      title: Proofread blog post
+      status: TODO
+      minutes: 25
+      priority: 3
+      pacing: LIGHT
+      depends_on:
+      - s1
+  rationale: Subtasks override the parent BALANCED pacing with FLOW (s1) and LIGHT (s2) respectively.
+- id: B-35
+  domain: exercise
+  group: B1.4 Session, pacing & chunk reconciliation
+  covers:
+  - tight_schedule_warning
+  - high_density_window
+  input:
+    prompt: Complete a 4-hour cycling endurance ride today before 15:00.
+    ui:
+      session: single
+      pacing: FLOW
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: 4-hour cycling endurance ride
+    total_work_minutes: 240
+    deadline: 2026-11-06T15:00
+    priority: 2
+    is_task_splittable: false
+    splitting: null
+    warnings:
+    - W_TIGHT_SCHEDULE
+  rationale: Window from 09:00 to 15:00 is 360m (capacity=180m); 240m fits in window but exceeds capacity -> W_TIGHT_SCHEDULE.
+- id: B-36
+  domain: office
+  group: B1.4 Session, pacing & chunk reconciliation
+  covers:
+  - unrealistic_single_session_load
+  - tight_schedule
+  input:
+    prompt: Do a 6-hour uninterrupted deep-work data migration rehearsal by tomorrow at 18:00.
+    ui:
+      session: single
+      pacing: FLOW
+      priority: 1
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Data migration rehearsal
+    total_work_minutes: 360
+    deadline: 2026-11-07T18:00
+    priority: 1
+    is_task_splittable: false
+    splitting: null
+    warnings:
+    - W_UNREALISTIC_LOAD
+  rationale: A 360-minute single uninterrupted block is humanly exhausting (<=480m cap, so W_UNREALISTIC_LOAD).
+- id: B1-37
+  domain: study
+  group: B1.1 Missing or vague deadlines
+  covers:
+  - vietnamese_no_deadline
+  - section_multiplier_vi
+  input:
+    prompt: 'Ôn tập Giải tích 3 chương, mỗi chương 45 phút #study'
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 1
+      attachments:
+      - name: calculus_notes.pdf
+        mb: 2.0
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Review Calculus 3 chapters
+    total_work_minutes: 135
+    deadline: null
+    priority: 1
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    warnings:
+    - W_NO_DEADLINE
+  rationale: Vietnamese 3-chapter multiplier (3 * 45m = 135m) with attached syllabus but no deadline -> W_NO_DEADLINE.
+- id: B1-38
+  domain: office
+  group: B1.1 Missing or vague deadlines
+  covers:
+  - vague_deadline_soon
+  - shorthand_chunk
+  input:
+    prompt: Refactor authentication middleware for 90 minutes soon ~30m
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Refactor authentication middleware
+    total_work_minutes: 90
+    deadline: null
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 30
+      max: 60
+    warnings:
+    - W_NO_DEADLINE
+    - W_VAGUE_DEADLINE
+  rationale: '''soon'' is a vague deadline token with no concrete date -> W_NO_DEADLINE, W_VAGUE_DEADLINE.'
+- id: B1-39
+  domain: study
+  group: B1.1 Missing or vague deadlines
+  covers:
+  - vietnamese_academic_deadline_friday
+  - doc_mentioned_not_attached
+  input:
+    prompt: Ôn thi Cấu trúc rời rạc 3 chương, mỗi chương 40 phút, hạn 17h thứ 6 tuần tới
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 1
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Review Discrete Structures 3 chapters
+    total_work_minutes: 120
+    deadline: 2026-11-13T17:00
+    priority: 1
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    requires_document_analysis: true
+    warnings:
+    - W_DOC_MENTIONED_NOT_ATTACHED
+  rationale: Vietnamese prompt with 3 chapters * 40m = 120m and Friday 17:00 deadline, missing textbook attachment
+    -> W_DOC_MENTIONED_NOT_ATTACHED.
+- id: B1-40
+  domain: housework
+  group: B1.1 Missing or vague deadlines
+  covers:
+  - vietnamese_no_deadline_housework
+  input:
+    prompt: Dọn tủ quần áo và phân loại đồ mùa đông trong 60 phút
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 3
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Organize wardrobe and sort winter clothes
+    total_work_minutes: 60
+    deadline: null
+    priority: 3
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    warnings:
+    - W_NO_DEADLINE
+  rationale: Vietnamese 60m chore without a deadline -> W_NO_DEADLINE.
+- id: B1-41
+  domain: exercise
+  group: B1.1 Missing or vague deadlines
+  covers:
+  - vietnamese_half_hour_duration
+  - no_deadline
+  input:
+    prompt: Tập gym 1 tiếng rưỡi không chia nhỏ
+    ui:
+      session: single
+      pacing: BALANCED
+      priority: 3
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Gym workout
+    total_work_minutes: 90
+    deadline: null
+    priority: 3
+    is_task_splittable: false
+    splitting: null
+    warnings:
+    - W_NO_DEADLINE
+  rationale: '''1 tiếng rưỡi'' normalizes to 90m atomic session, missing deadline -> W_NO_DEADLINE.'
+- id: B1-42
+  domain: lifestyle
+  group: B1.1 Missing or vague deadlines
+  covers:
+  - ambiguous_weekday_or_weekday
+  input:
+    prompt: Record podcast episode on distributed databases by Wednesday or Thursday next week for 90 minutes.
+    ui:
+      session: splittable
+      pacing: FLOW
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Record podcast episode on distributed databases
+    total_work_minutes: 90
+    deadline: 2026-11-11T23:59
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 45
+      pref: 90
+      max: 120
+    warnings:
+    - W_AMBIGUOUS_DATE
+  rationale: Hedged 'Wednesday or Thursday next week' resolves conservatively to Wednesday Nov 11 23:59 with W_AMBIGUOUS_DATE.
+- id: B1-43
+  domain: study
+  group: B1.2 Missing, vague, or partial durations
+  covers:
+  - no_duration_vietnamese
+  input:
+    prompt: Làm bài tập lập trình mạng hạn 18h thứ 3 tuần tới
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Complete network programming assignment
+    total_work_minutes: null
+    deadline: 2026-11-10T18:00
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    warnings:
+    - W_NO_DURATION
+  rationale: Vietnamese prompt specifies deadline (Tue 18:00) but omits duration -> total_work_minutes=null, W_NO_DURATION.
+- id: B1-44
+  domain: office
+  group: B1.2 Missing, vague, or partial durations
+  covers:
+  - vague_duration_couple_of_hours
+  input:
+    prompt: Draft the engineering onboarding handbook by next Wednesday at 17:00, takes around 2 hours.
+    ui:
+      session: splittable
+      pacing: FLOW
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Draft engineering onboarding handbook
+    total_work_minutes: 120
+    deadline: 2026-11-11T17:00
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 45
+      pref: 90
+      max: 120
+    warnings:
+    - W_VAGUE_DURATION
+  rationale: Hedged 'around 2 hours' sets 120m estimate and emits W_VAGUE_DURATION.
+- id: B1-45
+  domain: study
+  group: B1.2 Missing, vague, or partial durations
+  covers:
+  - section_multiplier_explicit_en
+  input:
+    prompt: Solve 4 chapters of Linear Algebra problem sets by next Thursday at 21:00, 30 minutes each.
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Solve 4 chapters of Linear Algebra problem sets
+    total_work_minutes: 120
+    deadline: 2026-11-12T21:00
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 30
+      max: 60
+    requires_document_analysis: true
+    warnings:
+    - W_DOC_MENTIONED_NOT_ATTACHED
+  rationale: 4 chapters * 30m = 120m total work; mentions chapters without attachment -> W_DOC_MENTIONED_NOT_ATTACHED.
+- id: B1-46
+  domain: office
+  group: B1.2 Missing, vague, or partial durations
+  covers:
+  - partial_subtask_durations_lower_bound
+  input:
+    prompt: 'Prepare board deck by Wednesday at 18:00: (1) collect ARR churn charts for 45m; (2) write CEO executive
+      summary.'
+    ui:
+      session: splittable
+      pacing: FLOW
+      priority: 1
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Prepare board deck
+    total_work_minutes: null
+    work_minutes_lower_bound: 45
+    deadline: 2026-11-11T18:00
+    priority: 1
+    is_task_splittable: true
+    splitting:
+      min: 45
+      pref: 90
+      max: 120
+    subtasks:
+    - id: s1
+      title: Collect ARR churn charts
+      status: TODO
+      minutes: 45
+      priority: 1
+      depends_on: []
+    - id: s2
+      title: Write CEO executive summary
+      status: TODO
+      minutes: null
+      priority: 1
+      depends_on:
+      - s1
+    warnings:
+    - W_PARTIAL_DURATION
+  rationale: Subtask s1 has 45m while s2 has no duration -> total_work_minutes=null, work_minutes_lower_bound=45,
+    W_PARTIAL_DURATION.
+- id: B1-47
+  domain: study
+  group: B1.2 Missing, vague, or partial durations
+  covers:
+  - no_duration_single_task
+  input:
+    prompt: Write lab reflection essay on TCP congestion control by Monday at 23:59.
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Write lab reflection essay on TCP congestion control
+    total_work_minutes: null
+    deadline: 2026-11-09T23:59
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    warnings:
+    - W_NO_DURATION
+  rationale: No duration token in prompt -> total_work_minutes=null and W_NO_DURATION.
+- id: B1-48
+  domain: housework
+  group: B1.2 Missing, vague, or partial durations
+  covers:
+  - approx_duration_housework
+  input:
+    prompt: Descale coffee maker and clean toaster crumb tray by Sunday at 19:00, about 30 minutes.
+    ui:
+      session: single
+      pacing: LIGHT
+      priority: 3
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Descale coffee maker and clean toaster crumb tray
+    total_work_minutes: 30
+    deadline: 2026-11-08T19:00
+    priority: 3
+    is_task_splittable: false
+    splitting: null
+    warnings:
+    - W_VAGUE_DURATION
+  rationale: '''about 30 minutes'' is a hedged duration -> W_VAGUE_DURATION.'
+- id: B1-49
+  domain: office
+  group: B1.3 Priorities & uncertainty (Lower = More Urgent)
+  covers:
+  - shorthand_p1_urgent_inferred
+  input:
+    prompt: Fix production Redis cache eviction bug by tomorrow at 16:00 for 90 minutes p1
+    ui:
+      session: splittable
+      pacing: FLOW
+      priority: null
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Fix production Redis cache eviction bug
+    total_work_minutes: 90
+    deadline: 2026-11-07T16:00
+    priority: 1
+    is_task_splittable: true
+    splitting:
+      min: 45
+      pref: 90
+      max: 120
+    warnings:
+    - W_PRIORITY_INFERRED
+  rationale: Shorthand 'p1' follows user rule (lower = more urgent -> priority 1) when UI priority is blank, emitting
+    W_PRIORITY_INFERRED.
+- id: B1-50
+  domain: lifestyle
+  group: B1.3 Priorities & uncertainty (Lower = More Urgent)
+  covers:
+  - shorthand_p4_low_priority_inferred
+  input:
+    prompt: Sort desktop wallpaper folder by Sunday at 21:00 for 25 minutes p4
+    ui:
+      session: single
+      pacing: LIGHT
+      priority: null
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Sort desktop wallpaper folder
+    total_work_minutes: 25
+    deadline: 2026-11-08T21:00
+    priority: 4
+    is_task_splittable: false
+    splitting: null
+    warnings:
+    - W_PRIORITY_INFERRED
+  rationale: Shorthand 'p4' maps to low priority (4) and solver priority 1/2 under lower=more urgent.
+- id: B1-51
+  domain: study
+  group: B1.3 Priorities & uncertainty (Lower = More Urgent)
+  covers:
+  - vietnamese_urgent_keyword_p1
+  input:
+    prompt: 'Khẩn cấp: nộp bài tập Giải tích trong 60 phút trước 20h tối mai'
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: null
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Submit Calculus assignment
+    total_work_minutes: 60
+    deadline: 2026-11-07T20:00
+    priority: 1
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    warnings:
+    - W_PRIORITY_INFERRED
+  rationale: Vietnamese 'Khẩn cấp' translates to 'urgent' -> priority=1 with W_PRIORITY_INFERRED.
+- id: B1-52
+  domain: office
+  group: B1.3 Priorities & uncertainty
+  covers:
+  - priority_defaulted_when_blank
+  input:
+    prompt: Update internal wiki deployment diagram by Tuesday at 17:00 for 45 minutes.
+    ui:
+      session: single
+      pacing: BALANCED
+      priority: null
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Update internal wiki deployment diagram
+    total_work_minutes: 45
+    deadline: 2026-11-10T17:00
+    priority: 3
+    is_task_splittable: false
+    splitting: null
+    warnings:
+    - W_PRIORITY_DEFAULTED
+  rationale: Blank UI priority with no urgency tokens defaults to priority=3 with W_PRIORITY_DEFAULTED.
+- id: B1-53
+  domain: exercise
+  group: B1.3 Priorities & uncertainty
+  covers:
+  - priority_not_sure_ui
+  input:
+    prompt: Do a 40-minute kettlebell circuit by Sunday at 18:00.
+    ui:
+      session: single
+      pacing: BALANCED
+      priority: NOT_SURE
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Kettlebell circuit
+    total_work_minutes: 40
+    deadline: 2026-11-08T18:00
+    priority: null
+    priority_uncertain: true
+    is_task_splittable: false
+    splitting: null
+    warnings:
+    - W_PRIORITY_UNCERTAIN
+  rationale: UI priority=NOT_SURE sets priority=null, priority_uncertain=true, and W_PRIORITY_UNCERTAIN.
+- id: B1-54
+  domain: study
+  group: B1.3 Priorities & uncertainty
+  covers:
+  - text_urgent_overrides_ui_low_priority
+  input:
+    prompt: 'Urgent: finish compiler parser generator assignment by Monday at 23:59 for 120 minutes.'
+    ui:
+      session: splittable
+      pacing: FLOW
+      priority: 4
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Finish compiler parser generator assignment
+    total_work_minutes: 120
+    deadline: 2026-11-09T23:59
+    priority: 1
+    is_task_splittable: true
+    splitting:
+      min: 45
+      pref: 90
+      max: 120
+    warnings:
+    - W_PRIORITY_CONFLICT
+  rationale: Explicit 'Urgent:' in text conflicts with UI priority=4 -> resolves to 1 and emits W_PRIORITY_CONFLICT.
+- id: B1-55
+  domain: office
+  group: B1.4 Session, pacing & chunk reconciliation
+  covers:
+  - session_and_pacing_defaulted
+  input:
+    prompt: Prepare Q1 engineering roadmap presentation by Thursday at 18:00 for 90 minutes.
+    ui:
+      session: null
+      pacing: null
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Prepare Q1 engineering roadmap presentation
+    total_work_minutes: 90
+    deadline: 2026-11-12T18:00
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    warnings:
+    - W_SESSION_DEFAULTED
+    - W_PACING_DEFAULTED
+  rationale: 90m task with null session and pacing defaults to splittable BALANCED with W_SESSION_DEFAULTED and
+    W_PACING_DEFAULTED.
+- id: B1-56
+  domain: housework
+  group: B1.4 Session, pacing & chunk reconciliation
+  covers:
+  - short_task_session_defaulted_atomic
+  input:
+    prompt: Take out recycling bins and wipe kitchen counter by tonight at 20:00, takes 15 minutes.
+    ui:
+      session: null
+      pacing: LIGHT
+      priority: 3
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Take out recycling bins and wipe kitchen counter
+    total_work_minutes: 15
+    deadline: 2026-11-06T20:00
+    priority: 3
+    is_task_splittable: false
+    splitting: null
+    warnings:
+    - W_SESSION_DEFAULTED
+  rationale: 15m task (<=30m) with null UI session defaults to single atomic session with W_SESSION_DEFAULTED.
+- id: B1-57
+  domain: study
+  group: B1.4 Session, pacing & chunk conflict detection
+  covers:
+  - custom_chunk_conflict_with_prompt_cap
+  input:
+    prompt: Study probability theory for 120 minutes by Wednesday at 22:00, each session must be under 45 minutes.
+    ui:
+      session: splittable
+      pacing: CUSTOM
+      custom:
+      - 60
+      - 90
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Study probability theory
+    total_work_minutes: 120
+    deadline: 2026-11-11T22:00
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 60
+      pref: 75
+      max: 90
+    prompt_max_chunk: 44
+    warnings:
+    - W_CHUNK_CONFLICT
+  rationale: UI custom min (60m) > prompt section cap (<45m) -> preserves custom [60,90] and emits W_CHUNK_CONFLICT.
+- id: B1-58
+  domain: exercise
+  group: B1.4 Session, pacing & chunk reconciliation
+  covers:
+  - vietnamese_do_not_split_overrides_ui_splittable
+  input:
+    prompt: Chạy bộ 60 phút trước 19h tối mai không chia nhỏ
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Running workout
+    total_work_minutes: 60
+    deadline: 2026-11-07T19:00
+    priority: 2
+    is_task_splittable: false
+    splitting: null
+    warnings:
+    - W_SESSION_CONFLICT
+  rationale: Vietnamese 'không chia nhỏ' ('do not split') overrides UI session=splittable and emits W_SESSION_CONFLICT.
+- id: B1-59
+  domain: office
+  group: B1.4 Session, pacing & chunk reconciliation
+  covers:
+  - tight_schedule_warning_today
+  input:
+    prompt: Finish incident postmortem report today before 14:00, takes 180 minutes.
+    ui:
+      session: splittable
+      pacing: FLOW
+      priority: 1
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Finish incident postmortem report
+    total_work_minutes: 180
+    deadline: 2026-11-06T14:00
+    priority: 1
+    is_task_splittable: true
+    splitting:
+      min: 45
+      pref: 90
+      max: 120
+    warnings:
+    - W_TIGHT_SCHEDULE
+  rationale: Window 09:00..14:00 is 300m (capacity=150m); 180m > 150m capacity triggers W_TIGHT_SCHEDULE.
+- id: B1-60
+  domain: lifestyle
+  group: B1.4 Session, pacing & chunk reconciliation
+  covers:
+  - start_after_vietnamese_release_date
+  input:
+    prompt: Biên tập video du lịch trong 90 phút bắt đầu từ ngày mai trước tối thứ 4 tuần tới
+    ui:
+      session: null
+      pacing: FLOW
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Edit travel video
+    total_work_minutes: 90
+    start_after: 2026-11-07T09:00
+    deadline: 2026-11-11T23:59
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 45
+      pref: 90
+      max: 120
+    warnings:
+    - W_SESSION_DEFAULTED
+  rationale: Vietnamese 'bắt đầu từ ngày mai' resolves start_after=2026-11-07T09:00; null session defaults to splittable.

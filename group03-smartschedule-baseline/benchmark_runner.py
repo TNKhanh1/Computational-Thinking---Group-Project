@@ -85,7 +85,7 @@ def run_algorithm_comparison_benchmark():
         f"{'FragIdx':>7} | {'Latency':>9} | {'SHA-256 Prefix'}"
     )
     print("-" * 116)
-    for solver_key in ["EDF", "LST", "WSPT", "BACKTRACK"]:
+    for solver_key in ["EDF", "LST", "WSPT", "BACKTRACK", "SCORED_GREEDY"]:
         out, _ = ScheduleController.solve_schedule(profile, tasks, algorithm=solver_key)
         s = out.summary
         print(
@@ -182,10 +182,37 @@ def run_scalability_benchmark():
     print("=" * 116)
 
 
+def run_t09_circadian_ablation_benchmark():
+    print("\n" + "=" * 116)
+    print(" 5. T09 CIRCADIAN CONTROLLED ABLATION (EDF V0 ENERGY-BLIND vs SCORED_GREEDY V1/V2)")
+    print("=" * 116)
+    t09_raw = json.loads((SCENARIOS_DIR / "t09_circadian_comparison.json").read_text(encoding="utf-8"))
+    base_comm = dict(t09_raw["commitments"])
+    tasks = [Task.model_validate(t) for t in t09_raw["tasks"]]
+
+    for algo_key in ["EDF", "SCORED_GREEDY"]:
+        rows = {}
+        for pref in ["MORNING", "EVENING"]:
+            c_dict = dict(base_comm)
+            c_dict["focus_preference"] = pref
+            prof = CommitmentsProfile.model_validate(c_dict)
+            out, _ = ScheduleController.solve_schedule(prof, tasks, algorithm=algo_key)
+            deep_b = next(b for b in out.blocks if b.task_id == "T09-DEEP-MATH")
+            rows[pref] = (deep_b.day, f"{deep_b.start_time}-{deep_b.end_time}", out.determinism_hash[:12])
+        adapted = rows["MORNING"][:2] != rows["EVENING"][:2]
+        print(
+            f"   {algo_key:<14} | MORNING Deep={rows['MORNING'][0]} {rows['MORNING'][1]} ({rows['MORNING'][2]}) | "
+            f"EVENING Deep={rows['EVENING'][0]} {rows['EVENING'][1]} ({rows['EVENING'][2]}) | "
+            f"Circadian Shift={'YES (Adaptive)' if adapted else 'NO (Energy-Blind V0)'}"
+        )
+    print("=" * 116)
+
+
 if __name__ == "__main__":
     ok = run_scenario_suite()
     run_algorithm_comparison_benchmark()
     run_disruption_and_overrun_benchmark()
     run_scalability_benchmark()
+    run_t09_circadian_ablation_benchmark()
     if not ok:
         raise SystemExit(1)

@@ -5,20 +5,34 @@ Supports both:
   2. Improve Plan Contract (improve_plan.md §7: ISO-8601 datetimes, explicit `now`, reason codes)
 """
 
-from typing import Any, Dict, List, Optional, Union
+import re
+from typing import Any, Dict, List, Optional, Tuple, Union
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from src.estimate_buffer import normalize_habit, planned_duration_min
+from src.config import ALPHA_HEAVY_DEFAULT, ALPHA_LIGHT_DEFAULT
+from src.estimate_buffer import (
+    normalize_habit,
+    planned_duration_for_task_mode,
+    planned_duration_min,
+)
 from src.utils import (
     MINUTES_PER_SLOT,
     SLOTS_PER_WEEK,
     day_time_to_slot,
     iso_to_slot,
+    iso_to_slot_with_status,
     minutes_to_slots,
+    parse_time_to_slot_offset,
     round_up_to_15,
     slot_to_day_time,
     slot_to_iso,
 )
+
+WORK_RHYTHM_BOUNDS: Dict[str, Tuple[int, int]] = {
+    "LIGHT": (30, 45),
+    "BALANCED": (45, 90),
+    "FLOW": (60, 120),
+}
 
 GRADE_WEIGHT_TO_PRIORITY = {
     "30+": 5,
@@ -77,6 +91,74 @@ class FixedEvent(BaseModel):
         return data
 
 
+CIRCADIAN_PROFILE_DEFAULTS: Dict[str, Tuple[int, int, int, int]] = {
+    "MORNING": (3, 2, 1, 1),    # Morning peak 06:00-12:00
+    "AFTERNOON": (2, 3, 1, 1),  # Afternoon peak 12:00-18:00
+    "EVENING": (1, 2, 3, 2),    # Evening / Night-owl peak 18:00-24:00
+    "BALANCED": (3, 2, 2, 1),   # Default balanced student curve
+}
+
+
+class PersonalHabit(BaseModel):
+    """Presentation2.pdf Slide 6: Personal Habits tuple (Name, PreferredWindow, Frequency, Duration)."""
+
+    habit_id: str = Field(default="HABIT_1")
+    name: str = Field(default="Personal Habit")
+    preferred_window: str = Field(default="MORNING", description="MORNING | AFTERNOON | EVENING | ANYTIME")
+    frequency_per_week: int = Field(default=3, ge=1, le=7)
+    duration_min: int = Field(default=30, ge=15)
+    category: str = Field(default="HABIT")
+    cognitive_load: int = Field(default=1, ge=1, le=3)
+
+
+class CircadianEnergyProfile(BaseModel):
+    """Presentation2.pdf Slide 6 & 14: Hourly/period student alertness curve (Levels 1=Low, 2=Med, 3=Peak)."""
+
+    focus_preference: str = Field(default="BALANCED", description="MORNING | AFTERNOON | EVENING | BALANCED")
+    morning_level: int = Field(default=3, ge=1, le=3)    # 06:00 - 11:59
+    afternoon_level: int = Field(default=2, ge=1, le=3)  # 12:00 - 17:59
+    evening_level: int = Field(default=2, ge=1, le=3)    # 18:00 - 23:59
+    night_level: int = Field(default=1, ge=1, le=3)      # 00:00 - 05:59
+    hourly_levels: Optional[Dict[int, int]] = Field(default=None)
+
+    @classmethod
+    def from_preference(cls, preference: Optional[str]) -> "CircadianEnergyProfile":
+        raw = str(preference or "BALANCED").strip().upper()
+        alias = {
+            "EARLY_BIRD": "MORNING",
+            "MORNING_LARK": "MORNING",
+            "NIGHT_OWL": "EVENING",
+            "NIGHT": "EVENING",
+        }.get(raw, raw)
+        if alias not in CIRCADIAN_PROFILE_DEFAULTS:
+            alias = "BALANCED"
+        m, a, e, n = CIRCADIAN_PROFILE_DEFAULTS[alias]
+        return cls(
+            focus_preference=alias,
+            morning_level=m,
+            afternoon_level=a,
+            evening_level=e,
+            night_level=n,
+        )
+
+    def level_for_hour(self, hour: int) -> int:
+        h = int(hour) % 24
+        if self.hourly_levels and h in self.hourly_levels:
+            return max(1, min(3, int(self.hourly_levels[h])))
+        if 6 <= h < 12:
+            return self.morning_level
+        if 12 <= h < 18:
+            return self.afternoon_level
+        if 18 <= h < 24:
+            return self.evening_level
+        return self.night_level
+
+    def level_for_slot(self, slot: int) -> int:
+        slot_in_day = int(slot) % 96
+        hour = slot_in_day // 4
+        return self.level_for_hour(hour)
+
+
 class CommitmentsProfile(BaseModel):
     student_id: str = Field(default="STUDENT_SAMPLE_01")
     planning_week_start: str = Field(default="2026-11-02T00:00:00+07:00")
@@ -87,11 +169,53 @@ class CommitmentsProfile(BaseModel):
         default=None,
         description="Feature 001: RARELY | SOMETIMES | OFTEN (None = no estimate buffer, V0 behaviour)",
     )
+    focus_preference: Optional[str] = Field(
+        default=None,
+        description="Circadian peak window: MORNING | AFTERNOON | EVENING | BALANCED",
+    )
+    energy_profile: Optional[CircadianEnergyProfile] = Field(
+        default=None,
+        description="Explicit CircadianEnergyProfile overriding focus_preference preset",
+    )
+    buffer_mode: str = Field(
+        default="HABIT",
+        description="HABIT (Feature 001) | COGNITIVE_LOAD (Presentation2 alpha_light=1.20 / alpha_heavy=1.35)",
+    )
+    alpha_light: float = Field(default=ALPHA_LIGHT_DEFAULT, ge=1.0, le=2.0)
+    alpha_heavy: float = Field(default=ALPHA_HEAVY_DEFAULT, ge=1.0, le=2.0)
+    horizon_days: int = Field(
+        default=7,
+        ge=7,
+        le=14,
+        description="Planning horizon in days (7 for single week, 14 for multi-week)",
+    )
+    personal_habits: List[PersonalHabit] = Field(default_factory=list)
 
     @field_validator("estimate_habit", mode="before")
     @classmethod
     def validate_estimate_habit(cls, value: Any) -> Optional[str]:
         return normalize_habit(value)
+
+    @field_validator("focus_preference", mode="before")
+    @classmethod
+    def validate_focus_preference(cls, value: Any) -> Optional[str]:
+        if value is None:
+            return None
+        cleaned = str(value).strip().upper()
+        if not cleaned or cleaned in ("NONE", "NULL"):
+            return None
+        return cleaned
+
+    @field_validator("buffer_mode", mode="before")
+    @classmethod
+    def validate_buffer_mode(cls, value: Any) -> str:
+        cleaned = str(value or "HABIT").strip().upper()
+        return cleaned if cleaned in ("HABIT", "COGNITIVE_LOAD") else "HABIT"
+
+    def get_energy_profile(self) -> CircadianEnergyProfile:
+        if self.energy_profile is not None:
+            return self.energy_profile
+        return CircadianEnergyProfile.from_preference(self.focus_preference)
 
 
 class Task(BaseModel):
@@ -108,12 +232,43 @@ class Task(BaseModel):
     min_chunk_min: int = Field(default=45, ge=15, description="Minimum chunk length in minutes")
     max_chunk_min: int = Field(default=90, ge=15, description="Maximum chunk length in minutes")
     depends_on: List[str] = Field(default_factory=list, description="Prerequisite task_ids that must finish first")
+    start_after: Optional[str] = Field(
+        default=None,
+        description="Optional release lower bound (ISO-8601 datetime, 'Day HH:MM', or 'HH:MM')",
+    )
+    work_rhythm: Optional[str] = Field(
+        default=None,
+        description="Optional chunking preset (LIGHT | BALANCED | FLOW | CUSTOM)",
+    )
+    preferred_window: Optional[str] = Field(
+        default=None,
+        description="Optional preferred time-of-day window (MORNING | AFTERNOON | EVENING | ANYTIME)",
+    )
     cognitive_load: Optional[int] = Field(default=None, description="Optional 1..3 load (ignored by pure V0 EDF/LST)")
     buffer_multiplier: float = Field(
         default=1.0,
         ge=1.0,
         le=2.0,
         description="Feature 001: estimate buffer set by the controller from profile.estimate_habit",
+    )
+    buffer_mode: str = Field(
+        default="HABIT",
+        description="HABIT (Feature 001) | COGNITIVE_LOAD (Presentation2 RoundUp_15 alpha scaling) | NONE (per-task opt-out)",
+    )
+
+    @field_validator("buffer_mode", mode="before")
+    @classmethod
+    def validate_task_buffer_mode(cls, value: Any) -> str:
+        cleaned = str(value or "HABIT").strip().upper()
+        if cleaned in ("NONE", "OFF", "DISABLED", "NO_BUFFER"):
+            return "NONE"
+        return cleaned if cleaned in ("HABIT", "COGNITIVE_LOAD") else "HABIT"
+    alpha_light: float = Field(default=ALPHA_LIGHT_DEFAULT, ge=1.0, le=2.0)
+    alpha_heavy: float = Field(default=ALPHA_HEAVY_DEFAULT, ge=1.0, le=2.0)
+    actual_duration_min: Optional[int] = Field(
+        default=None,
+        gt=0,
+        description="Observed actual duration (minutes) logged upon task completion for Actual/Estimated calibration",
     )
 
     @model_validator(mode="before")
@@ -157,21 +312,93 @@ class Task(BaseModel):
         if not out.get("title"):
             out["title"] = out.get("task_id", "Untitled Task")
 
+        raw_rhythm = str(out.get("work_rhythm") or "").strip().upper()
+        if raw_rhythm in WORK_RHYTHM_BOUNDS:
+            out["work_rhythm"] = raw_rhythm
+            if out.get("min_chunk_min") is None and out.get("max_chunk_min") is None:
+                out["min_chunk_min"], out["max_chunk_min"] = WORK_RHYTHM_BOUNDS[raw_rhythm]
+        elif raw_rhythm == "CUSTOM":
+            out["work_rhythm"] = "CUSTOM"
+        else:
+            out["work_rhythm"] = None if not out.get("work_rhythm") else raw_rhythm
+
+        if out.get("preferred_window") is not None:
+            pw = str(out.get("preferred_window") or "").strip().upper()
+            out["preferred_window"] = pw if pw in ("MORNING", "AFTERNOON", "EVENING", "ANYTIME") else None
+
+        if out.get("start_after") is not None and not str(out.get("start_after")).strip():
+            out["start_after"] = None
+
         if out.get("min_chunk_min") is None or int(out.get("min_chunk_min", 0) or 0) < 15:
             out["min_chunk_min"] = 45
 
         return out
 
+    @model_validator(mode="after")
+    def apply_auto_splitting_default(self) -> "Task":
+        """Apply explicit work_rhythm bounds when omitted, then auto-split >max_chunk_min unless locked."""
+        rhythm = (self.work_rhythm or "").strip().upper()
+        if (
+            rhythm in WORK_RHYTHM_BOUNDS
+            and "min_chunk_min" not in self.model_fields_set
+            and "max_chunk_min" not in self.model_fields_set
+        ):
+            self.min_chunk_min, self.max_chunk_min = WORK_RHYTHM_BOUNDS[rhythm]
+        if "is_splittable" not in self.model_fields_set and self.duration_min > self.max_chunk_min:
+            self.is_splittable = True
+        return self
+
     def get_planned_duration_min(self) -> int:
         """
         T_planned for the solvers.
-        * buffer_multiplier == 1.0 (default): Baseline V0 Principle §1.1, T_planned = round_up_to_15(T_estimate).
-        * Feature 001 (estimate buffer): T_planned = max(round_up_to_15(T), nearest_15(T × multiplier)).
+        * buffer_mode == 'HABIT' (default): Feature 001 / V0 behaviour via planned_duration_min.
+        * buffer_mode == 'COGNITIVE_LOAD': Presentation2 RoundUp_15(duration * α_load).
         """
-        return planned_duration_min(self.duration_min, self.buffer_multiplier)
+        return planned_duration_for_task_mode(
+            estimate_min=self.duration_min,
+            buffer_multiplier=self.buffer_multiplier,
+            cognitive_load=self.cognitive_load,
+            buffer_mode=self.buffer_mode,
+            alpha_light=self.alpha_light,
+            alpha_heavy=self.alpha_heavy,
+        )
 
     def get_planned_slots(self) -> int:
         return minutes_to_slots(self.get_planned_duration_min())
+
+    def resolve_deadline_status(
+        self, week_start_iso: str = "2026-11-02T00:00:00+07:00"
+    ) -> Tuple[Optional[int], bool, bool]:
+        """
+        A12: Resolve task deadline into (slot, is_past_due, beyond_horizon).
+        Allows callers to distinguish genuine past-due ISO timestamps from Monday 00:00.
+        """
+        if self.due:
+            return iso_to_slot_with_status(
+                self.due, week_start_iso=week_start_iso, is_end_or_deadline=True
+            )
+        if self.deadline_day:
+            d_time = self.deadline_time if self.deadline_time else "23:59"
+            return day_time_to_slot(self.deadline_day, d_time, is_end_or_deadline=True), False, False
+        return None, False, False
+
+    def resolve_start_after_slot(self, week_start_iso: str = "2026-11-02T00:00:00+07:00") -> Optional[int]:
+        """Resolve optional release lower bound (`start_after`) into a 0-based slot index."""
+        raw = (self.start_after or "").strip()
+        if not raw:
+            return None
+        try:
+            if re.match(r"^\d{4}-\d{2}-\d{2}", raw):
+                return iso_to_slot(raw, week_start_iso=week_start_iso, is_end_or_deadline=False)
+            if re.match(r"^\d{1,2}:\d{2}$", raw):
+                return parse_time_to_slot_offset(raw, is_end_or_deadline=False)
+            if " " in raw:
+                day_part, time_part = raw.rsplit(" ", 1)
+                if re.match(r"^\d{1,2}:\d{2}$", time_part):
+                    return day_time_to_slot(day_part.strip(), time_part.strip(), is_end_or_deadline=False)
+            return day_time_to_slot(raw, "00:00", is_end_or_deadline=False)
+        except Exception:
+            return None
 
     def resolve_deadline_slot(self, week_start_iso: str = "2026-11-02T00:00:00+07:00") -> Optional[int]:
         """
@@ -212,6 +439,9 @@ class TaskChunk(BaseModel):
     original_order: int = 0
     is_splittable: bool = False
     min_chunk_min: int = 45
+    cognitive_load: Optional[int] = None
+    category: str = "DEADLINE"
+    preferred_window: Optional[str] = None
 
 
 class ScheduleBlock(BaseModel):
@@ -227,6 +457,9 @@ class ScheduleBlock(BaseModel):
     end_slot: int
     duration_min: int = 0
     priority: int = 3
+    category: str = "DEADLINE"
+    cognitive_load: Optional[int] = None
+    actual_duration_min: Optional[int] = None
     deadline_str: str = ""
     deadline_slot: Optional[int] = None
     chunk_index: int = 1
@@ -276,7 +509,12 @@ class ScheduleSummary(BaseModel):
     occupied_slots: int = 0
     sleep_slots: int = 0
     block_slots: int = 0
+    rest_slots: int = 0
     fragmentation_index: float = 0.0
+    experience_rating: float = 1.0
+    experience_label: str = "1 - Comfortable"
+    crunch_tier_used: int = 0
+    early_extension_alerts: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class ScheduleOutput(BaseModel):

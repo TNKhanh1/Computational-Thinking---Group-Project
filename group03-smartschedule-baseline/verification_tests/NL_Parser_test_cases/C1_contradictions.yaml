@@ -1,0 +1,739 @@
+# Category C1 — Contradictions (12 cases, 10% of dataset)
+# Tasks that pass basic entity recognition but contain logical, temporal, or numerical contradictions.
+# Reference clock: 2026-11-06T09:00 (Friday)
+
+cases:
+- id: C1-01
+  domain: office
+  group: C1.1 Duration & arithmetic contradictions
+  covers:
+  - total_vs_subtask_sum_mismatch
+  - duration_contradiction
+  input:
+    prompt: 'Prepare the quarterly investor update in 60 minutes total by Tuesday at 17:00: first gather revenue
+      metrics for 45m, then draft narrative slides for 45m, finally rehearse pitch delivery for 30m.
+
+      '
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 1
+      attachments: []
+  expected:
+    status: NEEDS_FIX
+    title: Prepare quarterly investor update
+    total_work_minutes: 60
+    deadline: 2026-11-10T17:00
+    priority: 1
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    subtasks:
+    - id: s1
+      title: Gather revenue metrics
+      status: TODO
+      minutes: 45
+      priority: 1
+      depends_on: []
+    - id: s2
+      title: Draft narrative slides
+      status: TODO
+      minutes: 45
+      priority: 1
+      depends_on:
+      - s1
+    - id: s3
+      title: Rehearse pitch delivery
+      status: TODO
+      minutes: 30
+      priority: 1
+      depends_on:
+      - s2
+    errors:
+    - E_DURATION_CONTRADICTION
+    suggestions:
+    - 'First-layer verification: Header token specifies ''60 minutes total'', but declared subtasks sum to 120 minutes
+      (45 + 45 + 30). Flagged for user correction or Engine Solver resolution.'
+  rationale: Parser preserves the parsed header token (60m) and subtask tokens (45+45+30=120m) without overwriting,
+    flagging E_DURATION_CONTRADICTION for downstream resolution.
+- id: C1-02
+  domain: study
+  group: C1.2 Temporal & deadline contradictions
+  covers:
+  - weekday_calendar_date_mismatch
+  - deadline_contradiction
+  input:
+    prompt: Submit the computer networks Wireshark lab by Monday, November 8, 2026 at 18:00, takes 90 minutes.
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 2
+      attachments: []
+  expected:
+    status: NEEDS_FIX
+    title: Submit computer networks Wireshark lab
+    total_work_minutes: 90
+    deadline: 2026-11-08T18:00
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    errors:
+    - E_DEADLINE_CONTRADICTION
+    suggestions:
+    - November 8, 2026 is a Sunday, not a Monday. Please clarify whether you mean Sunday Nov 8 or Monday Nov 9.
+  rationale: Calendar date 2026-11-08 is Sunday, contradicting 'Monday'.
+- id: C1-03
+  domain: office
+  group: C1.2 Temporal & deadline contradictions
+  covers:
+  - start_after_later_than_deadline
+  input:
+    prompt: Run production penetration testing starting next Wednesday at 10:00 and finish by this Sunday at 23:59,
+      takes 120 minutes.
+    ui:
+      session: splittable
+      pacing: FLOW
+      priority: 1
+      attachments: []
+  expected:
+    status: NEEDS_FIX
+    title: Run production penetration testing
+    total_work_minutes: 120
+    start_after: 2026-11-11T10:00
+    deadline: 2026-11-08T23:59
+    priority: 1
+    is_task_splittable: true
+    splitting:
+      min: 45
+      pref: 90
+      max: 120
+    errors:
+    - E_START_AFTER_DEADLINE
+    suggestions:
+    - Earliest start (Wed Nov 11, 10:00) is after the deadline (Sun Nov 8, 23:59). Swap the dates or move the deadline
+      to next Sunday (Nov 15).
+  rationale: start_after (2026-11-11) is chronologically after deadline (2026-11-08).
+- id: C1-04
+  domain: lifestyle
+  group: C1.2 Temporal & deadline contradictions
+  covers:
+  - subtask_deadline_exceeds_parent_deadline
+  input:
+    prompt: 'Publish travel photo album by Monday night (Nov 9): (1) cull raw shots by Sunday night for 45m; (2)
+      color-grade selected photos by next Wednesday night for 60m.
+
+      '
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 3
+      attachments: []
+  expected:
+    status: NEEDS_FIX
+    title: Publish travel photo album
+    total_work_minutes: 105
+    deadline: 2026-11-09T23:59
+    priority: 3
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    subtasks:
+    - id: s1
+      title: Cull raw shots
+      status: TODO
+      minutes: 45
+      priority: 3
+      deadline: 2026-11-08T23:59
+      depends_on: []
+    - id: s2
+      title: Color-grade selected photos
+      status: TODO
+      minutes: 60
+      priority: 3
+      deadline: 2026-11-11T23:59
+      depends_on:
+      - s1
+    errors:
+    - E_SUBTASK_DEADLINE_AFTER_PARENT
+    suggestions:
+    - Subtask 'Color-grade selected photos' is due Wed Nov 11, which is after the parent deadline Mon Nov 9. Extend
+      the album deadline or move color-grading earlier.
+  rationale: Subtask s2 deadline (11-11) exceeds the parent task deadline (11-09).
+- id: C1-05
+  domain: office
+  group: C1.3 Topological DAG contradictions
+  covers:
+  - two_node_dependency_cycle
+  input:
+    prompt: 'Complete microservice migration by Wednesday at 18:00: finish OpenAPI schema before writing the gRPC
+      adapter (45m), and finish the gRPC adapter before writing the OpenAPI schema (45m).
+
+      '
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 1
+      attachments: []
+  expected:
+    status: NEEDS_FIX
+    title: Complete microservice migration
+    total_work_minutes: 90
+    deadline: 2026-11-11T18:00
+    priority: 1
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    subtasks:
+    - id: s1
+      title: Write OpenAPI schema
+      status: TODO
+      minutes: 45
+      priority: 1
+      depends_on:
+      - s2
+    - id: s2
+      title: Write gRPC adapter
+      status: TODO
+      minutes: 45
+      priority: 1
+      depends_on:
+      - s1
+    errors:
+    - E_CYCLIC_DEPENDENCY
+    suggestions:
+    - 'Detected circular dependency: ''Write OpenAPI schema'' <-> ''Write gRPC adapter''. Specify which one should
+      start first.'
+  rationale: Mutual 'before' clauses create a 2-cycle (s1 <-> s2) in the dependency graph.
+- id: C1-06
+  domain: study
+  group: C1.3 Topological DAG contradictions
+  covers:
+  - three_node_dependency_cycle
+  input:
+    prompt: 'Finish data science capstone pipeline by Thursday night: (1) clean dataset for 40m after feature engineering;
+      (2) engineer features for 50m after training baseline model; (3) train baseline model for 60m after cleaning
+      dataset.
+
+      '
+    ui:
+      session: splittable
+      pacing: FLOW
+      priority: 1
+      attachments: []
+  expected:
+    status: NEEDS_FIX
+    title: Finish data science capstone pipeline
+    total_work_minutes: 150
+    deadline: 2026-11-12T23:59
+    priority: 1
+    is_task_splittable: true
+    splitting:
+      min: 45
+      pref: 90
+      max: 120
+    subtasks:
+    - id: s1
+      title: Clean dataset
+      status: TODO
+      minutes: 40
+      priority: 1
+      depends_on:
+      - s2
+    - id: s2
+      title: Engineer features
+      status: TODO
+      minutes: 50
+      priority: 1
+      depends_on:
+      - s3
+    - id: s3
+      title: Train baseline model
+      status: TODO
+      minutes: 60
+      priority: 1
+      depends_on:
+      - s1
+    errors:
+    - E_CYCLIC_DEPENDENCY
+    suggestions:
+    - Detected 3-step cycle (Clean dataset -> Engineer features -> Train baseline model -> Clean dataset). Break
+      the cycle by starting with Clean dataset.
+  rationale: 3-node directed cycle (s1 <- s2 <- s3 <- s1) violates DAG acyclicity.
+- id: C1-07
+  domain: exercise
+  group: C1.4 Session & semantic contradictions
+  covers:
+  - single_vs_splittable_within_prompt
+  input:
+    prompt: Do a 100-minute endurance rowing workout by Sunday at 18:00 in one uninterrupted single session without
+      breaks, split into four 25-minute Pomodoro chunks.
+    ui:
+      session: not_sure
+      pacing: null
+      priority: 2
+      attachments: []
+  expected:
+    status: NEEDS_FIX
+    title: Endurance rowing workout
+    total_work_minutes: 100
+    deadline: 2026-11-08T18:00
+    priority: 2
+    is_task_splittable: null
+    splitting: null
+    errors:
+    - E_SESSION_CONTRADICTION
+    suggestions:
+    - Prompt asks for both 'one uninterrupted single session' and 'split into four 25-minute Pomodoro chunks'. Choose
+      either single session or 25m split chunks.
+  rationale: Directly contradictory splittability directives inside the same prompt.
+- id: C1-08
+  domain: exercise
+  group: C1.4 Session & semantic contradictions
+  covers:
+  - semantic_oxymoron_rest_vs_exertion
+  input:
+    prompt: Take a complete zero-exertion recovery rest day tomorrow by running a 90-minute uphill sprint workout
+      before 18:00.
+    ui:
+      session: single
+      pacing: FLOW
+      priority: 3
+      attachments: []
+  expected:
+    status: NEEDS_FIX
+    title: Recovery rest day / uphill sprint workout
+    total_work_minutes: 90
+    deadline: 2026-11-07T18:00
+    priority: 3
+    is_task_splittable: false
+    splitting: null
+    errors:
+    - E_SEMANTIC_CONTRADICTION
+    suggestions:
+    - '''Zero-exertion recovery rest day'' contradicts ''90-minute uphill sprint workout''. Clarify whether to log
+      rest or schedule the 90m workout.'
+  rationale: Semantic contradiction between zero-exertion rest and high-intensity 90m sprint workout.
+- id: C1-09
+  domain: study
+  group: C1.5 Feasibility & UI boundary contradictions
+  covers:
+  - workload_exceeds_available_window
+  input:
+    prompt: Write 10 hours (600 minutes) of my master's thesis literature review today before 14:00.
+    ui:
+      session: splittable
+      pacing: FLOW
+      priority: 1
+      attachments: []
+  expected:
+    status: NEEDS_FIX
+    title: Write master's thesis literature review
+    total_work_minutes: 600
+    deadline: 2026-11-06T14:00
+    priority: 1
+    is_task_splittable: true
+    splitting:
+      min: 45
+      pref: 90
+      max: 120
+    errors:
+    - E_INFEASIBLE_WORKLOAD
+    suggestions:
+    - 600 minutes of work cannot fit between 09:00 and 14:00 today (only 300 minutes available). Extend the deadline
+      or reduce today's target.
+  rationale: Available window from 09:00 to 14:00 is 300 minutes, which is strictly less than the 600-minute workload.
+- id: C1-10
+  domain: housework
+  group: C1.5 Feasibility & UI boundary contradictions
+  covers:
+  - inverted_custom_min_max_ui
+  input:
+    prompt: Deep-clean the kitchen cabinets and pantry shelves by Sunday at 20:00 for 120 minutes.
+    ui:
+      session: splittable
+      pacing: CUSTOM
+      custom:
+      - 90
+      - 30
+      priority: 3
+      attachments: []
+  expected:
+    status: NEEDS_FIX
+    title: Deep-clean kitchen cabinets and pantry shelves
+    total_work_minutes: 120
+    deadline: 2026-11-08T20:00
+    priority: 3
+    is_task_splittable: true
+    splitting: null
+    errors:
+    - E_CUSTOM_RANGE_INVALID
+    suggestions:
+    - Custom minimum chunk time (90m) is greater than maximum chunk time (30m). Swap them to [30, 90] or pick a
+      preset rhythm.
+  rationale: UI custom chunk range [90, 30] has min > max, raising E_CUSTOM_RANGE_INVALID.
+- id: C1-11
+  domain: housework
+  group: C1.1 Duration & arithmetic contradictions
+  covers:
+  - housework_total_vs_subtasks_mismatch
+  input:
+    prompt: 'Tidy up the apartment in 30 minutes total before guests arrive tonight at 19:00: first mop all floors
+      for 25m, then scrub bathroom tiles for 25m, finally dust bookshelves for 20m.
+
+      '
+    ui:
+      session: single
+      pacing: BALANCED
+      priority: 1
+      attachments: []
+  expected:
+    status: NEEDS_FIX
+    title: Tidy up apartment before guests arrive
+    total_work_minutes: 30
+    deadline: 2026-11-06T19:00
+    priority: 1
+    is_task_splittable: false
+    splitting: null
+    subtasks:
+    - id: s1
+      title: Mop all floors
+      status: TODO
+      minutes: 25
+      priority: 1
+      depends_on: []
+    - id: s2
+      title: Scrub bathroom tiles
+      status: TODO
+      minutes: 25
+      priority: 1
+      depends_on:
+      - s1
+    - id: s3
+      title: Dust bookshelves
+      status: TODO
+      minutes: 20
+      priority: 1
+      depends_on:
+      - s2
+    errors:
+    - E_DURATION_CONTRADICTION
+    suggestions:
+    - 'First-layer verification: Header token states ''30 minutes total'', while the three cleaning steps sum to
+      70 minutes (25 + 25 + 20). Flagged for user correction or Engine Solver resolution.'
+  rationale: Parser keeps the raw header token (30m) and subtask durations (25+25+20=70m) without auto-overwriting,
+    raising E_DURATION_CONTRADICTION.
+- id: C1-12
+  domain: office
+  group: C1.2 Temporal & deadline contradictions
+  covers:
+  - two_conflicting_deadlines_in_prompt
+  input:
+    prompt: Finalize and submit the corporate tax filing by tonight at 18:00, due next Thursday at 17:00, takes
+      90 minutes.
+    ui:
+      session: splittable
+      pacing: FLOW
+      priority: 1
+      attachments: []
+  expected:
+    status: NEEDS_FIX
+    title: Finalize and submit corporate tax filing
+    total_work_minutes: 90
+    deadline: 2026-11-06T18:00
+    priority: 1
+    is_task_splittable: true
+    splitting:
+      min: 45
+      pref: 90
+      max: 120
+    errors:
+    - E_DEADLINE_CONTRADICTION
+    suggestions:
+    - Prompt specifies two different deadlines ('tonight at 18:00' vs 'next Thursday at 17:00'). Please confirm
+      which date is the actual cutoff.
+  rationale: Two mutually exclusive non-hedged deadlines for the same single deliverable raise E_DEADLINE_CONTRADICTION.
+- id: C1-13
+  domain: study
+  group: C1.1 Duration & arithmetic contradictions
+  covers:
+  - vietnamese_header_vs_subtasks_duration_contradiction
+  input:
+    prompt: 'Ôn tập Hệ điều hành tổng cộng 45 minutes trước tối thứ 3:
+
+      - Đọc chương 1 for 40m
+
+      - Làm bài tập chương 2 for 50m'
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 1
+      attachments: []
+  expected:
+    status: NEEDS_FIX
+    title: Review Operating Systems
+    total_work_minutes: 45
+    deadline: 2026-11-10T23:59
+    priority: 1
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    subtasks:
+    - id: s1
+      title: Read chapter 1
+      status: TODO
+      minutes: 40
+      priority: 1
+      depends_on: []
+    - id: s2
+      title: Do chapter 2 exercises
+      status: TODO
+      minutes: 50
+      priority: 1
+      depends_on:
+      - s1
+    errors:
+    - E_DURATION_CONTRADICTION
+    suggestions:
+    - Header specifies 45 minutes total, but declared subtasks sum to 90 minutes (40m + 50m). Please reconcile.
+  rationale: Header 45m contradicts subtask sum 90m (40m + 50m) -> E_DURATION_CONTRADICTION.
+- id: C1-14
+  domain: office
+  group: C1.2 Temporal & deadline contradictions
+  covers:
+  - start_after_exceeds_deadline_vi
+  input:
+    prompt: Kiểm thử bảo mật hệ thống bắt đầu từ thứ 5 tuần tới và hoàn thành trước tối Chủ Nhật tuần này trong
+      90 phút.
+    ui:
+      session: splittable
+      pacing: FLOW
+      priority: 1
+      attachments: []
+  expected:
+    status: NEEDS_FIX
+    title: System security testing
+    total_work_minutes: 90
+    start_after: 2026-11-12T09:00
+    deadline: 2026-11-08T23:59
+    priority: 1
+    is_task_splittable: true
+    splitting:
+      min: 45
+      pref: 90
+      max: 120
+    errors:
+    - E_START_AFTER_DEADLINE
+    suggestions:
+    - Release date (Thu Nov 12) is after the deadline (Sun Nov 8). Move the deadline after Nov 12.
+  rationale: Vietnamese release date ('bắt đầu từ thứ 5 tuần tới' = Nov 12) is after deadline (Sun Nov 8) -> E_START_AFTER_DEADLINE.
+- id: C1-15
+  domain: study
+  group: C1.2 Temporal & deadline contradictions
+  covers:
+  - subtask_deadline_exceeds_parent_deadline
+  input:
+    prompt: 'Submit compiler project by Tuesday night (Nov 10):
+
+      (1) implement lexer by Monday night for 45m;
+
+      (2) write AST type-checker by next Friday night for 75m.'
+    ui:
+      session: splittable
+      pacing: FLOW
+      priority: 1
+      attachments: []
+  expected:
+    status: NEEDS_FIX
+    title: Submit compiler project
+    total_work_minutes: 120
+    deadline: 2026-11-10T23:59
+    priority: 1
+    is_task_splittable: true
+    splitting:
+      min: 45
+      pref: 90
+      max: 120
+    subtasks:
+    - id: s1
+      title: Implement lexer
+      status: TODO
+      minutes: 45
+      priority: 1
+      deadline: 2026-11-09T23:59
+      depends_on: []
+    - id: s2
+      title: Write AST type-checker
+      status: TODO
+      minutes: 75
+      priority: 1
+      deadline: 2026-11-13T23:59
+      depends_on:
+      - s1
+    errors:
+    - E_SUBTASK_DEADLINE_AFTER_PARENT
+    suggestions:
+    - Subtask s2 deadline (Fri Nov 13) is after parent deadline (Tue Nov 10). Adjust one of the dates.
+  rationale: Subtask s2 deadline (Nov 13) > parent deadline (Nov 10) -> E_SUBTASK_DEADLINE_AFTER_PARENT.
+- id: C1-16
+  domain: office
+  group: C1.3 Topological DAG contradictions
+  covers:
+  - two_node_cycle_before_clauses
+  input:
+    prompt: 'Deploy payment gateway by Wednesday at 18:00: finish database migration before deploying webhook service
+      (45m), and finish deploying webhook service before database migration (45m).'
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 1
+      attachments: []
+  expected:
+    status: NEEDS_FIX
+    title: Deploy payment gateway
+    total_work_minutes: 90
+    deadline: 2026-11-11T18:00
+    priority: 1
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    subtasks:
+    - id: s1
+      title: Database migration
+      status: TODO
+      minutes: 45
+      priority: 1
+      depends_on:
+      - s2
+    - id: s2
+      title: Deploy webhook service
+      status: TODO
+      minutes: 45
+      priority: 1
+      depends_on:
+      - s1
+    errors:
+    - E_CYCLIC_DEPENDENCY
+    suggestions:
+    - Break the circular dependency between 'Database migration' and 'Deploy webhook service'.
+  rationale: Mutual 'before' dependency creates a 2-cycle (s1 <-> s2) -> E_CYCLIC_DEPENDENCY.
+- id: C1-17
+  domain: exercise
+  group: C1.4 Session & semantic contradictions
+  covers:
+  - single_session_vs_split_chunks_contradiction
+  input:
+    prompt: Run a 90-minute marathon prep session by Sunday at 19:00 in one uninterrupted single session without
+      breaks, split into three 30-minute Pomodoro chunks.
+    ui:
+      session: not_sure
+      pacing: null
+      priority: 2
+      attachments: []
+  expected:
+    status: NEEDS_FIX
+    title: Marathon prep session
+    total_work_minutes: 90
+    deadline: 2026-11-08T19:00
+    priority: 2
+    is_task_splittable: null
+    splitting: null
+    errors:
+    - E_SESSION_CONTRADICTION
+    suggestions:
+    - Choose either 'one uninterrupted single session' or 'three 30-minute chunks', not both.
+  rationale: Simultaneous single-session and multi-chunk directives inside the same prompt -> E_SESSION_CONTRADICTION.
+- id: C1-18
+  domain: lifestyle
+  group: C1.4 Session & semantic contradictions
+  covers:
+  - semantic_oxymoron_digital_detox_vs_livestream
+  input:
+    prompt: Do a complete offline zero-screen digital detox tomorrow by hosting a 90-minute live Twitch coding stream
+      before 19:00.
+    ui:
+      session: single
+      pacing: FLOW
+      priority: 3
+      attachments: []
+  expected:
+    status: NEEDS_FIX
+    title: Offline digital detox / live Twitch coding stream
+    total_work_minutes: 90
+    deadline: 2026-11-07T19:00
+    priority: 3
+    is_task_splittable: false
+    splitting: null
+    errors:
+    - E_SEMANTIC_CONTRADICTION
+    suggestions:
+    - '''Offline zero-screen digital detox'' contradicts ''hosting a 90-minute live Twitch coding stream''.'
+  rationale: Semantic contradiction between zero-screen offline detox and live Twitch streaming -> E_SEMANTIC_CONTRADICTION.
+- id: C1-19
+  domain: office
+  group: C1.5 Feasibility & UI boundary contradictions
+  covers:
+  - infeasible_workload_today_window
+  input:
+    prompt: Complete 8 hours (480 minutes) of SOC2 penetration test remediation today before 13:00.
+    ui:
+      session: splittable
+      pacing: FLOW
+      priority: 1
+      attachments: []
+  expected:
+    status: NEEDS_FIX
+    title: Complete SOC2 penetration test remediation
+    total_work_minutes: 480
+    deadline: 2026-11-06T13:00
+    priority: 1
+    is_task_splittable: true
+    splitting:
+      min: 45
+      pref: 90
+      max: 120
+    errors:
+    - E_INFEASIBLE_WORKLOAD
+    suggestions:
+    - 480 minutes of work cannot fit into the 240-minute window between 09:00 and 13:00 today.
+  rationale: 480m workload exceeds the 240m window (09:00..13:00) -> E_INFEASIBLE_WORKLOAD.
+- id: C1-20
+  domain: study
+  group: C1.5 Feasibility & UI boundary contradictions
+  covers:
+  - inverted_custom_chunk_range_ui
+  input:
+    prompt: Review distributed consensus Raft paper by Tuesday at 21:00 for 90 minutes.
+    ui:
+      session: splittable
+      pacing: CUSTOM
+      custom:
+      - 100
+      - 40
+      priority: 2
+      attachments: []
+  expected:
+    status: NEEDS_FIX
+    title: Review distributed consensus Raft paper
+    total_work_minutes: 90
+    deadline: 2026-11-10T21:00
+    priority: 2
+    is_task_splittable: true
+    splitting: null
+    errors:
+    - E_CUSTOM_RANGE_INVALID
+    suggestions:
+    - Custom chunk minimum (100m) is greater than maximum (40m). Swap them to [40, 100].
+  rationale: UI custom range [100, 40] has min > max -> E_CUSTOM_RANGE_INVALID.

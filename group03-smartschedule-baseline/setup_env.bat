@@ -55,9 +55,10 @@ echo   [SUCCESS] Environment setup complete!
 echo ============================================================================
 echo.
 echo Quick commands:
-echo   - Run Web Workbench:     python -m uvicorn web.api:app --host 127.0.0.1 --port 8000
+echo   - Run Web Workbench:     run_app.bat (or python -m uvicorn web.api:app --host 127.0.0.1 --port 8000)
 echo   - Run Test Studio:       verification_tests\run_test_studio.bat
-echo   - Run Passing Tests:     verification_tests\run_verification_tests.bat --pass
+echo   - Run Passing Tests:     verification_tests\run_verification_tests.bat --all
+echo   - Optional NLLB Neural:  pip install -r requirements-nllb.txt
 echo.
 pause
 

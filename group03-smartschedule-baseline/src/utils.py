@@ -136,10 +136,12 @@ def parse_iso_datetime(iso_str: str) -> datetime:
     return dt
 
 
-def iso_to_slot(iso_str: str, week_start_iso: str = "2026-11-02T00:00:00+07:00", is_end_or_deadline: bool = False) -> int:
+def iso_to_slot_with_status(
+    iso_str: str, week_start_iso: str = "2026-11-02T00:00:00+07:00", is_end_or_deadline: bool = False
+) -> Tuple[int, bool, bool]:
     """
-    Convert an ISO-8601 datetime to a slot index relative to week_start_iso.
-    Supports 2-week horizon (slots 0..1344).
+    Convert an ISO-8601 datetime to `(clamped_slot, is_past_due, beyond_horizon)` (Fix A12).
+    Prevents silently turning overdue past timestamps (< week_start_iso) into slot 0 without signal.
     """
     dt = parse_iso_datetime(iso_str)
     ws = parse_iso_datetime(week_start_iso)
@@ -147,8 +149,22 @@ def iso_to_slot(iso_str: str, week_start_iso: str = "2026-11-02T00:00:00+07:00",
     delta_minutes = delta_seconds / 60.0
     if is_end_or_deadline and dt.minute == 59:
         delta_minutes += 1.0
-    slot = int(math.floor(delta_minutes / MINUTES_PER_SLOT))
-    return max(0, min(MAX_HORIZON_SLOTS, slot))
+    raw_slot = int(math.floor(delta_minutes / MINUTES_PER_SLOT))
+    is_past_due = raw_slot < 0
+    beyond_horizon = raw_slot > MAX_HORIZON_SLOTS
+    clamped = max(0, min(MAX_HORIZON_SLOTS, raw_slot))
+    return clamped, is_past_due, beyond_horizon
+
+
+def iso_to_slot(iso_str: str, week_start_iso: str = "2026-11-02T00:00:00+07:00", is_end_or_deadline: bool = False) -> int:
+    """
+    Convert an ISO-8601 datetime to a slot index relative to week_start_iso.
+    Supports 2-week horizon (slots 0..1344).
+    """
+    clamped, _, _ = iso_to_slot_with_status(
+        iso_str, week_start_iso=week_start_iso, is_end_or_deadline=is_end_or_deadline
+    )
+    return clamped
 
 
 def slot_to_day_time(slot_idx: int, is_end_time: bool = False) -> Tuple[str, str]:

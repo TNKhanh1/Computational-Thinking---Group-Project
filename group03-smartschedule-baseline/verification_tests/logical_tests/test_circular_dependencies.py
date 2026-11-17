@@ -72,4 +72,5 @@ def test_full_solver_handles_cycle_gracefully_without_unhandled_crash():
     out, _ = ScheduleController.solve_schedule(profile, cycle_tasks, algorithm="EDF")
     assert out is not None
     assert out.execution_time_ms < 500.0
+    assert out.summary.hard_constraint_violations == 0
 

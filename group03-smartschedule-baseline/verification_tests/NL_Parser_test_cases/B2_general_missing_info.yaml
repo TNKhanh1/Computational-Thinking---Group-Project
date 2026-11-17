@@ -1,0 +1,2147 @@
+# Category B (Part 2 of 2) — Workflow States, Documents, Recurrence & Natural Speech (36 cases, 30% of dataset)
+# Includes refined user samples B-47 (Content Creation Vlog) and B-48 (Discrete Structures Homework)
+# Reference clock: 2026-11-06T09:00 (Friday)
+
+cases:
+- id: B-37
+  domain: office
+  group: B2.1 Workflow states & open loops
+  covers:
+  - status_inferred_from_text
+  - done_zero_minutes
+  - in_progress_remaining
+  input:
+    prompt: 'Finish Q4 marketing campaign launch by Tuesday at 18:00: (1) audience segmentation is already finished;
+      (2) ad copywriting is halfway done with 35m left; (3) after copywriting, set up UTM tracking for 25m.
+
+      '
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Finish Q4 marketing campaign launch
+    total_work_minutes: 60
+    deadline: 2026-11-10T18:00
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    subtasks:
+    - id: s1
+      title: Audience segmentation
+      status: DONE
+      minutes: 0
+      priority: 2
+      depends_on: []
+    - id: s2
+      title: Ad copywriting
+      status: IN_PROGRESS
+      minutes: 35
+      priority: 2
+      depends_on:
+      - s1
+    - id: s3
+      title: Set up UTM tracking
+      status: TODO
+      minutes: 25
+      priority: 2
+      depends_on:
+      - s2
+    warnings:
+    - W_STATUS_INFERRED
+  rationale: Statuses DONE (0m) and IN_PROGRESS (35m left) are inferred from natural phrasing; remaining work is
+    60m.
+- id: B-38
+  domain: study
+  group: B2.1 Workflow states & open loops
+  covers:
+  - emoji_status_inference
+  - subtask_statuses
+  input:
+    prompt: 'Complete software engineering milestone by Wednesday night: ✅ ER diagram (done), ⏳ REST API endpoints
+      (in progress, 50m remaining), ⬜ Postman integration tests (40m, after API).
+
+      '
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Complete software engineering milestone
+    total_work_minutes: 90
+    deadline: 2026-11-11T23:59
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    subtasks:
+    - id: s1
+      title: ER diagram
+      status: DONE
+      minutes: 0
+      priority: 2
+      depends_on: []
+    - id: s2
+      title: REST API endpoints
+      status: IN_PROGRESS
+      minutes: 50
+      priority: 2
+      depends_on:
+      - s1
+    - id: s3
+      title: Postman integration tests
+      status: TODO
+      minutes: 40
+      priority: 2
+      depends_on:
+      - s2
+    warnings:
+    - W_STATUS_INFERRED
+  rationale: Emoji markers (✅, ⏳, ⬜) map to DONE, IN_PROGRESS, TODO with W_STATUS_INFERRED.
+- id: B-39
+  domain: office
+  group: B2.1 Workflow states & open loops
+  covers:
+  - external_dependency_waiting
+  - zero_user_minutes
+  input:
+    prompt: 'Deploy SSO integration by next Thursday at 17:00: (1) request IdP metadata XML from client IT (waiting
+      on client); (2) once metadata arrives, configure SAML assertion mapping for 45m; (3) after mapping, run login
+      smoke test for 20m.
+
+      '
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 1
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Deploy SSO integration
+    total_work_minutes: 65
+    deadline: 2026-11-12T17:00
+    priority: 1
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    subtasks:
+    - id: s1
+      title: Request IdP metadata XML from client IT
+      status: WAITING
+      external: true
+      minutes: 0
+      priority: 1
+      depends_on: []
+    - id: s2
+      title: Configure SAML assertion mapping
+      status: TODO
+      minutes: 45
+      priority: 1
+      depends_on:
+      - s1
+    - id: s3
+      title: Run login smoke test
+      status: TODO
+      minutes: 20
+      priority: 1
+      depends_on:
+      - s2
+    warnings:
+    - W_STATUS_INFERRED
+    - W_EXTERNAL_DEPENDENCY
+  rationale: External waiting step s1 has external=true and 0 user work minutes; raises W_EXTERNAL_DEPENDENCY.
+- id: B-40
+  domain: housework
+  group: B2.1 Workflow states & open loops
+  covers:
+  - external_technician_visit
+  - waiting_state
+  input:
+    prompt: 'Fix the washing machine drain before Tuesday evening: (1) clear filter trap myself for 20m; (2) wait
+      for repair technician to replace pump motor; (3) run a test rinse cycle and mop up for 15m.
+
+      '
+    ui:
+      session: single
+      pacing: LIGHT
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Fix washing machine drain
+    total_work_minutes: 35
+    deadline: 2026-11-10T21:00
+    priority: 2
+    is_task_splittable: false
+    splitting: null
+    subtasks:
+    - id: s1
+      title: Clear filter trap
+      status: TODO
+      minutes: 20
+      priority: 2
+      depends_on: []
+    - id: s2
+      title: Technician replaces pump motor
+      status: WAITING
+      external: true
+      minutes: 0
+      priority: 2
+      depends_on:
+      - s1
+    - id: s3
+      title: Run test rinse cycle and mop up
+      status: TODO
+      minutes: 15
+      priority: 2
+      depends_on:
+      - s2
+    warnings:
+    - W_STATUS_INFERRED
+    - W_EXTERNAL_DEPENDENCY
+  rationale: Technician step is external=true (0m of user's own work); user's active work is 20 + 15 = 35m.
+- id: B-41
+  domain: lifestyle
+  group: B2.1 Workflow states & open loops
+  covers:
+  - unordered_bullet_list
+  - dependency_unclear
+  input:
+    prompt: 'Get ready for Sunday hiking trip by Saturday at 21:00: - Pack waterproof jacket and trail snacks (20m)
+      - Download offline topo maps (15m) - Clean hydration bladder (20m)
+
+      '
+    ui:
+      session: splittable
+      pacing: LIGHT
+      priority: 3
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Get ready for Sunday hiking trip
+    total_work_minutes: 55
+    deadline: 2026-11-07T21:00
+    priority: 3
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 25
+      max: 30
+    subtasks:
+    - id: s1
+      title: Pack waterproof jacket and trail snacks
+      status: TODO
+      minutes: 20
+      priority: 3
+      depends_on: []
+    - id: s2
+      title: Download offline topo maps
+      status: TODO
+      minutes: 15
+      priority: 3
+      depends_on: []
+    - id: s3
+      title: Clean hydration bladder
+      status: TODO
+      minutes: 20
+      priority: 3
+      depends_on: []
+    warnings:
+    - W_DEPENDENCY_UNCLEAR
+  rationale: Bullets have no sequential cues or strict causal necessity; depends_on stays empty with W_DEPENDENCY_UNCLEAR.
+- id: B-42
+  domain: office
+  group: B2.1 Workflow states & open loops
+  covers:
+  - open_revision_loop
+  - single_pass_scheduled
+  input:
+    prompt: 'Design landing page hero banner by Wednesday at 17:00: first sketch wireframe for 30m, then create
+      high-res mockup in Figma for 60m, then send to PM for review and keep revising mockup until approved.
+
+      '
+    ui:
+      session: splittable
+      pacing: FLOW
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Design landing page hero banner
+    total_work_minutes: 90
+    deadline: 2026-11-11T17:00
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 45
+      pref: 90
+      max: 120
+    subtasks:
+    - id: s1
+      title: Sketch wireframe
+      status: TODO
+      minutes: 30
+      priority: 2
+      depends_on: []
+    - id: s2
+      title: Create high-res mockup in Figma
+      status: TODO
+      minutes: 60
+      priority: 2
+      depends_on:
+      - s1
+    - id: s3
+      title: PM review of mockup
+      status: WAITING
+      external: true
+      minutes: 0
+      priority: 2
+      depends_on:
+      - s2
+    warnings:
+    - W_OPEN_LOOP
+    - W_EXTERNAL_DEPENDENCY
+    - W_STATUS_INFERRED
+  rationale: Unbounded 'keep revising until approved' loop is cut after one pass with W_OPEN_LOOP.
+- id: B-43
+  domain: study
+  group: B2.1 Workflow states & open loops
+  covers:
+  - open_loop_code_debug_cycle
+  input:
+    prompt: 'Finish compiler type-checker assignment by Thursday night: write inference rules for 90m, run grading
+      script for 15m, and fix failing test cases repeatedly until 100% pass.
+
+      '
+    ui:
+      session: splittable
+      pacing: FLOW
+      priority: 1
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Finish compiler type-checker assignment
+    total_work_minutes: null
+    work_minutes_lower_bound: 105
+    deadline: 2026-11-12T23:59
+    priority: 1
+    is_task_splittable: true
+    splitting:
+      min: 45
+      pref: 90
+      max: 120
+    subtasks:
+    - id: s1
+      title: Write inference rules
+      status: TODO
+      minutes: 90
+      priority: 1
+      depends_on: []
+    - id: s2
+      title: Run grading script
+      status: TODO
+      minutes: 15
+      priority: 1
+      depends_on:
+      - s1
+    - id: s3
+      title: Fix failing test cases (pass 1)
+      status: TODO
+      minutes: null
+      priority: 1
+      depends_on:
+      - s2
+    warnings:
+    - W_OPEN_LOOP
+    - W_PARTIAL_DURATION
+  rationale: Unbounded debug loop is capped to pass 1 (unknown duration -> lower bound 105m) with W_OPEN_LOOP.
+- id: B-44
+  domain: exercise
+  group: B2.1 Workflow states & open loops
+  covers:
+  - subtask_status_done_and_todo
+  - workout_split
+  input:
+    prompt: 'Complete Friday triathlon brick training by tonight at 20:00: 1500m pool swim is already done this
+      morning; still need 45m indoor bike trainer (high priority) followed by 25m transition run (high priority).
+
+      '
+    ui:
+      session: single
+      pacing: FLOW
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Friday triathlon brick training
+    total_work_minutes: 70
+    deadline: 2026-11-06T20:00
+    priority: 2
+    is_task_splittable: false
+    splitting: null
+    subtasks:
+    - id: s1
+      title: 1500m pool swim
+      status: DONE
+      minutes: 0
+      priority: 2
+      depends_on: []
+    - id: s2
+      title: Indoor bike trainer
+      status: TODO
+      minutes: 45
+      priority: 2
+      depends_on:
+      - s1
+    - id: s3
+      title: Transition run
+      status: TODO
+      minutes: 25
+      priority: 2
+      depends_on:
+      - s2
+    warnings:
+    - W_STATUS_INFERRED
+  rationale: Completed morning swim counts as 0 remaining minutes; bike + run = 70m remaining.
+- id: B-45
+  domain: housework
+  group: B2.1 Workflow states & open loops
+  covers:
+  - strict_causal_inference_laundry
+  input:
+    prompt: 'Do the weekly laundry before Sunday at 21:00: - Run washing machine cycle (15m active loading, 60m
+      wash cycle wait) - Hang clothes on drying rack (20m) - Fold and put away dry clothes (25m, after 6 hours drying)
+
+      '
+    ui:
+      session: splittable
+      pacing: LIGHT
+      priority: 3
+      attachments: []
+  expected:
+    status: OK
+    title: Weekly laundry
+    total_work_minutes: 60
+    deadline: 2026-11-08T21:00
+    priority: 3
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 25
+      max: 30
+    subtasks:
+    - id: s1
+      title: Load and start washing machine
+      status: TODO
+      minutes: 15
+      priority: 3
+      lag_after_minutes: 60
+      depends_on: []
+    - id: s2
+      title: Hang clothes on drying rack
+      status: TODO
+      minutes: 20
+      priority: 3
+      lag_after_minutes: 360
+      inferred_dependency: true
+      depends_on:
+      - s1
+    - id: s3
+      title: Fold and put away dry clothes
+      status: TODO
+      minutes: 25
+      priority: 3
+      inferred_dependency: true
+      depends_on:
+      - s2
+  rationale: Washing -> hanging -> folding is strictly causal (inferred_dependency=true); machine/drying lags excluded
+    from 60m work.
+- id: B-46
+  domain: study
+  group: B2.1 Workflow states & open loops
+  covers:
+  - scope_mismatch_header_vs_list
+  input:
+    prompt: 'Solve 4 physics problem sets by Wednesday night: - Kinematics sheet (40m) - Work and energy sheet (50m)
+
+      '
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Solve physics problem sets
+    total_work_minutes: 90
+    deadline: 2026-11-11T23:59
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    subtasks:
+    - id: s1
+      title: Kinematics sheet
+      status: TODO
+      minutes: 40
+      priority: 2
+      depends_on: []
+    - id: s2
+      title: Work and energy sheet
+      status: TODO
+      minutes: 50
+      priority: 2
+      depends_on: []
+    warnings:
+    - W_SCOPE_MISMATCH
+    - W_DEPENDENCY_UNCLEAR
+  rationale: Header claims '4 physics problem sets' but only 2 subtasks are listed; raises W_SCOPE_MISMATCH.
+- id: B-47
+  domain: lifestyle
+  group: B2.1 Workflow states & open loops (Refined User Sample 1)
+  covers:
+  - user_sample_1_vlog
+  - sub_deadlines
+  - open_review_loop
+  - null_total_work
+  input:
+    prompt: 'I need to make a vlog about my holiday posting on Facebook by Thursday next week. Here is my detailed
+      work: - Recorded submissions for the manager by the end of this week. - Analyzing beautiful templates - Editing,
+      rendering the final product. - Review requests to the manager, all work should have been finished by Wednesday.
+
+      '
+    ui:
+      session: splittable
+      pacing: FLOW
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Make holiday vlog for Facebook
+    total_work_minutes: null
+    deadline: 2026-11-12T23:59
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 45
+      pref: 90
+      max: 120
+    subtasks:
+    - id: s1
+      title: Send recorded submissions to manager
+      status: TODO
+      minutes: null
+      priority: 2
+      pacing: FLOW
+      deadline: 2026-11-08T23:59
+      depends_on: []
+    - id: s2
+      title: Analyze templates
+      status: TODO
+      minutes: null
+      priority: 2
+      pacing: FLOW
+      depends_on: []
+    - id: s3
+      title: Edit and render final video
+      status: TODO
+      minutes: null
+      priority: 2
+      pacing: FLOW
+      deadline: 2026-11-11T23:59
+      inferred_dependency: true
+      depends_on:
+      - s1
+    - id: s4
+      title: Manager review of final video
+      status: WAITING
+      external: true
+      minutes: 0
+      priority: 2
+      deadline: 2026-11-11T23:59
+      inferred_dependency: true
+      depends_on:
+      - s3
+    warnings:
+    - W_NO_DURATION
+    - W_OPEN_LOOP
+    - W_DEPENDENCY_UNCLEAR
+    - W_EXTERNAL_DEPENDENCY
+    - W_STATUS_INFERRED
+  rationale: 'Refined Sample 1: total_work_minutes is null (no durations given), FLOW chunks {45,90,120} inherited,
+    sub-deadlines resolved (Sun 11-08, Wed 11-11, parent Thu 11-12), review->revision cycle flagged with W_OPEN_LOOP,
+    and Analyze->Edit flagged with W_DEPENDENCY_UNCLEAR.
+
+    '
+- id: B-48
+  domain: study
+  group: B2.1 Workflow states & open loops (Refined User Sample 2)
+  covers:
+  - user_sample_2_discrete_math
+  - per_section_cap_under_60m
+  - scope_mismatch_2_5_vs_3
+  - explicit_non_numeric_order
+  input:
+    prompt: 'Doing Discrete Structure exercises, finishing 3 chapters by the end of this week, each section should
+      be less than a hour to finish all of this. - Do chapter 2 first - Then, do chapter 1 - Finally, do only the
+      first half of chapter 3
+
+      '
+    ui:
+      session: null
+      pacing: null
+      priority: null
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Discrete Structure exercises
+    total_work_minutes: 177
+    total_range:
+    - 45
+    - 177
+    deadline: 2026-11-08T23:59
+    priority: 3
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 59
+    requires_document_analysis: true
+    subtasks:
+    - id: s1
+      title: Do chapter 2
+      status: TODO
+      minutes: 59
+      priority: 3
+      depends_on: []
+    - id: s2
+      title: Do chapter 1
+      status: TODO
+      minutes: 59
+      priority: 3
+      depends_on:
+      - s1
+    - id: s3
+      title: Do first half of chapter 3
+      status: TODO
+      minutes: 59
+      priority: 3
+      depends_on:
+      - s2
+    warnings:
+    - W_VAGUE_DURATION
+    - W_PRIORITY_DEFAULTED
+    - W_SESSION_DEFAULTED
+    - W_PACING_DEFAULTED
+    - W_SUBTASK_DEFAULTS_INHERITED
+    - W_DOC_MENTIONED_NOT_ATTACHED
+    - W_SCOPE_MISMATCH
+  rationale: 'Refined Sample 2: ''less than a hour'' caps each of the 3 listed sections at 59m (upper-bound total
+    = 177m), order is Ch2 -> Ch1 -> half of Ch3, ''3 chapters'' vs 2.5 listed raises W_SCOPE_MISMATCH, and missing
+    textbook citation is W_DOC_MENTIONED_NOT_ATTACHED.
+
+    '
+- id: B-49
+  domain: study
+  group: B2.2 Document attachment gaps & validation
+  covers:
+  - doc_mentioned_not_attached_pdf
+  input:
+    prompt: Summarize the 3 case studies in the attached ethics_reader.pdf by Monday at 20:00, 30 minutes each.
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Summarize 3 case studies in ethics_reader.pdf
+    total_work_minutes: 90
+    deadline: 2026-11-09T20:00
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 30
+      max: 60
+    requires_document_analysis: true
+    warnings:
+    - W_DOC_MENTIONED_NOT_ATTACHED
+  rationale: Prompt explicitly references 'attached ethics_reader.pdf' but ui.attachments is empty.
+- id: B-50
+  domain: office
+  group: B2.2 Document attachment gaps & validation
+  covers:
+  - attachment_provided_but_unreferenced_in_prompt
+  input:
+    prompt: Review the Q3 cloud infrastructure cost report by Tuesday at 17:00 for 60 minutes.
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 2
+      attachments:
+      - name: aws_billing_q3.pdf
+        mb: 3.1
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Review Q3 cloud infrastructure cost report
+    total_work_minutes: 60
+    deadline: 2026-11-10T17:00
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    requires_document_analysis: true
+    warnings:
+    - W_ATTACHMENT_UNREFERENCED
+  rationale: File aws_billing_q3.pdf is uploaded in UI without being named in the prompt -> W_ATTACHMENT_UNREFERENCED.
+- id: B-51
+  domain: lifestyle
+  group: B2.2 Document attachment gaps & validation
+  covers:
+  - doc_implicit_reference_recipe
+  input:
+    prompt: Cook beef pho for Sunday family lunch following Grandma's markdown recipe note, takes 90 minutes.
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Cook beef pho for Sunday family lunch
+    total_work_minutes: 90
+    deadline: 2026-11-08T12:00
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    requires_document_analysis: true
+    warnings:
+    - W_DOC_MENTIONED_NOT_ATTACHED
+  rationale: '''following Grandma''s markdown recipe note'' triggers requires_document_analysis=true and W_DOC_MENTIONED_NOT_ATTACHED.'
+- id: B-52
+  domain: office
+  group: B2.2 Document attachment gaps & validation
+  covers:
+  - attachment_over_20mb_limit
+  input:
+    prompt: Annotate the architectural blueprints in site_scan.pdf by Wednesday at 17:00 for 90 minutes.
+    ui:
+      session: splittable
+      pacing: FLOW
+      priority: 2
+      attachments:
+      - name: site_scan.pdf
+        mb: 24.5
+  expected:
+    status: NEEDS_FIX
+    title: Annotate architectural blueprints
+    total_work_minutes: 90
+    deadline: 2026-11-11T17:00
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 45
+      pref: 90
+      max: 120
+    requires_document_analysis: true
+    errors:
+    - E_ATTACHMENT_TOO_LARGE
+    suggestions:
+    - Compress site_scan.pdf below 20 MB or split it into smaller PDF files before uploading.
+  rationale: Attachment site_scan.pdf is 24.5 MB (> 20 MB cap), triggering E_ATTACHMENT_TOO_LARGE.
+- id: B-53
+  domain: office
+  group: B2.2 Document attachment gaps & validation
+  covers:
+  - attachment_unsupported_extension
+  input:
+    prompt: Reconcile the Q4 vendor invoices from invoices_q4.xlsx by Monday at 17:00 for 60 minutes.
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 2
+      attachments:
+      - name: invoices_q4.xlsx
+        mb: 1.2
+  expected:
+    status: NEEDS_FIX
+    title: Reconcile Q4 vendor invoices
+    total_work_minutes: 60
+    deadline: 2026-11-09T17:00
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    requires_document_analysis: true
+    errors:
+    - E_ATTACHMENT_TYPE
+    suggestions:
+    - Convert invoices_q4.xlsx to a supported format (.txt, .pdf, .html, or .md) and re-attach.
+  rationale: .xlsx is not in the allowed set {.txt, .pdf, .html, .md}, raising E_ATTACHMENT_TYPE.
+- id: B-54
+  domain: study
+  group: B2.2 Document attachment gaps & validation
+  covers:
+  - multiple_attachments_one_oversized
+  input:
+    prompt: Cross-check my thesis citations against style_guide.pdf and lecture_recording.pdf by Friday next week
+      for 120 minutes.
+    ui:
+      session: splittable
+      pacing: FLOW
+      priority: 2
+      attachments:
+      - name: style_guide.pdf
+        mb: 1.8
+      - name: lecture_recording.pdf
+        mb: 21.1
+  expected:
+    status: NEEDS_FIX
+    title: Cross-check thesis citations
+    total_work_minutes: 120
+    deadline: 2026-11-13T23:59
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 45
+      pref: 90
+      max: 120
+    requires_document_analysis: true
+    errors:
+    - E_ATTACHMENT_TOO_LARGE
+    suggestions:
+    - Remove or compress lecture_recording.pdf (21.1 MB exceeds the 20 MB per-file limit).
+  rationale: Second attachment exceeds 20 MB, raising E_ATTACHMENT_TOO_LARGE.
+- id: B-55
+  domain: housework
+  group: B2.2 Document attachment gaps & validation
+  covers:
+  - manual_mentioned_not_attached
+  input:
+    prompt: Assemble the new IKEA wardrobe by Sunday at 19:00 according to the assembly manual PDF, takes 120 minutes.
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 3
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Assemble new IKEA wardrobe
+    total_work_minutes: 120
+    deadline: 2026-11-08T19:00
+    priority: 3
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    requires_document_analysis: true
+    warnings:
+    - W_DOC_MENTIONED_NOT_ATTACHED
+  rationale: Prompt mentions 'according to the assembly manual PDF' with no file uploaded -> W_DOC_MENTIONED_NOT_ATTACHED.
+- id: B-56
+  domain: exercise
+  group: B2.2 Document attachment gaps & validation
+  covers:
+  - training_plan_attached_unreferenced
+  input:
+    prompt: Do a 45-minute core and hip mobility routine before Sunday night.
+    ui:
+      session: single
+      pacing: BALANCED
+      priority: 3
+      attachments:
+      - name: physio_plan.pdf
+        mb: 0.9
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Core and hip mobility routine
+    total_work_minutes: 45
+    deadline: 2026-11-08T23:59
+    priority: 3
+    is_task_splittable: false
+    splitting: null
+    requires_document_analysis: true
+    warnings:
+    - W_ATTACHMENT_UNREFERENCED
+  rationale: physio_plan.pdf is attached in UI without being mentioned in the prompt text.
+- id: B-57
+  domain: study
+  group: B2.2 Document attachment gaps & validation
+  covers:
+  - boundary_20mb_exact_valid
+  input:
+    prompt: Annotate histopathology atlas slides in atlas_v2.pdf by Thursday at 21:00 for 90 minutes.
+    ui:
+      session: splittable
+      pacing: FLOW
+      priority: 2
+      attachments:
+      - name: atlas_v2.pdf
+        mb: 20.0
+  expected:
+    status: OK
+    title: Annotate histopathology atlas slides
+    total_work_minutes: 90
+    deadline: 2026-11-12T21:00
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 45
+      pref: 90
+      max: 120
+    requires_document_analysis: true
+  rationale: Exactly 20.0 MB is within the <= 20 MB boundary and passes without error.
+- id: B-58
+  domain: lifestyle
+  group: B2.3 Recurring habits & routines
+  covers:
+  - daily_habit_no_end_date
+  - recurring_no_end
+  input:
+    prompt: Practice mindfulness breathing for 20 minutes every morning at 07:00.
+    ui:
+      session: single
+      pacing: LIGHT
+      priority: 3
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Practice mindfulness breathing
+    total_work_minutes: 20
+    deadline: null
+    repeat:
+      freq: DAILY
+      time: 07:00
+      until: null
+    priority: 3
+    is_task_splittable: false
+    splitting: null
+    warnings:
+    - W_RECURRING_NO_END
+  rationale: Open-ended daily habit has no termination date -> W_RECURRING_NO_END.
+- id: B-59
+  domain: exercise
+  group: B2.3 Recurring habits & routines
+  covers:
+  - bounded_weekly_recurrence_mwf
+  input:
+    prompt: Do 45 minutes of barbell strength training on Monday, Wednesday, and Friday next week.
+    ui:
+      session: single
+      pacing: BALANCED
+      priority: 2
+      attachments: []
+  expected:
+    status: OK
+    title: Barbell strength training
+    total_work_minutes: 135
+    deadline: 2026-11-13T23:59
+    repeat:
+      freq: WEEKLY
+      days:
+      - MON
+      - WED
+      - FRI
+      sessions: 3
+      minutes_per_session: 45
+    priority: 2
+    is_task_splittable: false
+    splitting: null
+  rationale: Bounded 3-session MWF schedule next week (3 * 45m = 135m total, ends Friday 11-13).
+- id: B-60
+  domain: housework
+  group: B2.3 Recurring habits & routines
+  covers:
+  - weekly_chore_no_end_date
+  input:
+    prompt: Sanitize bathroom sink, mirror, and shower glass every Sunday evening for 40 minutes.
+    ui:
+      session: single
+      pacing: BALANCED
+      priority: 3
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Sanitize bathroom sink, mirror, and shower glass
+    total_work_minutes: 40
+    deadline: 2026-11-08T21:00
+    repeat:
+      freq: WEEKLY
+      days:
+      - SUN
+      until: null
+    priority: 3
+    is_task_splittable: false
+    splitting: null
+    warnings:
+    - W_RECURRING_NO_END
+  rationale: Recurring weekly Sunday chore without an end horizon triggers W_RECURRING_NO_END.
+- id: B-61
+  domain: study
+  group: B2.3 Recurring habits & routines
+  covers:
+  - daily_anki_reviews_bounded_by_exam
+  input:
+    prompt: Review Anki Japanese kanji flashcards for 25 minutes every day until next Friday.
+    ui:
+      session: single
+      pacing: LIGHT
+      priority: 2
+      attachments: []
+  expected:
+    status: OK
+    title: Review Anki Japanese kanji flashcards
+    total_work_minutes: 200
+    deadline: 2026-11-13T23:59
+    repeat:
+      freq: DAILY
+      sessions: 8
+      minutes_per_session: 25
+      until: '2026-11-13'
+    priority: 2
+    is_task_splittable: false
+    splitting: null
+  rationale: Inclusive daily recurrence from Fri 11-06 through Fri 11-13 (8 days * 25m = 200m).
+- id: B-62
+  domain: office
+  group: B2.3 Recurring habits & routines
+  covers:
+  - weekday_standup_prep_no_end
+  input:
+    prompt: Spend 15 minutes every weekday morning summarizing Jira blockers before standup.
+    ui:
+      session: single
+      pacing: LIGHT
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Summarize Jira blockers before standup
+    total_work_minutes: 15
+    deadline: null
+    repeat:
+      freq: WEEKDAYS
+      until: null
+    priority: 2
+    is_task_splittable: false
+    splitting: null
+    warnings:
+    - W_RECURRING_NO_END
+  rationale: Unbounded weekday recurrence triggers W_RECURRING_NO_END.
+- id: B-63
+  domain: lifestyle
+  group: B2.3 Recurring habits & routines
+  covers:
+  - biweekly_plant_fertilizing_no_end
+  input:
+    prompt: Water and fertilize indoor monstera and fiddle-leaf fig plants every Saturday morning for 25 minutes.
+    ui:
+      session: single
+      pacing: LIGHT
+      priority: 4
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Water and fertilize indoor plants
+    total_work_minutes: 25
+    deadline: 2026-11-07T12:00
+    repeat:
+      freq: WEEKLY
+      days:
+      - SAT
+      until: null
+    priority: 4
+    is_task_splittable: false
+    splitting: null
+    warnings:
+    - W_RECURRING_NO_END
+  rationale: Weekly Saturday morning plant care without an end date raises W_RECURRING_NO_END.
+- id: B-64
+  domain: exercise
+  group: B2.3 Recurring habits & routines
+  covers:
+  - evening_walk_recurring_no_end
+  input:
+    prompt: Go for a 30-minute brisk walk after dinner every evening.
+    ui:
+      session: single
+      pacing: LIGHT
+      priority: 3
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Brisk walk after dinner
+    total_work_minutes: 30
+    deadline: null
+    repeat:
+      freq: DAILY
+      window: EVENING
+      until: null
+    priority: 3
+    is_task_splittable: false
+    splitting: null
+    warnings:
+    - W_RECURRING_NO_END
+  rationale: Unbounded daily evening walk triggers W_RECURRING_NO_END.
+- id: B-65
+  domain: office
+  group: B2.4 Messy natural speech
+  covers:
+  - mid_sentence_self_correction_duration_and_date
+  input:
+    prompt: Schedule 2 hours—actually no, make it 90 minutes—to prepare the Q4 pricing deck by Monday, wait sorry,
+      by Tuesday at 17:00.
+    ui:
+      session: splittable
+      pacing: FLOW
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Prepare Q4 pricing deck
+    total_work_minutes: 90
+    deadline: 2026-11-10T17:00
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 45
+      pref: 90
+      max: 120
+    warnings:
+    - W_SELF_CORRECTION
+  rationale: Parser adopts the corrected values (90 minutes, Tuesday 11-10 17:00) and flags W_SELF_CORRECTION.
+- id: B-66
+  domain: study
+  group: B2.4 Messy natural speech
+  covers:
+  - heavy_typos_and_misspellings
+  input:
+    prompt: Finnish dscrete structur graph coloring asignmnt by Wenesday next wek for 75 minites.
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Finish Discrete Structure graph coloring assignment
+    total_work_minutes: 75
+    deadline: 2026-11-11T23:59
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    warnings:
+    - W_TYPO_CORRECTED
+  rationale: Heavy spelling errors in title, weekday, and duration unit are normalized with W_TYPO_CORRECTED.
+- id: B-67
+  domain: study
+  group: B2.4 Messy natural speech
+  covers:
+  - mixed_vietnamese_english_prompt
+  input:
+    prompt: Làm bài tập Machine Learning lab 2 khoảng 90 minutes trước tối Chủ Nhật tuần này, chia thành các phiên
+      45m.
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Machine Learning lab 2
+    total_work_minutes: 90
+    deadline: 2026-11-08T23:59
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    warnings:
+    - W_MIXED_LANGUAGE
+    - W_VAGUE_DURATION
+  rationale: Bilingual Vietnamese-English prompt resolves 'Chủ Nhật tuần này' -> Sun 11-08 23:59 and 'khoảng 90
+    minutes' -> 90m.
+- id: B-68
+  domain: housework
+  group: B2.4 Messy natural speech
+  covers:
+  - mixed_vietnamese_english_housework
+  input:
+    prompt: Dọn phòng khách và lau bếp for 60 mins before 18:00 tomorrow.
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 3
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Clean living room and wipe kitchen (Dọn phòng khách và lau bếp)
+    total_work_minutes: 60
+    deadline: 2026-11-07T18:00
+    priority: 3
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    warnings:
+    - W_MIXED_LANGUAGE
+  rationale: Bilingual housework prompt preserves intent, extracts 60m and tomorrow 18:00, and flags W_MIXED_LANGUAGE.
+- id: B-69
+  domain: study
+  group: B2.4 Messy natural speech
+  covers:
+  - emotional_ramble_with_buried_task
+  input:
+    prompt: 'Honestly this week has been exhausting and my coffee machine broke this morning, anyway I really need
+      to study organic chemistry reaction mechanisms for 2 hours by Sunday night.
+
+      '
+    ui:
+      session: splittable
+      pacing: FLOW
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Study organic chemistry reaction mechanisms
+    total_work_minutes: 120
+    deadline: 2026-11-08T23:59
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 45
+      pref: 90
+      max: 120
+    warnings:
+    - W_NON_TASK_CONTENT
+  rationale: Strips personal venting preamble, extracts the 120m organic chemistry task, and emits W_NON_TASK_CONTENT.
+- id: B-70
+  domain: housework
+  group: B2.4 Messy natural speech
+  covers:
+  - two_independent_goals_same_domain
+  input:
+    prompt: Wash the sedan in the driveway for 45 minutes and also meal-prep 5 weekday lunches for 75 minutes by
+      Sunday at 20:00.
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 3
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Wash sedan and meal-prep 5 weekday lunches
+    total_work_minutes: 120
+    deadline: 2026-11-08T20:00
+    priority: 3
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    subtasks:
+    - id: s1
+      title: Wash sedan in driveway
+      status: TODO
+      minutes: 45
+      priority: 3
+      depends_on: []
+    - id: s2
+      title: Meal-prep 5 weekday lunches
+      status: TODO
+      minutes: 75
+      priority: 3
+      depends_on: []
+    warnings:
+    - W_MULTIPLE_GOALS
+    - W_DEPENDENCY_UNCLEAR
+  rationale: Two unrelated housework chores bundled in one prompt trigger W_MULTIPLE_GOALS.
+- id: B-71
+  domain: lifestyle
+  group: B2.4 Messy natural speech
+  covers:
+  - self_correction_subtask_dropped
+  input:
+    prompt: 'Plan weekend photography walk by Saturday at 16:00: first clean camera sensor for 20m, then charge
+      spare batteries for 15m, then buy SD card—actually never mind, I already bought the SD card.
+
+      '
+    ui:
+      session: single
+      pacing: LIGHT
+      priority: 3
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Plan weekend photography walk
+    total_work_minutes: 35
+    deadline: 2026-11-07T16:00
+    priority: 3
+    is_task_splittable: false
+    splitting: null
+    subtasks:
+    - id: s1
+      title: Clean camera sensor
+      status: TODO
+      minutes: 20
+      priority: 3
+      depends_on: []
+    - id: s2
+      title: Charge spare batteries
+      status: TODO
+      minutes: 15
+      priority: 3
+      depends_on:
+      - s1
+    - id: s3
+      title: Buy SD card
+      status: DONE
+      minutes: 0
+      priority: 3
+      depends_on: []
+    warnings:
+    - W_SELF_CORRECTION
+    - W_STATUS_INFERRED
+  rationale: Third subtask is retracted as already done (0m) via self-correction.
+- id: B-72
+  domain: exercise
+  group: B2.4 Messy natural speech
+  covers:
+  - colloquial_chatty_speech_with_typo
+  input:
+    prompt: Yo SmartSchedule pls squeeze in a 50 minets swiming drills sesh at the uni pool before Monay 19:00 thx!!
+    ui:
+      session: single
+      pacing: BALANCED
+      priority: 3
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Swimming drills session at university pool
+    total_work_minutes: 50
+    deadline: 2026-11-09T19:00
+    priority: 3
+    is_task_splittable: false
+    splitting: null
+    warnings:
+    - W_TYPO_CORRECTED
+  rationale: Conversational slang and typos ('minets', 'swiming', 'Monay') are normalized into a clean 50m atomic
+    task.
+- id: B2-73
+  domain: study
+  group: B2.1 Workflow states & open loops
+  covers:
+  - vietnamese_subtask_statuses_done_in_progress
+  input:
+    prompt: 'Làm bài tập Hệ điều hành trước tối thứ 5 tuần tới:
+
+      - Đọc đề bài (đã xong)
+
+      - Code file bits.c trong 60 phút (đang làm)
+
+      - Viết báo cáo 30 phút sau khi code'
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 1
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Operating Systems homework
+    total_work_minutes: 90
+    deadline: 2026-11-12T23:59
+    priority: 1
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    subtasks:
+    - id: s1
+      title: Read prompt
+      status: DONE
+      minutes: 0
+      priority: 1
+      depends_on: []
+    - id: s2
+      title: Code file bits.c
+      status: IN_PROGRESS
+      minutes: 60
+      priority: 1
+      depends_on:
+      - s1
+    - id: s3
+      title: Write report
+      status: TODO
+      minutes: 30
+      priority: 1
+      depends_on:
+      - s2
+    warnings:
+    - W_STATUS_INFERRED
+  rationale: Vietnamese subtask markers '(đã xong)' -> DONE (0m) and '(đang làm)' -> IN_PROGRESS (60m), active total
+    = 90m.
+- id: B2-74
+  domain: office
+  group: B2.1 Workflow states & open loops
+  covers:
+  - external_waiting_subtask_zero_minutes
+  input:
+    prompt: 'Complete vendor security review by Wednesday at 17:00:
+
+      - Fill out SOC2 questionnaire for 45m
+
+      - Wait for legal counsel sign-off
+
+      - Archive signed PDF in compliance portal for 15m after legal sign-off'
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Complete vendor security review
+    total_work_minutes: 60
+    deadline: 2026-11-11T17:00
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    subtasks:
+    - id: s1
+      title: Fill out SOC2 questionnaire
+      status: TODO
+      minutes: 45
+      priority: 2
+      depends_on: []
+    - id: s2
+      title: Wait for legal counsel sign-off
+      status: WAITING
+      external: true
+      minutes: 0
+      priority: 2
+      depends_on:
+      - s1
+    - id: s3
+      title: Archive signed PDF in compliance portal
+      status: TODO
+      minutes: 15
+      priority: 2
+      depends_on:
+      - s2
+    warnings:
+    - W_EXTERNAL_DEPENDENCY
+    - W_STATUS_INFERRED
+  rationale: External legal wait contributes 0m of user work (45 + 15 = 60m) and emits W_EXTERNAL_DEPENDENCY.
+- id: B2-75
+  domain: study
+  group: B2.1 Workflow states & open loops
+  covers:
+  - scope_mismatch_header_vs_bullets
+  input:
+    prompt: 'Finish 4 chapters of Operating Systems readings by Wednesday night, 30 minutes each:
+
+      - Read chapter 1 for 30m
+
+      - Read chapter 2 for 30m'
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 2
+      attachments:
+      - name: ostep.pdf
+        mb: 5.0
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Finish 4 chapters of Operating Systems readings
+    total_work_minutes: 60
+    deadline: 2026-11-11T23:59
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 30
+      max: 60
+    requires_document_analysis: true
+    subtasks:
+    - id: s1
+      title: Read chapter 1
+      status: TODO
+      minutes: 30
+      priority: 2
+      depends_on: []
+    - id: s2
+      title: Read chapter 2
+      status: TODO
+      minutes: 30
+      priority: 2
+      depends_on:
+      - s1
+    warnings:
+    - W_SCOPE_MISMATCH
+  rationale: Header declares 4 chapters but bullet list only covers 2 chapters -> W_SCOPE_MISMATCH.
+- id: B2-76
+  domain: office
+  group: B2.1 Workflow states & open loops
+  covers:
+  - open_feedback_loop_warning
+  input:
+    prompt: 'Prepare client pitch deck by Thursday at 18:00:
+
+      - Draft core slides for 60m
+
+      - Send to director for review and revise repeatedly until approved for 30m'
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 1
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Prepare client pitch deck
+    total_work_minutes: 90
+    deadline: 2026-11-12T18:00
+    priority: 1
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    subtasks:
+    - id: s1
+      title: Draft core slides
+      status: TODO
+      minutes: 60
+      priority: 1
+      depends_on: []
+    - id: s2
+      title: Send to director for review and revise
+      status: TODO
+      minutes: 30
+      priority: 1
+      depends_on:
+      - s1
+    warnings:
+    - W_OPEN_LOOP
+  rationale: '''revise repeatedly until approved'' is an unbounded review loop -> W_OPEN_LOOP.'
+- id: B2-77
+  domain: housework
+  group: B2.1 Workflow states & open loops
+  covers:
+  - unordered_bullets_dependency_unclear
+  input:
+    prompt: 'Prepare apartment for weekend guests by Saturday at 17:00:
+
+      - Change guest bed linens (20m)
+
+      - Vacuum living room carpet (25m)
+
+      - Restock bathroom towels and soap (15m)'
+    ui:
+      session: splittable
+      pacing: LIGHT
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Prepare apartment for weekend guests
+    total_work_minutes: 60
+    deadline: 2026-11-07T17:00
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 25
+      max: 30
+    subtasks:
+    - id: s1
+      title: Change guest bed linens
+      status: TODO
+      minutes: 20
+      priority: 2
+      depends_on: []
+    - id: s2
+      title: Vacuum living room carpet
+      status: TODO
+      minutes: 25
+      priority: 2
+      depends_on: []
+    - id: s3
+      title: Restock bathroom towels and soap
+      status: TODO
+      minutes: 15
+      priority: 2
+      depends_on: []
+    warnings:
+    - W_DEPENDENCY_UNCLEAR
+  rationale: Three parallel bullets without ordering cues emit W_DEPENDENCY_UNCLEAR.
+- id: B2-78
+  domain: lifestyle
+  group: B2.1 Workflow states & open loops
+  covers:
+  - checkbox_markdown_status_inference
+  input:
+    prompt: 'Pack for Da Nang conference trip by Tuesday at 21:00:
+
+      - [x] Book flight tickets (done)
+
+      - [ ] Iron presentation shirts for 25m
+
+      - [ ] Pack laptop chargers and adapters for 15m'
+    ui:
+      session: splittable
+      pacing: LIGHT
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Pack for Da Nang conference trip
+    total_work_minutes: 40
+    deadline: 2026-11-10T21:00
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 25
+      max: 30
+    subtasks:
+    - id: s1
+      title: Book flight tickets
+      status: DONE
+      minutes: 0
+      priority: 2
+      depends_on: []
+    - id: s2
+      title: Iron presentation shirts
+      status: TODO
+      minutes: 25
+      priority: 2
+      depends_on: []
+    - id: s3
+      title: Pack laptop chargers and adapters
+      status: TODO
+      minutes: 15
+      priority: 2
+      depends_on: []
+    warnings:
+    - W_STATUS_INFERRED
+    - W_DEPENDENCY_UNCLEAR
+  rationale: Markdown '[x]' infers DONE (0m); remaining two chores sum to 40m.
+- id: B2-79
+  domain: study
+  group: B2.2 Document attachment gaps & validation
+  covers:
+  - doc_mentioned_not_attached_pdf
+  input:
+    prompt: Summarize the research methodology in attention_paper.pdf by Tuesday at 20:00 for 60 minutes.
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Summarize research methodology in attention_paper.pdf
+    total_work_minutes: 60
+    deadline: 2026-11-10T20:00
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    requires_document_analysis: true
+    warnings:
+    - W_DOC_MENTIONED_NOT_ATTACHED
+  rationale: Prompt explicitly references 'attention_paper.pdf' with empty UI attachments -> W_DOC_MENTIONED_NOT_ATTACHED.
+- id: B2-80
+  domain: office
+  group: B2.2 Document attachment gaps & validation
+  covers:
+  - attachment_unreferenced_in_prompt
+  input:
+    prompt: Prepare Q4 engineering hiring budget spreadsheet by Wednesday at 17:00 for 75 minutes.
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 2
+      attachments:
+      - name: random_notes.txt
+        mb: 0.2
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Prepare Q4 engineering hiring budget spreadsheet
+    total_work_minutes: 75
+    deadline: 2026-11-11T17:00
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    warnings:
+    - W_ATTACHMENT_UNREFERENCED
+  rationale: UI includes 'random_notes.txt' which is never mentioned in the prompt -> W_ATTACHMENT_UNREFERENCED.
+- id: B2-81
+  domain: study
+  group: B2.2 Document attachment gaps & validation
+  covers:
+  - attachment_exceeds_20mb_limit
+  input:
+    prompt: Review recorded lecture slides in ml_lectures.pdf by Monday at 22:00 for 90 minutes.
+    ui:
+      session: splittable
+      pacing: FLOW
+      priority: 2
+      attachments:
+      - name: ml_lectures.pdf
+        mb: 28.4
+  expected:
+    status: NEEDS_FIX
+    title: Review recorded lecture slides in ml_lectures.pdf
+    total_work_minutes: 90
+    deadline: 2026-11-09T22:00
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 45
+      pref: 90
+      max: 120
+    errors:
+    - E_ATTACHMENT_TOO_LARGE
+    suggestions:
+    - Compress 'ml_lectures.pdf' (28.4 MB) below the 20 MB limit or split it into smaller PDF files.
+  rationale: Attachment size 28.4 MB > 20 MB limit raises E_ATTACHMENT_TOO_LARGE.
+- id: B2-82
+  domain: office
+  group: B2.2 Document attachment gaps & validation
+  covers:
+  - attachment_unsupported_extension_zip
+  input:
+    prompt: Audit customer export logs in logs_archive.zip by Tuesday at 17:00 for 60 minutes.
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 2
+      attachments:
+      - name: logs_archive.zip
+        mb: 4.0
+  expected:
+    status: NEEDS_FIX
+    title: Audit customer export logs in logs_archive.zip
+    total_work_minutes: 60
+    deadline: 2026-11-10T17:00
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    errors:
+    - E_ATTACHMENT_TYPE
+    suggestions:
+    - Unsupported attachment format '.zip'. Convert or extract the relevant file as .txt, .pdf, .html, or .md.
+  rationale: Extension .zip is not in {txt, pdf, html, md} -> E_ATTACHMENT_TYPE.
+- id: B2-83
+  domain: study
+  group: B2.2 Document attachment gaps & validation
+  covers:
+  - vietnamese_syllabus_mentioned_not_attached
+  input:
+    prompt: Đọc đề cương môn Trí tuệ nhân tạo trong file syllabus.pdf trước 21h Chủ Nhật trong 45 phút
+    ui:
+      session: single
+      pacing: BALANCED
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Read AI course syllabus in syllabus.pdf
+    total_work_minutes: 45
+    deadline: 2026-11-08T21:00
+    priority: 2
+    is_task_splittable: false
+    splitting: null
+    requires_document_analysis: true
+    warnings:
+    - W_DOC_MENTIONED_NOT_ATTACHED
+  rationale: Vietnamese prompt references 'syllabus.pdf' without attaching it -> W_DOC_MENTIONED_NOT_ATTACHED.
+- id: B2-84
+  domain: office
+  group: B2.2 Document attachment gaps & validation
+  covers:
+  - exact_20mb_boundary_valid
+  input:
+    prompt: Review compliance packet in soc2_bundle.pdf by Thursday at 17:00 for 90 minutes.
+    ui:
+      session: splittable
+      pacing: FLOW
+      priority: 2
+      attachments:
+      - name: soc2_bundle.pdf
+        mb: 20.0
+  expected:
+    status: OK
+    title: Review compliance packet in soc2_bundle.pdf
+    total_work_minutes: 90
+    deadline: 2026-11-12T17:00
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 45
+      pref: 90
+      max: 120
+    requires_document_analysis: true
+  rationale: Attachment at exact 20.0 MB boundary is valid and referenced in the prompt -> status OK.
+- id: B2-85
+  domain: exercise
+  group: B2.3 Recurring habits & routines
+  covers:
+  - vietnamese_habit_no_end_date
+  input:
+    prompt: 'Tập yoga 30 phút mỗi buổi tối #habit'
+    ui:
+      session: single
+      pacing: LIGHT
+      priority: 3
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Evening yoga practice
+    total_work_minutes: 30
+    deadline: null
+    repeat:
+      freq: DAILY
+      window: EVENING
+      until: null
+    priority: 3
+    is_task_splittable: false
+    splitting: null
+    warnings:
+    - W_RECURRING_NO_END
+  rationale: Vietnamese recurring habit 'mỗi buổi tối' without end date -> W_RECURRING_NO_END.
+- id: B2-86
+  domain: study
+  group: B2.3 Recurring habits & routines
+  covers:
+  - daily_leetcode_habit_unbounded
+  input:
+    prompt: Solve 1 LeetCode medium problem every morning for 30 minutes.
+    ui:
+      session: single
+      pacing: BALANCED
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Solve 1 LeetCode medium problem
+    total_work_minutes: 30
+    deadline: null
+    repeat:
+      freq: DAILY
+      window: MORNING
+      until: null
+    priority: 2
+    is_task_splittable: false
+    splitting: null
+    warnings:
+    - W_RECURRING_NO_END
+  rationale: Daily morning coding habit with no end date triggers W_RECURRING_NO_END.
+- id: B2-87
+  domain: housework
+  group: B2.3 Recurring habits & routines
+  covers:
+  - weekly_laundry_routine_no_end
+  input:
+    prompt: Wash and fold bedsheets every Sunday morning for 45 minutes.
+    ui:
+      session: single
+      pacing: BALANCED
+      priority: 3
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Wash and fold bedsheets
+    total_work_minutes: 45
+    deadline: 2026-11-08T12:00
+    repeat:
+      freq: WEEKLY
+      days:
+      - SUN
+      until: null
+    priority: 3
+    is_task_splittable: false
+    splitting: null
+    warnings:
+    - W_RECURRING_NO_END
+  rationale: Unbounded weekly Sunday morning chore triggers W_RECURRING_NO_END.
+- id: B2-88
+  domain: lifestyle
+  group: B2.3 Recurring habits & routines
+  covers:
+  - evening_reading_habit_no_end
+  input:
+    prompt: Read non-fiction book for 25 minutes every night before bed.
+    ui:
+      session: single
+      pacing: LIGHT
+      priority: 4
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Read non-fiction book before bed
+    total_work_minutes: 25
+    deadline: null
+    repeat:
+      freq: DAILY
+      window: EVENING
+      until: null
+    priority: 4
+    is_task_splittable: false
+    splitting: null
+    warnings:
+    - W_RECURRING_NO_END
+  rationale: Unbounded nightly reading routine emits W_RECURRING_NO_END.
+- id: B2-89
+  domain: office
+  group: B2.3 Recurring habits & routines
+  covers:
+  - vietnamese_fixed_event_meeting
+  input:
+    prompt: Họp nhóm đồ án ở phòng B42 lúc 14h ngày mai trong 120 phút
+    ui:
+      session: single
+      pacing: BALANCED
+      priority: 2
+      attachments: []
+  expected:
+    status: OK
+    title: Project group meeting in room B42
+    total_work_minutes: 120
+    deadline: 2026-11-07T14:00
+    priority: 2
+    is_task_splittable: false
+    splitting: null
+  rationale: Vietnamese fixed-time meeting at Room B42 tomorrow at 14:00 for 120m.
+- id: B2-90
+  domain: exercise
+  group: B2.3 Recurring habits & routines
+  covers:
+  - bounded_daily_stretching_routine
+  input:
+    prompt: Do 20 minutes of foam rolling every day until next Friday (Nov 13).
+    ui:
+      session: single
+      pacing: LIGHT
+      priority: 3
+      attachments: []
+  expected:
+    status: OK
+    title: Foam rolling routine
+    total_work_minutes: 160
+    deadline: 2026-11-13T23:59
+    repeat:
+      freq: DAILY
+      sessions: 8
+      minutes_per_session: 20
+      until: '2026-11-13'
+    priority: 3
+    is_task_splittable: false
+    splitting: null
+  rationale: Bounded daily routine (8 sessions * 20m = 160m) with explicit end date -> status OK.
+- id: B2-91
+  domain: study
+  group: B2.4 Messy natural speech
+  covers:
+  - code_switched_vietnamese_english_lab
+  input:
+    prompt: Fix bug memory leak trong bài lab Operating Systems for 90 minutes before 21:00 tomorrow.
+    ui:
+      session: splittable
+      pacing: FLOW
+      priority: 1
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Fix memory leak bug in Operating Systems lab
+    total_work_minutes: 90
+    deadline: 2026-11-07T21:00
+    priority: 1
+    is_task_splittable: true
+    splitting:
+      min: 45
+      pref: 90
+      max: 120
+    warnings:
+    - W_MIXED_LANGUAGE
+  rationale: Code-switched Vietnamese-English sentence translates cleanly and flags W_MIXED_LANGUAGE.
+- id: B2-92
+  domain: office
+  group: B2.4 Messy natural speech
+  covers:
+  - mid_sentence_duration_self_correction
+  input:
+    prompt: Review backend pull requests for 60 minutes—actually wait, make it 45 minutes—by Monday at 17:00.
+    ui:
+      session: single
+      pacing: BALANCED
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Review backend pull requests
+    total_work_minutes: 45
+    deadline: 2026-11-09T17:00
+    priority: 2
+    is_task_splittable: false
+    splitting: null
+    warnings:
+    - W_SELF_CORRECTION
+  rationale: Self-corrected duration (60m -> 45m) adopts 45m and emits W_SELF_CORRECTION.
+- id: B2-93
+  domain: study
+  group: B2.4 Messy natural speech
+  covers:
+  - typos_in_duration_and_weekday
+  input:
+    prompt: Complte linear algbra problem set by Thrusday next wek for 90 minites.
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Complete Linear Algebra problem set
+    total_work_minutes: 90
+    deadline: 2026-11-12T23:59
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    warnings:
+    - W_TYPO_CORRECTED
+  rationale: Typos ('Complte', 'Thrusday', 'wek', 'minites') are normalized and flagged with W_TYPO_CORRECTED.
+- id: B2-94
+  domain: lifestyle
+  group: B2.4 Messy natural speech
+  covers:
+  - venting_preamble_stripped
+  input:
+    prompt: Traffic was terrible today and my umbrella broke in the rain, anyway I need to renew my passport application
+      online by Tuesday at 20:00 for 40 minutes.
+    ui:
+      session: single
+      pacing: BALANCED
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Renew passport application online
+    total_work_minutes: 40
+    deadline: 2026-11-10T20:00
+    priority: 2
+    is_task_splittable: false
+    splitting: null
+    warnings:
+    - W_NON_TASK_CONTENT
+  rationale: Personal venting preamble before 'anyway I need to' is stripped and flagged with W_NON_TASK_CONTENT.
+- id: B2-95
+  domain: housework
+  group: B2.4 Messy natural speech
+  covers:
+  - bundled_two_housework_goals
+  input:
+    prompt: Clean the refrigerator shelves for 35 minutes and also iron 6 dress shirts for 40 minutes by Sunday
+      at 21:00.
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 3
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Clean refrigerator shelves and iron 6 dress shirts
+    total_work_minutes: 75
+    deadline: 2026-11-08T21:00
+    priority: 3
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    subtasks:
+    - id: s1
+      title: Clean refrigerator shelves
+      status: TODO
+      minutes: 35
+      priority: 3
+      depends_on: []
+    - id: s2
+      title: Iron 6 dress shirts
+      status: TODO
+      minutes: 40
+      priority: 3
+      depends_on: []
+    warnings:
+    - W_MULTIPLE_GOALS
+    - W_DEPENDENCY_UNCLEAR
+  rationale: Two independent housework chores joined by 'and also' emit W_MULTIPLE_GOALS and W_DEPENDENCY_UNCLEAR.
+- id: B2-96
+  domain: office
+  group: B2.4 Messy natural speech
+  covers:
+  - bilingual_office_task_with_shorthand
+  input:
+    prompt: Chuẩn bị slide demo Sprint Review for 60 minutes before 17:00 tomorrow ~30m
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Prepare Sprint Review demo slides
+    total_work_minutes: 60
+    deadline: 2026-11-07T17:00
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 30
+      max: 60
+    warnings:
+    - W_MIXED_LANGUAGE
+  rationale: Mixed Vietnamese-English office prompt with '~30m' chunk shorthand flags W_MIXED_LANGUAGE.

@@ -1,0 +1,667 @@
+# Category D — Overloaded / Too Sophisticated Tasks Requiring Breakdown Suggestions (6 cases, 5% of dataset)
+# Covers all 6 complexity triggers (a..f) from README Section 3.5.
+# Reference clock: 2026-11-06T09:00 (Friday)
+
+cases:
+- id: D-01
+  domain: office
+  group: D.1 Too many subtasks (> 6 declared subtasks)
+  covers:
+  - over_6_subtasks_trigger
+  - breakdown_recommended
+  - multi_solution_guidance
+  input:
+    prompt: 'Launch SaaS v3.0 by next Friday (Nov 13): (1) freeze DB schema 30m, (2) run migrations 30m, (3) deploy
+      auth service 40m, (4) deploy billing worker 40m, (5) update CDN routing 25m, (6) run smoke tests 35m, (7)
+      publish release notes 30m, (8) email enterprise customers 20m.
+
+      '
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 1
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Launch SaaS v3.0
+    total_work_minutes: 250
+    deadline: 2026-11-13T23:59
+    priority: 1
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    breakdown_required: true
+    subtasks:
+    - id: s1
+      title: Freeze DB schema
+      status: TODO
+      minutes: 30
+      priority: 1
+      depends_on: []
+    - id: s2
+      title: Run migrations
+      status: TODO
+      minutes: 30
+      priority: 1
+      depends_on:
+      - s1
+    - id: s3
+      title: Deploy auth service
+      status: TODO
+      minutes: 40
+      priority: 1
+      depends_on:
+      - s2
+    - id: s4
+      title: Deploy billing worker
+      status: TODO
+      minutes: 40
+      priority: 1
+      depends_on:
+      - s2
+    - id: s5
+      title: Update CDN routing
+      status: TODO
+      minutes: 25
+      priority: 1
+      depends_on:
+      - s3
+      - s4
+    - id: s6
+      title: Run smoke tests
+      status: TODO
+      minutes: 35
+      priority: 1
+      depends_on:
+      - s5
+    - id: s7
+      title: Publish release notes
+      status: TODO
+      minutes: 30
+      priority: 1
+      depends_on:
+      - s6
+    - id: s8
+      title: Email enterprise customers
+      status: TODO
+      minutes: 20
+      priority: 1
+      depends_on:
+      - s7
+    warnings:
+    - W_BREAKDOWN_RECOMMENDED
+    suggestions:
+    - 'Option 1 (Split by Phase): Create 3 separate tasks — ''Database Prep'' (steps 1-2, 60m), ''Core Deployment
+      & QA'' (steps 3-6, 140m), and ''Customer Communications'' (steps 7-8, 50m).'
+    - 'Option 2 (Milestone Grouping): Bundle steps 1-6 into an engineering release task due Thursday, and schedule
+      steps 7-8 as a separate Friday launch announcement task.'
+  rationale: 'Trigger (a): 8 declared subtasks (> 6 threshold) requires the parser to recommend a multi-task breakdown.'
+- id: D-02
+  domain: study
+  group: D.2 Single session exceeding 480 minutes
+  covers:
+  - single_session_over_480m_trigger
+  - breakdown_recommended
+  - unrealistic_load
+  input:
+    prompt: Complete a 10-hour (600-minute) uninterrupted single-session deep learning coding marathon by next Thursday
+      night.
+    ui:
+      session: single
+      pacing: FLOW
+      priority: 1
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Deep learning coding marathon
+    total_work_minutes: 600
+    deadline: 2026-11-12T23:59
+    priority: 1
+    is_task_splittable: false
+    splitting: null
+    breakdown_required: true
+    warnings:
+    - W_BREAKDOWN_RECOMMENDED
+    - W_UNREALISTIC_LOAD
+    suggestions:
+    - 'Option 1 (Enable Deep-Flow Splitting): Switch from Single Session to Splittable FLOW mode (six to seven 90-minute
+      focus blocks across Saturday-Thursday).'
+    - 'Option 2 (Decompose by Deliverable): Split the 10-hour marathon into 3 independent tasks — ''Dataset Pipeline
+      (3h)'', ''Model Training & Tuning (4h)'', and ''Evaluation & Report (3h)''.'
+  rationale: 'Trigger (b): Single atomic session of 600m (> 480m cap) triggers W_BREAKDOWN_RECOMMENDED and W_UNREALISTIC_LOAD.'
+- id: D-03
+  domain: mixed
+  group: D.3 Multi-domain unrelated goals bundled in one prompt
+  covers:
+  - multi_domain_goals_trigger
+  - breakdown_recommended
+  - multiple_goals
+  input:
+    prompt: 'By Sunday night (Nov 8), finish the Q4 sales forecast deck for 90m, deep-clean the kitchen oven for
+      45m, run a 10K trail workout for 60m, and memorize 100 German vocabulary words for 45m.
+
+      '
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Q4 sales deck, oven cleaning, 10K run, and German vocabulary
+    total_work_minutes: 240
+    deadline: 2026-11-08T23:59
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    breakdown_required: true
+    subtasks:
+    - id: s1
+      title: Finish Q4 sales forecast deck
+      status: TODO
+      minutes: 90
+      priority: 2
+      depends_on: []
+    - id: s2
+      title: Deep-clean kitchen oven
+      status: TODO
+      minutes: 45
+      priority: 2
+      depends_on: []
+    - id: s3
+      title: Run 10K trail workout
+      status: TODO
+      minutes: 60
+      priority: 2
+      depends_on: []
+    - id: s4
+      title: Memorize 100 German vocabulary words
+      status: TODO
+      minutes: 45
+      priority: 2
+      depends_on: []
+    warnings:
+    - W_BREAKDOWN_RECOMMENDED
+    - W_MULTIPLE_GOALS
+    - W_DEPENDENCY_UNCLEAR
+    suggestions:
+    - 'Option 1 (Split into 4 Domain Tasks): Create separate tasks for Office (''Q4 sales deck'', 90m FLOW), Housework
+      (''Clean oven'', 45m BALANCED), Exercise (''10K trail run'', 60m single session), and Study (''German vocab'',
+      45m LIGHT).'
+    - 'Option 2 (Weekday vs Weekend Split): Schedule the 90m office sales deck on Friday afternoon and keep the
+      housework, run, and language study for Saturday-Sunday.'
+  rationale: 'Trigger (c): Four independent goals spanning office, housework, exercise, and study in one prompt.'
+- id: D-04
+  domain: office
+  group: D.4 Dependency chain longer than 5 steps
+  covers:
+  - chain_length_over_5_trigger
+  - breakdown_recommended
+  input:
+    prompt: 'Ship mobile app v4.2 by next Friday: first write product spec (40m), then design Figma screens (60m),
+      then build React Native views (90m), then wire GraphQL queries (60m), then write Detox E2E tests (45m), finally
+      submit App Store build (25m).
+
+      '
+    ui:
+      session: splittable
+      pacing: FLOW
+      priority: 1
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Ship mobile app v4.2
+    total_work_minutes: 320
+    deadline: 2026-11-13T23:59
+    priority: 1
+    is_task_splittable: true
+    splitting:
+      min: 45
+      pref: 90
+      max: 120
+    breakdown_required: true
+    subtasks:
+    - id: s1
+      title: Write product spec
+      status: TODO
+      minutes: 40
+      priority: 1
+      depends_on: []
+    - id: s2
+      title: Design Figma screens
+      status: TODO
+      minutes: 60
+      priority: 1
+      depends_on:
+      - s1
+    - id: s3
+      title: Build React Native views
+      status: TODO
+      minutes: 90
+      priority: 1
+      depends_on:
+      - s2
+    - id: s4
+      title: Wire GraphQL queries
+      status: TODO
+      minutes: 60
+      priority: 1
+      depends_on:
+      - s3
+    - id: s5
+      title: Write Detox E2E tests
+      status: TODO
+      minutes: 45
+      priority: 1
+      depends_on:
+      - s4
+    - id: s6
+      title: Submit App Store build
+      status: TODO
+      minutes: 25
+      priority: 1
+      depends_on:
+      - s5
+    warnings:
+    - W_BREAKDOWN_RECOMMENDED
+    suggestions:
+    - 'Option 1 (Two-Stage Pipeline): Split the 6-step chain into ''Spec & UI Design'' (steps 1-2, 100m, due Monday)
+      and ''Implementation, QA & Release'' (steps 3-6, 220m, due Friday).'
+    - 'Option 2 (Three Milestones): Group into ''Design'' (steps 1-2), ''Engineering'' (steps 3-4), and ''Verification
+      & Submission'' (steps 5-6) so a delay in one stage does not cascade across 6 links.'
+  rationale: 'Trigger (d): Strict sequential chain of length 6 (> 5 links) requires decomposition recommendations.'
+- id: D-05
+  domain: lifestyle
+  group: D.5 Subtask deadlines spread over > 14 days
+  covers:
+  - horizon_spread_over_14_days_trigger
+  - breakdown_recommended
+  input:
+    prompt: 'Organize charity acoustic concert by December 5, 2026: (1) book community hall by this Sunday Nov 8
+      for 45m; (2) finalize performer lineup by Nov 18 for 60m; (3) print posters and ticket QR codes by Nov 28
+      for 60m; (4) run soundcheck rehearsal on Dec 4 for 90m.
+
+      '
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Organize charity acoustic concert
+    total_work_minutes: 255
+    deadline: 2026-12-05T23:59
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    breakdown_required: true
+    subtasks:
+    - id: s1
+      title: Book community hall
+      status: TODO
+      minutes: 45
+      priority: 2
+      deadline: 2026-11-08T23:59
+      depends_on: []
+    - id: s2
+      title: Finalize performer lineup
+      status: TODO
+      minutes: 60
+      priority: 2
+      deadline: 2026-11-18T23:59
+      depends_on:
+      - s1
+    - id: s3
+      title: Print posters and ticket QR codes
+      status: TODO
+      minutes: 60
+      priority: 2
+      deadline: 2026-11-28T23:59
+      depends_on:
+      - s2
+    - id: s4
+      title: Run soundcheck rehearsal
+      status: TODO
+      minutes: 90
+      priority: 2
+      deadline: 2026-12-04T23:59
+      depends_on:
+      - s3
+    warnings:
+    - W_BREAKDOWN_RECOMMENDED
+    suggestions:
+    - 'Option 1 (Weekly Horizon Tasks): Only schedule ''Book community hall (45m, due Nov 8)'' in this week''s timetable,
+      and save the Nov 18, Nov 28, and Dec 4 milestones as separate weekly tasks.'
+    - 'Option 2 (Project Milestone Split): Split the 29-day span into 4 standalone milestone tasks, one per deadline
+      week.'
+  rationale: 'Trigger (e): Subtask deadlines span 26 days (Nov 8 to Dec 4, > 14-day threshold).'
+- id: D-06
+  domain: housework
+  group: D.6 Nested multi-level subtask hierarchy (> 1 level deep)
+  covers:
+  - nested_subtask_hierarchy_trigger
+  - breakdown_recommended
+  input:
+    prompt: 'Renovate home study room by next Friday (Nov 13): Phase 1 - Walls (first patch drywall holes 40m, then
+      roll two coats of sage paint 80m); Phase 2 - Furniture (after Phase 1, assemble standing desk 60m and mount
+      floating bookshelves 45m).
+
+      '
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Renovate home study room
+    total_work_minutes: 225
+    deadline: 2026-11-13T23:59
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    breakdown_required: true
+    subtasks:
+    - id: s1
+      title: 'Phase 1.1: Patch drywall holes'
+      status: TODO
+      minutes: 40
+      priority: 2
+      depends_on: []
+    - id: s2
+      title: 'Phase 1.2: Roll two coats of sage paint'
+      status: TODO
+      minutes: 80
+      priority: 2
+      depends_on:
+      - s1
+    - id: s3
+      title: 'Phase 2.1: Assemble standing desk'
+      status: TODO
+      minutes: 60
+      priority: 2
+      depends_on:
+      - s2
+    - id: s4
+      title: 'Phase 2.2: Mount floating bookshelves'
+      status: TODO
+      minutes: 45
+      priority: 2
+      depends_on:
+      - s2
+    warnings:
+    - W_BREAKDOWN_RECOMMENDED
+    suggestions:
+    - 'Option 1 (Split by Renovation Phase): Create Task 1 ''Study Room Wall Prep & Painting'' (120m, due Tuesday)
+      and Task 2 ''Study Room Desk & Bookshelf Installation'' (105m, due Friday).'
+    - 'Option 2 (Flatten into Atomic Chores): Schedule each sub-item (Drywall, Painting, Desk Assembly, Bookshelf
+      Mounting) as its own top-level task.'
+  rationale: 'Trigger (f): Two-level nested hierarchy (Task -> Phase -> Sub-steps) triggers W_BREAKDOWN_RECOMMENDED.'
+- id: D-07
+  domain: study
+  group: D.1 Too many subtasks (> 6 declared subtasks)
+  covers:
+  - over_6_subtasks_trigger
+  - breakdown_recommended
+  - vietnamese_overload
+  input:
+    prompt: 'Ôn thi cuối kỳ Khoa học máy tính trước thứ 6 tuần tới (Nov 13): (1) ôn chương 1 Giải tích 30m, (2)
+      ôn chương 2 Đại số 30m, (3) code bài 1 Cấu trúc dữ liệu 40m, (4) code bài 2 Đồ thị 40m, (5) đọc slide Hệ điều
+      hành 35m, (6) làm đề mẫu Mạng máy tính 45m, (7) tổng hợp công thức Xác suất 30m.'
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 1
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Computer Science finals review
+    total_work_minutes: 250
+    deadline: 2026-11-13T23:59
+    priority: 1
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    breakdown_required: true
+    subtasks:
+    - id: s1
+      title: Review Calculus chapter 1
+      status: TODO
+      minutes: 30
+      priority: 1
+      depends_on: []
+    - id: s2
+      title: Review Linear Algebra chapter 2
+      status: TODO
+      minutes: 30
+      priority: 1
+      depends_on:
+      - s1
+    - id: s3
+      title: Code Data Structures lab 1
+      status: TODO
+      minutes: 40
+      priority: 1
+      depends_on:
+      - s2
+    - id: s4
+      title: Code Graph algorithms lab 2
+      status: TODO
+      minutes: 40
+      priority: 1
+      depends_on:
+      - s3
+    - id: s5
+      title: Read Operating Systems slides
+      status: TODO
+      minutes: 35
+      priority: 1
+      depends_on:
+      - s4
+    - id: s6
+      title: Solve Computer Networks mock exam
+      status: TODO
+      minutes: 45
+      priority: 1
+      depends_on:
+      - s5
+    - id: s7
+      title: Summarize Probability formulas
+      status: TODO
+      minutes: 30
+      priority: 1
+      depends_on:
+      - s6
+    warnings:
+    - W_BREAKDOWN_RECOMMENDED
+    suggestions:
+    - 'Option 1 (Split by Subject Area): Separate into ''Math Review'' (steps 1, 2, 7: 90m) and ''CS Core Practice''
+      (steps 3-6: 160m).'
+    - 'Option 2 (Midweek vs Late-Week Split): Schedule steps 1-4 by Tuesday and steps 5-7 by Friday.'
+  rationale: 7 declared subtasks (> 6 threshold) in Vietnamese triggers W_BREAKDOWN_RECOMMENDED.
+- id: D-08
+  domain: office
+  group: D.2 Single session exceeding 480 minutes
+  covers:
+  - single_session_over_480m_trigger
+  - breakdown_recommended
+  - unrealistic_load
+  input:
+    prompt: Run a 9-hour (540-minute) uninterrupted single-session cloud datacenter failover drill by next Thursday
+      night.
+    ui:
+      session: single
+      pacing: FLOW
+      priority: 1
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Cloud datacenter failover drill
+    total_work_minutes: 540
+    deadline: 2026-11-12T23:59
+    priority: 1
+    is_task_splittable: false
+    splitting: null
+    breakdown_required: true
+    warnings:
+    - W_BREAKDOWN_RECOMMENDED
+    - W_UNREALISTIC_LOAD
+    suggestions:
+    - 'Option 1 (Enable Deep-Flow Splitting): Split the 540m drill into six 90-minute FLOW blocks across the week.'
+    - 'Option 2 (Phase Decomposition): Break into ''Pre-Flight Checks (180m)'', ''Traffic Cutover (180m)'', and
+      ''Rollback Verification (180m)''.'
+  rationale: Single uninterrupted session of 540m (> 480m cap) triggers W_BREAKDOWN_RECOMMENDED and W_UNREALISTIC_LOAD.
+- id: D-09
+  domain: mixed
+  group: D.3 Multi-domain unrelated goals bundled in one prompt
+  covers:
+  - multi_domain_goals_trigger
+  - breakdown_recommended
+  - multiple_goals
+  input:
+    prompt: By Tuesday night (Nov 10), prepare the board revenue slide deck for 60m, scrub the bathroom tiles for
+      45m, run a 5K tempo workout for 35m, and solve 2 chapters of Linear Algebra for 60m.
+    ui:
+      session: splittable
+      pacing: BALANCED
+      priority: 2
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Board slide deck, bathroom scrubbing, 5K run, and Linear Algebra
+    total_work_minutes: 200
+    deadline: 2026-11-10T23:59
+    priority: 2
+    is_task_splittable: true
+    splitting:
+      min: 15
+      pref: 45
+      max: 60
+    breakdown_required: true
+    subtasks:
+    - id: s1
+      title: Prepare board revenue slide deck
+      status: TODO
+      minutes: 60
+      priority: 2
+      depends_on: []
+    - id: s2
+      title: Scrub bathroom tiles
+      status: TODO
+      minutes: 45
+      priority: 2
+      depends_on: []
+    - id: s3
+      title: Run 5K tempo workout
+      status: TODO
+      minutes: 35
+      priority: 2
+      depends_on: []
+    - id: s4
+      title: Solve 2 chapters of Linear Algebra
+      status: TODO
+      minutes: 60
+      priority: 2
+      depends_on: []
+    warnings:
+    - W_BREAKDOWN_RECOMMENDED
+    - W_MULTIPLE_GOALS
+    - W_DEPENDENCY_UNCLEAR
+    suggestions:
+    - 'Option 1 (Split into 4 Domain Tasks): Create standalone tasks for Office (60m), Housework (45m), Exercise
+      (35m), and Study (60m).'
+    - 'Option 2 (Weekend vs Weekday Grouping): Schedule housework and exercise on the weekend and keep office/study
+      tasks for Monday-Tuesday.'
+  rationale: Four unrelated goals across office, housework, exercise, and study trigger W_BREAKDOWN_RECOMMENDED
+    and W_MULTIPLE_GOALS.
+- id: D-10
+  domain: office
+  group: D.4 Dependency chain longer than 5 steps
+  covers:
+  - chain_length_over_5_trigger
+  - breakdown_recommended
+  input:
+    prompt: 'Launch enterprise SSO integration by next Friday: first draft SAML metadata spec (30m), then implement
+      IdP callback endpoint (60m), then build role-mapping UI (45m), then write integration tests (45m), then run
+      staging security audit (40m), finally publish customer setup guide (30m).'
+    ui:
+      session: splittable
+      pacing: FLOW
+      priority: 1
+      attachments: []
+  expected:
+    status: OK_WITH_WARNINGS
+    title: Launch enterprise SSO integration
+    total_work_minutes: 250
+    deadline: 2026-11-13T23:59
+    priority: 1
+    is_task_splittable: true
+    splitting:
+      min: 45
+      pref: 90
+      max: 120
+    breakdown_required: true
+    subtasks:
+    - id: s1
+      title: Draft SAML metadata spec
+      status: TODO
+      minutes: 30
+      priority: 1
+      depends_on: []
+    - id: s2
+      title: Implement IdP callback endpoint
+      status: TODO
+      minutes: 60
+      priority: 1
+      depends_on:
+      - s1
+    - id: s3
+      title: Build role-mapping UI
+      status: TODO
+      minutes: 45
+      priority: 1
+      depends_on:
+      - s2
+    - id: s4
+      title: Write integration tests
+      status: TODO
+      minutes: 45
+      priority: 1
+      depends_on:
+      - s3
+    - id: s5
+      title: Run staging security audit
+      status: TODO
+      minutes: 40
+      priority: 1
+      depends_on:
+      - s4
+    - id: s6
+      title: Publish customer setup guide
+      status: TODO
+      minutes: 30
+      priority: 1
+      depends_on:
+      - s5
+    warnings:
+    - W_BREAKDOWN_RECOMMENDED
+    suggestions:
+    - 'Option 1 (Two-Stage Split): Separate ''SSO Spec & Core Implementation'' (steps 1-3, 135m) from ''QA, Security
+      Audit & Docs'' (steps 4-6, 115m).'
+    - 'Option 2 (Three Milestones): Group into Backend (steps 1-2), Frontend/Tests (steps 3-4), and Audit/Docs (steps
+      5-6).'
+  rationale: 6-step sequential dependency chain (> 5 links) triggers W_BREAKDOWN_RECOMMENDED.

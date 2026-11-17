@@ -15,3 +15,18 @@ env/
 .idea/
 *.swp
 *.swo
+
+# Environment variables & API keys
+.env
+.env.*
+!.env.example
+
+# Local runtime databases (SQLite)
+data/*.db
+data/*.db-shm
+data/*.db-wal
+**/data/*.db
+**/data/*.db-shm
+**/data/*.db-wal
+*.sqlite
+*.sqlite3

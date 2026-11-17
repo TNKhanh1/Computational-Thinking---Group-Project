@@ -14,7 +14,7 @@ import json
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.grid_manager import TimeGridManager
-from src.models import ScheduleBlock, Task
+from src.models import CommitmentsProfile, ScheduleBlock, Task
 from src.utils import SLOTS_PER_WEEK
 
 
@@ -210,4 +210,80 @@ def compute_determinism_hash(blocks: List[ScheduleBlock], unplaced_tasks: List[D
     }
     payload = json.dumps(canonical, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def calculate_experience_rating(
+    grid_manager: TimeGridManager,
+    blocks: List[ScheduleBlock],
+    tasks: List[Task],
+    profile: Optional[CommitmentsProfile] = None,
+    unplaced_count: int = 0,
+    crunch_tier_used: int = 0,
+) -> Tuple[float, str]:
+    """
+    Presentation2.pdf Slide 6: Compute Schedule Experience Rating on a 1..5 scale
+    (1 = Comfortable, 5 = Exhausting) based on:
+      - Workload density (busy work slots / awake slots)
+      - Long uninterrupted deep-work streak ratio
+      - Circadian energy mismatch for heavy (load == 3) blocks
+      - Unplaced tasks / Crunch break-cutting fatigue
+    """
+    counts = grid_manager.get_slot_counts(up_to=SLOTS_PER_WEEK)
+    awake_slots = max(1, SLOTS_PER_WEEK - counts.get("SLEEP", 0))
+    busy_slots = counts.get("BLOCK", 0) + counts.get("OCCUPIED", 0)
+    density = min(1.0, busy_slots / float(awake_slots))
+
+    task_map: Dict[str, Task] = {t.task_id: t for t in tasks}
+    energy_profile = profile.get_energy_profile() if profile else grid_manager.energy_profile
+
+    sorted_blocks = sorted(blocks, key=lambda b: b.start_slot)
+    max_streak_slots = 0
+    curr_streak_slots = 0
+    prev_end = -1
+    heavy_slots = 0
+    heavy_low_energy_slots = 0
+
+    for b in sorted_blocks:
+        dur_slots = max(1, b.end_slot - b.start_slot)
+        if b.start_slot == prev_end:
+            curr_streak_slots += dur_slots
+        else:
+            curr_streak_slots = dur_slots
+        prev_end = b.end_slot
+        max_streak_slots = max(max_streak_slots, curr_streak_slots)
+
+        t_obj = task_map.get(b.task_id)
+        load = b.cognitive_load if b.cognitive_load is not None else (t_obj.cognitive_load if t_obj else None)
+        if load is not None and load >= 3:
+            for s in range(b.start_slot, b.end_slot):
+                heavy_slots += 1
+                if energy_profile.level_for_slot(s) == 1:
+                    heavy_low_energy_slots += 1
+
+    # Density component (0..2.2): 35% -> ~0.35, 85%+ -> ~2.0+
+    density_penalty = min(2.2, max(0.0, (density - 0.15) * 2.75))
+    # Continuous stretch without break (>90m = >6 slots) -> up to +0.8
+    streak_penalty = min(0.8, max(0.0, (max_streak_slots - 6) * 0.2))
+    # Circadian misalignment for heavy blocks -> up to +0.6
+    mismatch_ratio = (heavy_low_energy_slots / float(heavy_slots)) if heavy_slots > 0 else 0.0
+    circadian_penalty = 0.6 * mismatch_ratio
+    # Overload / Crunch mode penalty -> up to +1.0
+    overload_penalty = min(1.0, 0.35 * unplaced_count + (0.45 if crunch_tier_used > 0 else 0.0))
+
+    raw_score = 1.0 + density_penalty + streak_penalty + circadian_penalty + overload_penalty
+    rating = round(max(1.0, min(5.0, raw_score)), 2)
+
+    if rating < 1.8:
+        label = "1 - Comfortable"
+    elif rating < 2.6:
+        label = "2 - Manageable"
+    elif rating < 3.4:
+        label = "3 - Moderate"
+    elif rating < 4.2:
+        label = "4 - Strenuous"
+    else:
+        label = "5 - Exhausting"
+
+    return rating, label
+
 

@@ -29,12 +29,21 @@ from src.models import (
     CommitmentsProfile,
     DisruptionEvent,
     FixedEvent,
+    PersonalHabit,
     ScheduleBlock,
     ScheduleOutput,
     SleepSchedule,
     Task,
 )
+from src.nl_parser import parse_natural_language_task
 from src.solvers.local_repair import LocalRepairEngine
+from src.storage import (
+    append_completion_log,
+    delete_workspace_state,
+    list_completion_logs,
+    load_workspace_state,
+    save_workspace_state,
+)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
@@ -62,7 +71,7 @@ def _extract_profile_and_tasks(payload: Dict[str, Any]) -> Tuple[CommitmentsProf
       1. Baseline Schema: { "commitments": {...}, "tasks": [...], "algorithm": "EDF" }
       2. Improve Plan Contract (§7.3): { "now": ..., "week_start": ..., "profile": {...}, "fixed_events": [...], "tasks": [...] }
     """
-    algorithm = str(payload.get("algorithm") or payload.get("solver") or "GREEDY_EDF_FIRST_FIT")
+    algorithm = str(payload.get("algorithm") or payload.get("solver") or "SCORED_GREEDY")
 
     if "commitments" in payload and isinstance(payload["commitments"], dict):
         comm_dict = dict(payload["commitments"])
@@ -70,22 +79,42 @@ def _extract_profile_and_tasks(payload: Dict[str, Any]) -> Tuple[CommitmentsProf
             comm_dict["now"] = payload["now"]
         if "week_start" in payload and payload["week_start"] and not comm_dict.get("planning_week_start"):
             comm_dict["planning_week_start"] = payload["week_start"]
-        if payload.get("estimate_habit") and not comm_dict.get("estimate_habit"):
-            comm_dict["estimate_habit"] = payload["estimate_habit"]
+        for opt_key in (
+            "estimate_habit",
+            "focus_preference",
+            "buffer_mode",
+            "alpha_light",
+            "alpha_heavy",
+            "horizon_days",
+            "personal_habits",
+        ):
+            if payload.get(opt_key) is not None and comm_dict.get(opt_key) is None:
+                comm_dict[opt_key] = payload[opt_key]
         profile = CommitmentsProfile.model_validate(comm_dict)
     else:
         # Improve Plan §7.3 contract format
         prof_part = payload.get("profile") or {}
         sleep_part = prof_part.get("sleep") or payload.get("sleep_schedule") or {"daily_start_time": "23:30", "daily_end_time": "06:30"}
         fixed_list = payload.get("fixed_events") or prof_part.get("fixed_events") or []
-        profile = CommitmentsProfile(
-            student_id=str(payload.get("student_id") or prof_part.get("student_id") or "STUDENT_01"),
-            planning_week_start=str(payload.get("week_start") or payload.get("planning_week_start") or "2026-11-02T00:00:00+07:00"),
-            now=payload.get("now"),
-            sleep_schedule=SleepSchedule.model_validate(sleep_part),
-            fixed_events=[FixedEvent.model_validate(fe) for fe in fixed_list],
-            estimate_habit=prof_part.get("estimate_habit") or payload.get("estimate_habit"),
-        )
+        habits_raw = prof_part.get("personal_habits") or payload.get("personal_habits") or []
+        profile_kwargs: Dict[str, Any] = {
+            "student_id": str(payload.get("student_id") or prof_part.get("student_id") or "STUDENT_01"),
+            "planning_week_start": str(payload.get("week_start") or payload.get("planning_week_start") or "2026-11-02T00:00:00+07:00"),
+            "now": payload.get("now"),
+            "sleep_schedule": SleepSchedule.model_validate(sleep_part),
+            "fixed_events": [FixedEvent.model_validate(fe) for fe in fixed_list],
+            "estimate_habit": prof_part.get("estimate_habit") or payload.get("estimate_habit"),
+            "focus_preference": prof_part.get("focus_preference") or payload.get("focus_preference") or "BALANCED",
+            "buffer_mode": prof_part.get("buffer_mode") or payload.get("buffer_mode") or "HABIT",
+            "personal_habits": [PersonalHabit.model_validate(h) for h in habits_raw],
+        }
+        if prof_part.get("alpha_light") is not None or payload.get("alpha_light") is not None:
+            profile_kwargs["alpha_light"] = float(prof_part.get("alpha_light") or payload.get("alpha_light"))
+        if prof_part.get("alpha_heavy") is not None or payload.get("alpha_heavy") is not None:
+            profile_kwargs["alpha_heavy"] = float(prof_part.get("alpha_heavy") or payload.get("alpha_heavy"))
+        if prof_part.get("horizon_days") is not None or payload.get("horizon_days") is not None:
+            profile_kwargs["horizon_days"] = int(prof_part.get("horizon_days") or payload.get("horizon_days"))
+        profile = CommitmentsProfile(**profile_kwargs)
 
     raw_tasks = payload.get("tasks") or []
     tasks = [Task.model_validate(t) for t in raw_tasks]
@@ -98,17 +127,38 @@ def _extract_profile_and_tasks(payload: Dict[str, Any]) -> Tuple[CommitmentsProf
     return profile, tasks, algorithm, pinned_blocks
 
 
-def _enrich_response(out: ScheduleOutput) -> Dict[str, Any]:
-    """Attach Improve Plan §7.3 alias fields alongside Baseline §6.2 fields."""
+def _enrich_response(out: ScheduleOutput, profile: Optional[CommitmentsProfile] = None) -> Dict[str, Any]:
+    """Attach Improve Plan §7.3 alias fields and optional Circadian/Batching insights alongside Baseline §6.2 fields."""
     data = out.model_dump()
     data["unplaced"] = data["unplaced_tasks"]
+    data["experience_rating"] = out.summary.experience_rating
+    data["experience_label"] = out.summary.experience_label
+    data["crunch_tier_used"] = out.summary.crunch_tier_used
+    data["early_extension_alerts"] = list(out.summary.early_extension_alerts)
+
+    insights: Dict[str, Any] = {}
+    if profile is not None:
+        insights = ScheduleController.compute_schedule_insights(profile, out)
+        b_energies = insights.get("block_energies", {})
+        for blk_dict in data.get("blocks", []):
+            blk_dict["energy_level"] = b_energies.get(blk_dict.get("block_id"))
+
     data["metrics"] = {
         "hard_violations": out.summary.hard_constraint_violations,
         "deadline_rate": round(out.summary.deadline_satisfaction_rate / 100.0, 4),
         "deadline_satisfaction_pct": out.summary.deadline_satisfaction_rate,
         "exec_ms": out.execution_time_ms,
         "free_slots": out.summary.free_slots_remaining,
+        "rest_slots": out.summary.rest_slots,
         "fragmentation_index": out.summary.fragmentation_index,
+        "experience_rating": out.summary.experience_rating,
+        "experience_label": out.summary.experience_label,
+        "crunch_tier_used": out.summary.crunch_tier_used,
+        "peak_match_rate_pct": insights.get("peak_match_rate_pct", 100.0),
+        "deep_peak_match_pct": insights.get("deep_peak_match_pct", 100.0),
+        "avg_energy_level": insights.get("avg_energy_level", 0.0),
+        "context_switches": insights.get("context_switches", 0),
+        "batched_pairs": insights.get("batched_pairs", 0),
     }
     return data
 
@@ -210,7 +260,7 @@ def api_solve_schedule(payload: Dict[str, Any] = Body(...)):
             algorithm=algorithm,
             pinned_blocks=pinned_blocks,
         )
-        return JSONResponse(content=_enrich_response(out))
+        return JSONResponse(content=_enrich_response(out, profile=profile))
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -221,7 +271,7 @@ def api_compare_algorithms(payload: Dict[str, Any] = Body(...)):
     try:
         profile, tasks, _, _ = _extract_profile_and_tasks(payload)
         algo_left = str(payload.get("algo_left") or "GREEDY_EDF_FIRST_FIT")
-        algo_right = str(payload.get("algo_right") or "GREEDY_LST_BEST_FIT")
+        algo_right = str(payload.get("algo_right") or "SCORED_GREEDY")
         res = ScheduleController.compare_algorithms(
             profile=profile,
             tasks=tasks,
@@ -229,8 +279,8 @@ def api_compare_algorithms(payload: Dict[str, Any] = Body(...)):
             algo_right=algo_right,
         )
         return {
-            "left": _enrich_response(res["left"]),
-            "right": _enrich_response(res["right"]),
+            "left": _enrich_response(res["left"], profile=profile),
+            "right": _enrich_response(res["right"], profile=profile),
             "comparison": res["comparison"],
         }
     except Exception as exc:
@@ -268,9 +318,10 @@ def api_repair_schedule(payload: Dict[str, Any] = Body(...)):
                 tasks=tasks,
                 current_schedule=current_schedule,
                 disruption=disruption,
+                algorithm=algorithm,
             )
             return {
-                "original_schedule": _enrich_response(current_schedule),
+                "original_schedule": _enrich_response(current_schedule, profile=profile),
                 "local_repair": comp["local_repair"].model_dump(),
                 "full_rebuild": comp["full_rebuild"].model_dump(),
                 "comparison": comp["comparison"],
@@ -282,6 +333,7 @@ def api_repair_schedule(payload: Dict[str, Any] = Body(...)):
             current_schedule=current_schedule,
             disruption=disruption,
             mode=mode,
+            algorithm=algorithm,
         )
         return rep_out.model_dump()
     except Exception as exc:
@@ -312,8 +364,8 @@ def api_task_overrun(payload: Dict[str, Any] = Body(...)):
             "new_duration_min": res["new_duration_min"],
             "new_estimate_min": res.get("new_estimate_min", res["new_duration_min"]),
             "shifted_blocks_count": res["shifted_blocks_count"],
-            "before_schedule": _enrich_response(res["before_schedule"]),
-            "after_schedule": _enrich_response(res["after_schedule"]),
+            "before_schedule": _enrich_response(res["before_schedule"], profile=profile),
+            "after_schedule": _enrich_response(res["after_schedule"], profile=profile),
         }
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -325,6 +377,8 @@ def api_validate_move(payload: Dict[str, Any] = Body(...)):
     try:
         profile, tasks, algorithm, _ = _extract_profile_and_tasks(payload)
         raw_blocks = payload.get("blocks")
+        if raw_blocks is None:
+            raw_blocks = payload.get("current_blocks")
         if raw_blocks is None and "schedule" in payload and isinstance(payload["schedule"], dict):
             raw_blocks = payload["schedule"].get("blocks", [])
         if raw_blocks is None:
@@ -417,75 +471,228 @@ def api_export_schedule(fmt: str, payload: Dict[str, Any] = Body(...)):
 def api_natural_language_add(payload: Dict[str, Any] = Body(...)):
     """
     Convert natural-language input into a validated TaskSheet draft
-    (Improve Plan §6.2, §7.2, and Feature F21).
+    using the Dual-Engine M1 NL Parser enriched with the Hybrid 6-stage Pipeline
+    (AI Gemini / Offline Deterministic + WorkRhythm, 1=Urgent..4=Low urgency mapping,
+    subtask extraction, VI->EN translation, and First-Layer E_*/W_* diagnostics).
     """
     prompt = str(payload.get("prompt") or payload.get("text") or "").strip()
     if not prompt:
         raise HTTPException(status_code=400, detail="Prompt text cannot be empty.")
 
-    # Lightweight regex / heuristic parsing per Improve Plan §6.2
-    duration = 60
-    import re
-    dur_match = re.search(r"(\d+)\s*(?:m|min|phút)", prompt, re.IGNORECASE)
-    hour_match = re.search(r"(\d+)\s*(?:h|giờ|hours?)", prompt, re.IGNORECASE)
-    if hour_match:
-        duration = int(hour_match.group(1)) * 60
-    elif dur_match:
-        duration = int(dur_match.group(1))
+    ui_opts = payload.get("ui") if isinstance(payload.get("ui"), dict) else None
+    trans_backend = str(payload.get("translation_backend") or "rule").strip().lower() or "rule"
 
-    priority = 3
-    if any(k in prompt.lower() for k in ["#deep", "gấp", "urgent", "quan trọng", "high"]):
-        priority = 5
+    try:
+        return parse_natural_language_task(
+            prompt=prompt,
+            now=payload.get("now"),
+            existing_count=int(payload.get("existing_count") or 0),
+            engine=payload.get("engine"),
+            ui=ui_opts,
+            translation_backend=trans_backend,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    import time
-    draft_task = {
-        "task_id": f"TASK_NL_{int(time.time() * 1000) % 100000}",
-        "title": prompt.split("\n")[0][:60],
-        "duration_min": max(15, duration),
-        "deadline_day": "Wednesday",
-        "deadline_time": "23:59",
-        "priority": priority,
-        "is_splittable": True,
-        "min_chunk_min": 45,
-        "effort": "DEEP" if priority >= 4 else "MEDIUM",
-        "status": "DRAFT_READY",
-    }
 
-    return {
-        "status": "DRAFT_READY",
-        "prompt": prompt,
-        "draft": draft_task,
-        "validation": {"is_valid": True, "warnings": []},
-    }
+@app.post("/api/tasks/complete")
+def api_task_complete(payload: Dict[str, Any] = Body(...)):
+    """
+    M7 Execution Tracking & Feedback Loop:
+    Records actual minutes spent on a task/block and recommends estimate-habit calibration
+    or triggers remaining overrun repair when actual duration exceeds estimate.
+    """
+    try:
+        task_id = str(payload.get("task_id") or "")
+        category = str(payload.get("category") or "OTHER").strip().upper()
+        workspace_id = str(payload.get("workspace_id") or "default")
+        estimated_min = int(payload.get("estimated_min") or payload.get("duration_min") or 60)
+        actual_min = int(payload.get("actual_duration_min") or payload.get("actual_min") or estimated_min)
+        completed = bool(payload.get("completed", True))
+        ratio = round(actual_min / max(1, estimated_min), 2)
+
+        recommended_habit = "RARELY"
+        if ratio >= 1.30:
+            recommended_habit = "OFTEN"
+        elif ratio >= 1.15:
+            recommended_habit = "SOMETIMES"
+
+        completion_entry = append_completion_log(
+            task_id=task_id,
+            category=category,
+            estimated_duration_min=estimated_min,
+            actual_duration_min=actual_min,
+            workspace_id=workspace_id,
+        )
+
+        response: Dict[str, Any] = {
+            "status": "COMPLETED" if completed else "PARTIAL_OVERRUN",
+            "task_id": task_id,
+            "estimated_min": estimated_min,
+            "actual_duration_min": actual_min,
+            "overrun_ratio": ratio,
+            "recommended_estimate_habit": recommended_habit,
+            "recommended_alpha": round(max(1.0, min(1.6, ratio)), 2),
+            "completion_log": completion_entry,
+        }
+
+        if not completed and actual_min > estimated_min and payload.get("tasks"):
+            profile, tasks, algorithm, _ = _extract_profile_and_tasks(payload)
+            extra = max(15, actual_min - estimated_min)
+            res = ScheduleController.handle_task_overrun(
+                profile=profile,
+                tasks=tasks,
+                task_id=task_id,
+                extra_minutes=extra,
+                algorithm=algorithm,
+            )
+            response["repair"] = {
+                "shifted_blocks_count": res["shifted_blocks_count"],
+                "after_schedule": _enrich_response(res["after_schedule"]),
+            }
+
+        return response
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/api/overload/preview")
 def api_overload_preview(payload: Dict[str, Any] = Body(...)):
     """
     Preview an overload resolution option before applying changes
-    (Improve Plan §6.7 & §7.2).
+    (Improve Plan §6.7 & §7.2 — Feature 002 / F15).
+    Supports both:
+      1. Full What-If simulation when `tasks` (and `commitments`/`profile`) are provided.
+      2. Lightweight block-marking fallback when only `{option_id, schedule}` is provided.
     """
-    option_id = str(payload.get("option_id") or "O1")
-    raw_schedule = payload.get("schedule") or {}
-    blocks = raw_schedule.get("blocks", []) if isinstance(raw_schedule, dict) else []
+    try:
+        option_id = str(payload.get("option_id") or "O1")
+        option_code = payload.get("option_code") or payload.get("code")
+        target_task_id = payload.get("target_task_id") or payload.get("task_id") or payload.get("task")
 
-    # Simulate proposal/dashed state for the selected preview option
-    preview_blocks = []
-    for b in blocks:
-        b_copy = dict(b)
-        b_copy["state"] = "PROPOSED"
-        preview_blocks.append(b_copy)
+        raw_tasks = payload.get("tasks")
+        if isinstance(raw_tasks, list) and len(raw_tasks) > 0:
+            profile, tasks, algorithm, _ = _extract_profile_and_tasks(payload)
+            current_schedule: Optional[ScheduleOutput] = None
+            raw_sched = payload.get("schedule")
+            if isinstance(raw_sched, dict) and "summary" in raw_sched and "solver_used" in raw_sched:
+                try:
+                    current_schedule = ScheduleOutput.model_validate(raw_sched)
+                except Exception:
+                    current_schedule = None
 
-    return {
-        "status": "OK",
-        "preview_mode": True,
-        "option_id": option_id,
-        "blocks": preview_blocks,
-        "changes": [
-            {
-                "action": "PREVIEW_SIMULATION",
-                "option_id": option_id,
-                "description": f"Applied option {option_id} in preview mode.",
+            res = ScheduleController.preview_overload_resolution(
+                profile=profile,
+                tasks=tasks,
+                option_id=option_id,
+                option_code=str(option_code) if option_code else None,
+                target_task_id=str(target_task_id) if target_task_id else None,
+                algorithm=algorithm,
+                current_schedule=current_schedule,
+            )
+            return {
+                "status": "OK",
+                "preview_mode": True,
+                "option_id": res["option_id"],
+                "option_code": res["option_code"],
+                "target_task_id": res["target_task_id"],
+                "option_applied": res["option_applied"],
+                "resolved_tasks": res["resolved_tasks"],
+                "before_summary": res["before_summary"],
+                "after_summary": res["after_summary"],
+                "blocks": res["blocks"],
+                "proposed_block_ids": res["proposed_block_ids"],
+                "changes": res["changes"],
+                "schedule": _enrich_response(res["schedule"]),
             }
-        ],
-    }
+
+        raw_schedule = payload.get("schedule") or {}
+        blocks = raw_schedule.get("blocks", []) if isinstance(raw_schedule, dict) else []
+
+        # Fallback: simulate proposal/dashed state for the selected preview option
+        preview_blocks = []
+        for b in blocks:
+            b_copy = dict(b)
+            b_copy["state"] = "PROPOSED"
+            preview_blocks.append(b_copy)
+
+        return {
+            "status": "OK",
+            "preview_mode": True,
+            "option_id": option_id,
+            "blocks": preview_blocks,
+            "changes": [
+                {
+                    "action": "PREVIEW_SIMULATION",
+                    "option_id": option_id,
+                    "description": f"Applied option {option_id} in preview mode.",
+                }
+            ],
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/state")
+def api_get_state(workspace_id: str = "default"):
+    """Load persisted workspace state (commitments, tasks, pins, done blocks, algorithm) from SQLite."""
+    try:
+        record = load_workspace_state(workspace_id=workspace_id)
+        if record is None:
+            return {
+                "exists": False,
+                "workspace_id": (workspace_id or "default").strip() or "default",
+                "state": None,
+                "updated_at": None,
+            }
+        return {"exists": True, **record}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.put("/api/state")
+def api_put_state(payload: Dict[str, Any] = Body(...)):
+    """Save or overwrite persisted workspace state in SQLite."""
+    try:
+        workspace_id = str(payload.get("workspace_id") or "default").strip() or "default"
+        state_data = payload.get("state")
+        if not isinstance(state_data, dict):
+            state_data = {k: v for k, v in payload.items() if k != "workspace_id"}
+        updated_at = save_workspace_state(state_data, workspace_id=workspace_id)
+        return {
+            "status": "saved",
+            "workspace_id": workspace_id,
+            "updated_at": updated_at,
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.delete("/api/state")
+def api_delete_state(workspace_id: str = "default"):
+    """Reset/delete persisted workspace state in SQLite."""
+    try:
+        ws_id = (workspace_id or "default").strip() or "default"
+        removed = delete_workspace_state(workspace_id=ws_id)
+        return {
+            "status": "deleted",
+            "workspace_id": ws_id,
+            "removed": removed,
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/tasks/completions")
+def api_list_completions(workspace_id: str = "default", limit: int = 200):
+    """Retrieve historical M7 actual duration completion logs from SQLite."""
+    try:
+        ws_id = (workspace_id or "default").strip() or "default"
+        rows = list_completion_logs(workspace_id=ws_id, limit=limit)
+        return {
+            "workspace_id": ws_id,
+            "completions": rows,
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+

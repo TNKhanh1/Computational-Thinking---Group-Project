@@ -26,12 +26,12 @@
    - Lists the 5 intentional developmental gap tests tracking upcoming sprint deliverables.
 
 4. **[`verification_and_benchmarks.md`](verification_and_benchmarks.md)**
-   - Complete inventory and architecture of the 89 automated verification tests (84 passed + 1 passed gap + 4 open gaps).
+   - Complete inventory and architecture of the automated verification suite (scaled to **142 `pytest` tests** (`136` `--pass` + `1` resolved `Q9` Sprint Option A + `5` `--gaps`) plus **200 Hybrid NL Parser YAML cases**).
    - Explains the 60% average passing cases / 40% edge cases & developmental failures matrix.
    - Documents the Interpretable Test Runner (`clean_runner.py`), the GUI Test Studio (`test_studio.py`), and CLI execution batch files.
 
 5. **[`requirements.md`](../requirements.md)**
-   - Comprehensive environment & package breakdown (`fastapi`, `uvicorn`, `pydantic`, `pytest`, `httpx`, `python-dateutil`).
+   - Comprehensive environment & package breakdown (`fastapi`, `uvicorn`, `pydantic`, `pytest`, `httpx`, `python-dateutil`, `google-genai`, `python-dotenv`, `PyYAML`, `ctranslate2`, `sentencepiece`, `huggingface-hub`).
    - Architectural layer scoping for each dependency and standard library utilities (`ast`, `tracemalloc`, `tkinter`).
    - Mandatory simultaneous update instructions.
 
@@ -42,6 +42,10 @@
 7. **[`student_mode_ui.md`](student_mode_ui.md)**
    - Dual-Mode Architecture (Student Mode vs. Lab Mode), 3 student calendar views (Week, Today "Now & Next", Task Queue).
    - Interactive block controls: Pinning (📌), Check-in (✔️), and "Why here? 💡" algorithmic explainability modal.
+
+8. **[`hybrid_nl_parser.md`](hybrid_nl_parser.md)**
+   - 6-stage Hybrid EN/VI NL Parser pipeline (`NL_Parser_Package/` + `src/nl_parser.py`), `1=Urgent..4=Low -> 5..1` priority adapter, and VI→EN translation backends (`rule`, `nllb`, `opus_mt`).
+   - Expanded Student Task Modal UI/UX (`localStorage` drafts, lossless `[[filename]]`/`@[path]` citations, inline splittability, `Task ID` dependencies) and cross-browser drag-and-drop protection.
 
 ---
 
