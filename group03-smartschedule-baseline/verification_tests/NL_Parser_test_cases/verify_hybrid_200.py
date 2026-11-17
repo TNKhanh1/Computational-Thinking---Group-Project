@@ -32,14 +32,12 @@ import yaml
 
 THIS_DIR = Path(__file__).resolve().parent
 BASELINE_ROOT = THIS_DIR.parent.parent
-PKG_DIR = BASELINE_ROOT / "NL_Parser_Package"
-if not PKG_DIR.is_dir():
-    PKG_DIR = BASELINE_ROOT.parent / "NL_Parser_Package"
-for _p in (str(PKG_DIR), str(THIS_DIR)):
+PKG_PARENT = BASELINE_ROOT if (BASELINE_ROOT / "NL_Parser_Package").is_dir() else BASELINE_ROOT.parent
+for _p in (str(PKG_PARENT), str(THIS_DIR)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from hybrid_parser import parse_hybrid_case
+from NL_Parser_Package.hybrid_parser import parse_hybrid_case
 from validate_cases import BASE_TIME, FILES
 
 

@@ -431,3 +431,68 @@ def test_audit_fixes_validate_move_optout_buffer_and_overrun_pin_guard():
     assert b_after.end_slot == b_pin.end_slot
     assert rep.schedule.summary.hard_constraint_violations == 0
     assert a_blk.block_id != b_pin.block_id
+
+
+def test_q10_phase2_edf_energy_blind_ablation_and_full_rebuild_solver_forwarding():
+    """Q10 Phase 2: EDF/LST/WSPT stay Energy-Blind V0 on T09 while SCORED_GREEDY & FULL_REBUILD adapt by active algorithm."""
+    import json
+    from pathlib import Path
+    from src.solvers.local_repair import LocalRepairEngine
+
+    t09_path = Path(__file__).resolve().parent.parent.parent / "data" / "test_scenarios" / "t09_circadian_comparison.json"
+    t09_raw = json.loads(t09_path.read_text(encoding="utf-8"))
+    t09_tasks = [Task.model_validate(t) for t in t09_raw["tasks"]]
+
+    p_morn = CommitmentsProfile.model_validate({**t09_raw["commitments"], "focus_preference": "MORNING"})
+    p_even = CommitmentsProfile.model_validate({**t09_raw["commitments"], "focus_preference": "EVENING"})
+
+    # 1. V0 baseline greedy algorithms are strictly Energy-Blind (MORNING == EVENING, no ENERGY_MATCH)
+    for v0_algo in ("EDF", "LST", "WSPT"):
+        out_m, _ = ScheduleController.solve_schedule(p_morn, t09_tasks, algorithm=v0_algo)
+        out_e, _ = ScheduleController.solve_schedule(p_even, t09_tasks, algorithm=v0_algo)
+        assert out_m.determinism_hash == out_e.determinism_hash
+        for b in out_m.blocks:
+            codes = {r.get("code") for r in b.reasons}
+            assert "ENERGY_MATCH" not in codes
+            assert "ENERGY_FALLBACK" not in codes
+
+    # 2. SCORED_GREEDY separates Early Bird vs Night Owl on T09 & emits ENERGY_MATCH
+    sg_m, _ = ScheduleController.solve_schedule(p_morn, t09_tasks, algorithm="SCORED_GREEDY")
+    sg_e, _ = ScheduleController.solve_schedule(p_even, t09_tasks, algorithm="SCORED_GREEDY")
+    deep_m = next(b for b in sg_m.blocks if b.task_id == "T09-DEEP-MATH")
+    deep_e = next(b for b in sg_e.blocks if b.task_id == "T09-DEEP-MATH")
+    assert sg_m.determinism_hash != sg_e.determinism_hash
+    assert int(deep_m.start_time.split(":")[0]) < 12
+    assert int(deep_e.start_time.split(":")[0]) >= 18
+    assert any(r.get("code") == "ENERGY_MATCH" for r in deep_e.reasons)
+
+    # 3. FULL_REBUILD forwards active algorithm instead of hardcoding GreedyEDFSolver
+    dis_t09 = DisruptionEvent(
+        event_id="DIS_Q10",
+        title="Họp đột xuất sáng T2",
+        day_of_week="Monday",
+        start_time="08:00",
+        end_time="09:00",
+    )
+    rep_sg = LocalRepairEngine.repair_disruption(
+        p_even, t09_tasks, sg_e, dis_t09, mode="FULL_REBUILD", algorithm="SCORED_GREEDY"
+    )
+    deep_rebuilt = next(b for b in rep_sg.schedule.blocks if b.task_id == "T09-DEEP-MATH")
+    assert int(deep_rebuilt.start_time.split(":")[0]) >= 18
+    assert any(r.get("code") == "ENERGY_MATCH" for r in deep_rebuilt.reasons)
+
+    # 4. API POST /api/repair forwards `algorithm` in FULL_REBUILD mode
+    api_rep = client.post(
+        "/api/repair",
+        json={
+            "commitments": p_even.model_dump(mode="json"),
+            "tasks": [t.model_dump(mode="json") for t in t09_tasks],
+            "algorithm": "SCORED_GREEDY",
+            "mode": "FULL_REBUILD",
+            "disruption": dis_t09.model_dump(mode="json"),
+        },
+    )
+    assert api_rep.status_code == 200
+    rebuilt_api_blocks = api_rep.json()["schedule"]["blocks"]
+    api_deep = next(b for b in rebuilt_api_blocks if b["task_id"] == "T09-DEEP-MATH")
+    assert int(api_deep["start_time"].split(":")[0]) >= 18

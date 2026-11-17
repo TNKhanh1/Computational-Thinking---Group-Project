@@ -16,41 +16,25 @@ from src.models import (
     Task,
 )
 from src.overload_triage import OverloadTriageEngine
-from src.solvers.backtracking import BacktrackingSolver
 from src.solvers.base_solver import BaseScheduler
-from src.solvers.greedy_edf import GreedyEDFSolver
-from src.solvers.greedy_lst import GreedyLSTSolver
-from src.solvers.greedy_wspt import GreedyWSPTSolver
 from src.solvers.local_repair import LocalRepairEngine
-from src.solvers.scored_greedy import ScoredGreedySolver
+from src.solvers.registry import SOLVER_REGISTRY, resolve_solver
 from src.utils import SLOTS_PER_WEEK, day_time_to_slot, iso_to_slot, round_up_to_15, slot_to_day_time, slot_to_iso
 
 
 class ScheduleController:
     """Central domain facade used by both CLI benchmarks and FastAPI endpoints."""
 
-    SOLVER_REGISTRY: Dict[str, Type[BaseScheduler]] = {
-        "EDF": GreedyEDFSolver,
-        "GREEDY_EDF": GreedyEDFSolver,
-        "GREEDY_EDF_FIRST_FIT": GreedyEDFSolver,
-        "SCORED_GREEDY": ScoredGreedySolver,
-        "URGENCY": ScoredGreedySolver,
-        "LST": GreedyLSTSolver,
-        "GREEDY_LST": GreedyLSTSolver,
-        "GREEDY_LST_BEST_FIT": GreedyLSTSolver,
-        "WSPT": GreedyWSPTSolver,
-        "GREEDY_WSPT": GreedyWSPTSolver,
-        "GREEDY_WSPT_SMITH_RULE": GreedyWSPTSolver,
-        "BACKTRACK": BacktrackingSolver,
-        "BACKTRACKING": BacktrackingSolver,
-        "BACKTRACKING_BRANCH_AND_BOUND": BacktrackingSolver,
-    }
+    SOLVER_REGISTRY: Dict[str, Type[BaseScheduler]] = SOLVER_REGISTRY
 
     @classmethod
     def get_solver(cls, algorithm: str = "EDF") -> BaseScheduler:
         key = (algorithm or "EDF").strip().upper()
-        solver_cls = cls.SOLVER_REGISTRY.get(key, GreedyEDFSolver)
-        return solver_cls()
+        if cls.SOLVER_REGISTRY is not SOLVER_REGISTRY:
+            solver_cls = cls.SOLVER_REGISTRY.get(key)
+            if solver_cls is not None:
+                return solver_cls()
+        return resolve_solver(key)
 
     @classmethod
     def expand_personal_habits(cls, profile: CommitmentsProfile, tasks: List[Task]) -> List[Task]:
@@ -64,23 +48,35 @@ class ScheduleController:
 
         existing_ids = {t.task_id for t in tasks}
         expanded: List[Task] = list(tasks)
+        day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        now_slot = BaseScheduler.resolve_now_slot(profile)
+        now_day = min(6, max(0, now_slot // 96))
+        span_days = max(1, 7 - now_day)
+
         for h in habits:
-            # Spread habit occurrences cleanly across non-deadline flexible HABIT tasks
-            for occ in range(1, h.frequency_per_week + 1):
-                tid = f"{h.habit_id}_{occ}" if h.frequency_per_week > 1 else h.habit_id
+            # Spread habit occurrences cleanly across remaining days and honor preferred_window (Q7.3 = A3)
+            freq = max(1, int(h.frequency_per_week))
+            pref_win = (h.preferred_window or "ANYTIME").strip().upper()
+            for occ in range(1, freq + 1):
+                tid = f"{h.habit_id}_{occ}" if freq > 1 else h.habit_id
                 if tid in existing_ids:
                     continue
                 existing_ids.add(tid)
+                day_offset = ((occ - 1) * span_days) // freq
+                target_day_idx = min(6, now_day + day_offset)
+                start_after_str = f"{day_names[target_day_idx]} 00:00" if target_day_idx > now_day else None
                 expanded.append(
                     Task(
                         task_id=tid,
-                        title=f"{h.name} (#{occ})" if h.frequency_per_week > 1 else h.name,
+                        title=f"{h.name} (#{occ})" if freq > 1 else h.name,
                         duration_min=h.duration_min,
                         deadline_day=None,
                         priority=1,
                         category=h.category or "HABIT",
                         is_splittable=False,
                         cognitive_load=h.cognitive_load,
+                        start_after=start_after_str,
+                        preferred_window=pref_win,
                     )
                 )
         return expanded
@@ -196,6 +192,63 @@ class ScheduleController:
         }
 
     @classmethod
+    def compute_schedule_insights(
+        cls,
+        profile: CommitmentsProfile,
+        out: ScheduleOutput,
+    ) -> Dict[str, Any]:
+        """Compute Circadian energy alignment and category-batching insights for UI/Lab telemetry."""
+        energy_prof = profile.get_energy_profile()
+        sorted_blocks = sorted(out.blocks, key=lambda b: (b.start_slot, b.end_slot))
+        block_energies: Dict[str, float] = {}
+
+        total_energy_sum = 0.0
+        peak_matched = 0
+        deep_total = 0
+        deep_peak_matched = 0
+
+        for b in sorted_blocks:
+            span = max(1, b.end_slot - b.start_slot)
+            avg_e = sum(energy_prof.level_for_slot(s) for s in range(b.start_slot, b.end_slot)) / float(span)
+            avg_e_round = round(avg_e, 2)
+            block_energies[b.block_id] = avg_e_round
+            total_energy_sum += avg_e
+            if avg_e >= 2.5:
+                peak_matched += 1
+            load = b.cognitive_load if b.cognitive_load is not None else 2
+            if load >= 2:
+                deep_total += 1
+                if avg_e >= 2.5:
+                    deep_peak_matched += 1
+
+        context_switches = 0
+        batched_pairs = 0
+        for idx in range(1, len(sorted_blocks)):
+            prev_b = sorted_blocks[idx - 1]
+            cur_b = sorted_blocks[idx]
+            same_day = (prev_b.start_slot // 96) == (cur_b.start_slot // 96)
+            gap = cur_b.start_slot - prev_b.end_slot
+            if same_day and 0 <= gap <= 2:
+                if (prev_b.category or "").upper() == (cur_b.category or "").upper():
+                    batched_pairs += 1
+                else:
+                    context_switches += 1
+
+        total_blocks = len(sorted_blocks)
+        peak_rate = round(100.0 * peak_matched / total_blocks, 1) if total_blocks > 0 else 100.0
+        deep_rate = round(100.0 * deep_peak_matched / deep_total, 1) if deep_total > 0 else peak_rate
+        avg_lvl = round(total_energy_sum / total_blocks, 2) if total_blocks > 0 else 0.0
+
+        return {
+            "block_energies": block_energies,
+            "peak_match_rate_pct": peak_rate,
+            "deep_peak_match_pct": deep_rate,
+            "avg_energy_level": avg_lvl,
+            "context_switches": context_switches,
+            "batched_pairs": batched_pairs,
+        }
+
+    @classmethod
     def compare_algorithms(
         cls,
         profile: CommitmentsProfile,
@@ -206,10 +259,98 @@ class ScheduleController:
         out_left, _ = cls.solve_schedule(profile, tasks, algorithm=algo_left)
         out_right, _ = cls.solve_schedule(profile, tasks, algorithm=algo_right)
 
-        left_map = {(b.task_id, b.chunk_index): (b.start_slot, b.end_slot) for b in out_left.blocks}
-        right_map = {(b.task_id, b.chunk_index): (b.start_slot, b.end_slot) for b in out_right.blocks}
-        all_keys = sorted(set(left_map.keys()) | set(right_map.keys()))
-        diff_blocks = sum(1 for k in all_keys if left_map.get(k) != right_map.get(k))
+        ins_left = cls.compute_schedule_insights(profile, out_left)
+        ins_right = cls.compute_schedule_insights(profile, out_right)
+
+        left_blk_map = {(b.task_id, b.chunk_index): b for b in out_left.blocks}
+        right_blk_map = {(b.task_id, b.chunk_index): b for b in out_right.blocks}
+        all_keys = sorted(set(left_blk_map.keys()) | set(right_blk_map.keys()))
+
+        block_diffs: List[Dict[str, Any]] = []
+        diff_blocks = 0
+        for k in all_keys:
+            lb = left_blk_map.get(k)
+            rb = right_blk_map.get(k)
+            l_span = (lb.start_slot, lb.end_slot) if lb else None
+            r_span = (rb.start_slot, rb.end_slot) if rb else None
+            changed = l_span != r_span
+            if changed:
+                diff_blocks += 1
+            ref = lb or rb
+            block_diffs.append(
+                {
+                    "task_id": k[0],
+                    "chunk_index": k[1],
+                    "total_chunks": ref.total_chunks if ref else 1,
+                    "title": ref.title if ref else k[0],
+                    "category": ref.category if ref else "DEADLINE",
+                    "cognitive_load": ref.cognitive_load if ref else 2,
+                    "priority": ref.priority if ref else 3,
+                    "changed": changed,
+                    "left_slot": lb.start_slot if lb else None,
+                    "left_day": lb.day if lb else None,
+                    "left_time": f"{lb.start_time}–{lb.end_time}" if lb else "UNPLACED",
+                    "left_start_iso": lb.start_iso if lb else None,
+                    "left_energy": ins_left["block_energies"].get(lb.block_id) if lb else None,
+                    "left_reasons": [r.get("code") for r in (lb.reasons or []) if isinstance(r, dict) and r.get("code")] if lb else [],
+                    "right_slot": rb.start_slot if rb else None,
+                    "right_day": rb.day if rb else None,
+                    "right_time": f"{rb.start_time}–{rb.end_time}" if rb else "UNPLACED",
+                    "right_start_iso": rb.start_iso if rb else None,
+                    "right_energy": ins_right["block_energies"].get(rb.block_id) if rb else None,
+                    "right_reasons": [r.get("code") for r in (rb.reasons or []) if isinstance(r, dict) and r.get("code")] if rb else [],
+                    "delta_slots": (rb.start_slot - lb.start_slot) if (lb and rb) else None,
+                }
+            )
+
+        highlights: List[str] = []
+        if out_right.summary.deadline_satisfaction_rate != out_left.summary.deadline_satisfaction_rate:
+            dl_d = out_right.summary.deadline_satisfaction_rate - out_left.summary.deadline_satisfaction_rate
+            highlights.append(
+                f"Đạt hạn chót: {out_right.solver_used} {'+' if dl_d > 0 else ''}{dl_d:.1f}% "
+                f"({out_left.summary.deadline_satisfaction_rate:.1f}% → {out_right.summary.deadline_satisfaction_rate:.1f}%)."
+            )
+        if ins_right["deep_peak_match_pct"] != ins_left["deep_peak_match_pct"]:
+            pk_d = ins_right["deep_peak_match_pct"] - ins_left["deep_peak_match_pct"]
+            highlights.append(
+                f"Khớp khung giờ đỉnh Circadian (Load≥2): {out_right.solver_used} {'+' if pk_d > 0 else ''}{pk_d:.1f}% "
+                f"({ins_left['deep_peak_match_pct']:.1f}% → {ins_right['deep_peak_match_pct']:.1f}%)."
+            )
+        if ins_right["context_switches"] != ins_left["context_switches"]:
+            sw_d = ins_right["context_switches"] - ins_left["context_switches"]
+            verb = "giảm" if sw_d < 0 else "tăng"
+            highlights.append(
+                f"Chuyển ngữ cảnh (Context Switches): {out_right.solver_used} {verb} {abs(sw_d)} lần "
+                f"({ins_left['context_switches']} → {ins_right['context_switches']})."
+            )
+        if round(out_right.summary.experience_rating, 2) != round(out_left.summary.experience_rating, 2):
+            exp_d = out_right.summary.experience_rating - out_left.summary.experience_rating
+            highlights.append(
+                f"Chỉ số trải nghiệm / độ mỏi (1=Thoải mái): {out_left.summary.experience_rating:.2f} → {out_right.summary.experience_rating:.2f} "
+                f"({'nhẹ nhàng hơn' if exp_d < 0 else 'căng hơn'})."
+            )
+        if not highlights:
+            highlights.append(
+                f"Hai thuật toán cho kết quả tương đồng về chỉ số chính ({diff_blocks}/{len(all_keys)} phiên khác vị trí)."
+            )
+
+        def _side_quality_score(out_obj: ScheduleOutput, ins_obj: Dict[str, Any]) -> float:
+            return (
+                out_obj.summary.deadline_satisfaction_rate * 10.0
+                - out_obj.summary.hard_constraint_violations * 500.0
+                + ins_obj["deep_peak_match_pct"] * 0.5
+                - ins_obj["context_switches"] * 2.0
+                - out_obj.summary.experience_rating * 10.0
+            )
+
+        left_q = _side_quality_score(out_left, ins_left)
+        right_q = _side_quality_score(out_right, ins_right)
+        if right_q - left_q >= 1.0:
+            verdict_winner = "RIGHT"
+        elif left_q - right_q >= 1.0:
+            verdict_winner = "LEFT"
+        else:
+            verdict_winner = "TIE"
 
         return {
             "left": out_left,
@@ -229,6 +370,24 @@ class ScheduleController:
                 "right_hard_violations": out_right.summary.hard_constraint_violations,
                 "left_experience_rating": out_left.summary.experience_rating,
                 "right_experience_rating": out_right.summary.experience_rating,
+                "left_peak_match_pct": ins_left["peak_match_rate_pct"],
+                "right_peak_match_pct": ins_right["peak_match_rate_pct"],
+                "left_deep_peak_match_pct": ins_left["deep_peak_match_pct"],
+                "right_deep_peak_match_pct": ins_right["deep_peak_match_pct"],
+                "left_avg_energy": ins_left["avg_energy_level"],
+                "right_avg_energy": ins_right["avg_energy_level"],
+                "left_context_switches": ins_left["context_switches"],
+                "right_context_switches": ins_right["context_switches"],
+                "left_batched_pairs": ins_left["batched_pairs"],
+                "right_batched_pairs": ins_right["batched_pairs"],
+                "left_rest_slots": out_left.summary.rest_slots,
+                "right_rest_slots": out_right.summary.rest_slots,
+                "left_placed_tasks": out_left.summary.tasks_placed,
+                "right_placed_tasks": out_right.summary.tasks_placed,
+                "total_tasks": out_left.summary.total_tasks_requested,
+                "verdict_winner": verdict_winner,
+                "verdict_highlights": highlights,
+                "block_diffs": block_diffs,
             },
         }
 
@@ -239,13 +398,15 @@ class ScheduleController:
         tasks: List[Task],
         current_schedule: ScheduleOutput,
         disruption: DisruptionEvent,
+        algorithm: Optional[str] = None,
     ) -> Dict[str, Any]:
         tasks = cls.apply_estimate_buffer(profile, tasks)
+        eff_algo = algorithm or getattr(current_schedule, "solver_used", None) or "EDF"
         local_res = LocalRepairEngine.repair_disruption(
-            profile, tasks, current_schedule, disruption, mode="LOCAL_INSERTION"
+            profile, tasks, current_schedule, disruption, mode="LOCAL_INSERTION", algorithm=eff_algo
         )
         rebuild_res = LocalRepairEngine.repair_disruption(
-            profile, tasks, current_schedule, disruption, mode="FULL_REBUILD"
+            profile, tasks, current_schedule, disruption, mode="FULL_REBUILD", algorithm=eff_algo
         )
         return {
             "local_repair": local_res,
@@ -292,7 +453,11 @@ class ScheduleController:
         if target_block is None:
             return {"ok": False, "violations": [{"code": "NOT_FOUND", "message": f"Không tìm thấy block {block_id}."}]}
 
-        horizon = BaseScheduler.resolve_horizon_slots(tasks, week_start_iso=week_start_iso)
+        horizon = BaseScheduler.resolve_horizon_slots(
+            tasks,
+            week_start_iso=week_start_iso,
+            horizon_days=getattr(profile, "horizon_days", 7),
+        )
         grid = TimeGridManager(total_slots=horizon)
         grid.initialize_from_profile(profile)
         for ob in other_blocks:

@@ -16,20 +16,11 @@ from __future__ import annotations
 
 import hashlib
 import re
-import sys
 from datetime import datetime, timedelta
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from parser import parse_task
-from translator import contains_vietnamese, translate_to_english
-
-# Optional link to parent M1 parser if available in workspace
-_PKG_DIR = Path(__file__).resolve().parent
-_REPO_ROOT = _PKG_DIR.parent
-_BASELINE_DIR = _REPO_ROOT / "group03-smartschedule-baseline"
-if _BASELINE_DIR.exists() and str(_BASELINE_DIR) not in sys.path:
-    sys.path.insert(0, str(_BASELINE_DIR))
+from .parser import parse_task
+from .translator import contains_vietnamese, translate_to_english
 
 ALLOWED_EXTENSIONS = {"txt", "pdf", "html", "md"}
 MAX_ATTACHMENT_MB = 20.0
@@ -113,14 +104,36 @@ _FANTASY_NOUNS = {
 
 def map_user_urgency_to_solver_priority(user_p: Optional[int], scale_max: int = 4) -> int:
     """
-    User convention: lower number = more urgent (P1 = Urgent/Critical, P4 = Low).
-    Parent Solver convention (`src/models.py`): higher number = more urgent (5 = Highest, 1 = Lowest).
+    Map UI urgency onto SmartSchedule's 1..5 Solver priority scale.
+
+    User convention: lower number = more urgent (`P1` = Urgent/Critical, `P4` = Low).
+    Parent Solver convention (`src/models.py`): higher number = more urgent (`5` = Highest, `1` = Lowest).
+
+    For the 4-level Student Modal scale, `4 -> 1` intentionally skips solver level `2` so
+    explicitly low-urgency tasks drop cleanly to the bottom tier (`1`), yielding immediately
+    to default/medium academic work (`P3 -> 3`) and personal habits without borderline ties.
     """
     if user_p is None:
         return 3
     if scale_max == 5:
         return max(1, min(5, 6 - int(user_p)))
     return {1: 5, 2: 4, 3: 3, 4: 1}.get(int(user_p), 3)
+
+
+def _normalize_attachment_items(raw_items: Any) -> List[Dict[str, Any]]:
+    """Normalize attachment/linked-file entries whether passed as dicts, strings, or mixed lists."""
+    if not raw_items:
+        return []
+    seq = [raw_items] if isinstance(raw_items, str) else raw_items
+    if not isinstance(seq, (list, tuple, set)):
+        return []
+    normalized: List[Dict[str, Any]] = []
+    for item in seq:
+        if isinstance(item, dict):
+            normalized.append(item)
+        elif isinstance(item, str) and item.strip():
+            normalized.append({"name": item.strip()})
+    return normalized
 
 
 def _next_weekday(base_time: datetime, target_wd: int, *, next_week: bool = False, same_day_ok: bool = False) -> datetime:
@@ -1117,8 +1130,8 @@ def parse_hybrid_case(
     else:
         custom_bounds = None
     c_min_override = custom_bounds[0] if (custom_bounds and custom_bounds[0] <= custom_bounds[1]) else None
-    atts = ui.get("attachments") or []
-    linked_files_ui = ui.get("linked_files") or []
+    atts = _normalize_attachment_items(ui.get("attachments"))
+    linked_files_ui = _normalize_attachment_items(ui.get("linked_files"))
     pkg_task, _, pkg_tel = parse_task(
         working,
         base_time=base_time,
@@ -1220,8 +1233,7 @@ def parse_hybrid_case(
             seen_cits_low.add(bfn.lower())
 
     cited_files = list(bracketed_cits) + [u for u in unbracketed_cits if u not in bracketed_cits]
-    linked_files = ui.get("linked_files") or []
-    all_att_items = list(atts) + [lf for lf in linked_files if isinstance(lf, dict)]
+    all_att_items = atts + linked_files_ui
     attached_names: List[str] = []
     for item in all_att_items:
         an = str(item.get("name") or "").strip()

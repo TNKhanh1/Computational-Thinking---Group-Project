@@ -37,6 +37,13 @@ from src.models import (
 )
 from src.nl_parser import parse_natural_language_task
 from src.solvers.local_repair import LocalRepairEngine
+from src.storage import (
+    append_completion_log,
+    delete_workspace_state,
+    list_completion_logs,
+    load_workspace_state,
+    save_workspace_state,
+)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
@@ -64,7 +71,7 @@ def _extract_profile_and_tasks(payload: Dict[str, Any]) -> Tuple[CommitmentsProf
       1. Baseline Schema: { "commitments": {...}, "tasks": [...], "algorithm": "EDF" }
       2. Improve Plan Contract (§7.3): { "now": ..., "week_start": ..., "profile": {...}, "fixed_events": [...], "tasks": [...] }
     """
-    algorithm = str(payload.get("algorithm") or payload.get("solver") or "GREEDY_EDF_FIRST_FIT")
+    algorithm = str(payload.get("algorithm") or payload.get("solver") or "SCORED_GREEDY")
 
     if "commitments" in payload and isinstance(payload["commitments"], dict):
         comm_dict = dict(payload["commitments"])
@@ -120,14 +127,22 @@ def _extract_profile_and_tasks(payload: Dict[str, Any]) -> Tuple[CommitmentsProf
     return profile, tasks, algorithm, pinned_blocks
 
 
-def _enrich_response(out: ScheduleOutput) -> Dict[str, Any]:
-    """Attach Improve Plan §7.3 alias fields alongside Baseline §6.2 fields."""
+def _enrich_response(out: ScheduleOutput, profile: Optional[CommitmentsProfile] = None) -> Dict[str, Any]:
+    """Attach Improve Plan §7.3 alias fields and optional Circadian/Batching insights alongside Baseline §6.2 fields."""
     data = out.model_dump()
     data["unplaced"] = data["unplaced_tasks"]
     data["experience_rating"] = out.summary.experience_rating
     data["experience_label"] = out.summary.experience_label
     data["crunch_tier_used"] = out.summary.crunch_tier_used
     data["early_extension_alerts"] = list(out.summary.early_extension_alerts)
+
+    insights: Dict[str, Any] = {}
+    if profile is not None:
+        insights = ScheduleController.compute_schedule_insights(profile, out)
+        b_energies = insights.get("block_energies", {})
+        for blk_dict in data.get("blocks", []):
+            blk_dict["energy_level"] = b_energies.get(blk_dict.get("block_id"))
+
     data["metrics"] = {
         "hard_violations": out.summary.hard_constraint_violations,
         "deadline_rate": round(out.summary.deadline_satisfaction_rate / 100.0, 4),
@@ -139,6 +154,11 @@ def _enrich_response(out: ScheduleOutput) -> Dict[str, Any]:
         "experience_rating": out.summary.experience_rating,
         "experience_label": out.summary.experience_label,
         "crunch_tier_used": out.summary.crunch_tier_used,
+        "peak_match_rate_pct": insights.get("peak_match_rate_pct", 100.0),
+        "deep_peak_match_pct": insights.get("deep_peak_match_pct", 100.0),
+        "avg_energy_level": insights.get("avg_energy_level", 0.0),
+        "context_switches": insights.get("context_switches", 0),
+        "batched_pairs": insights.get("batched_pairs", 0),
     }
     return data
 
@@ -240,7 +260,7 @@ def api_solve_schedule(payload: Dict[str, Any] = Body(...)):
             algorithm=algorithm,
             pinned_blocks=pinned_blocks,
         )
-        return JSONResponse(content=_enrich_response(out))
+        return JSONResponse(content=_enrich_response(out, profile=profile))
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -251,7 +271,7 @@ def api_compare_algorithms(payload: Dict[str, Any] = Body(...)):
     try:
         profile, tasks, _, _ = _extract_profile_and_tasks(payload)
         algo_left = str(payload.get("algo_left") or "GREEDY_EDF_FIRST_FIT")
-        algo_right = str(payload.get("algo_right") or "GREEDY_LST_BEST_FIT")
+        algo_right = str(payload.get("algo_right") or "SCORED_GREEDY")
         res = ScheduleController.compare_algorithms(
             profile=profile,
             tasks=tasks,
@@ -259,8 +279,8 @@ def api_compare_algorithms(payload: Dict[str, Any] = Body(...)):
             algo_right=algo_right,
         )
         return {
-            "left": _enrich_response(res["left"]),
-            "right": _enrich_response(res["right"]),
+            "left": _enrich_response(res["left"], profile=profile),
+            "right": _enrich_response(res["right"], profile=profile),
             "comparison": res["comparison"],
         }
     except Exception as exc:
@@ -298,9 +318,10 @@ def api_repair_schedule(payload: Dict[str, Any] = Body(...)):
                 tasks=tasks,
                 current_schedule=current_schedule,
                 disruption=disruption,
+                algorithm=algorithm,
             )
             return {
-                "original_schedule": _enrich_response(current_schedule),
+                "original_schedule": _enrich_response(current_schedule, profile=profile),
                 "local_repair": comp["local_repair"].model_dump(),
                 "full_rebuild": comp["full_rebuild"].model_dump(),
                 "comparison": comp["comparison"],
@@ -312,6 +333,7 @@ def api_repair_schedule(payload: Dict[str, Any] = Body(...)):
             current_schedule=current_schedule,
             disruption=disruption,
             mode=mode,
+            algorithm=algorithm,
         )
         return rep_out.model_dump()
     except Exception as exc:
@@ -342,8 +364,8 @@ def api_task_overrun(payload: Dict[str, Any] = Body(...)):
             "new_duration_min": res["new_duration_min"],
             "new_estimate_min": res.get("new_estimate_min", res["new_duration_min"]),
             "shifted_blocks_count": res["shifted_blocks_count"],
-            "before_schedule": _enrich_response(res["before_schedule"]),
-            "after_schedule": _enrich_response(res["after_schedule"]),
+            "before_schedule": _enrich_response(res["before_schedule"], profile=profile),
+            "after_schedule": _enrich_response(res["after_schedule"], profile=profile),
         }
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -482,6 +504,8 @@ def api_task_complete(payload: Dict[str, Any] = Body(...)):
     """
     try:
         task_id = str(payload.get("task_id") or "")
+        category = str(payload.get("category") or "OTHER").strip().upper()
+        workspace_id = str(payload.get("workspace_id") or "default")
         estimated_min = int(payload.get("estimated_min") or payload.get("duration_min") or 60)
         actual_min = int(payload.get("actual_duration_min") or payload.get("actual_min") or estimated_min)
         completed = bool(payload.get("completed", True))
@@ -493,6 +517,14 @@ def api_task_complete(payload: Dict[str, Any] = Body(...)):
         elif ratio >= 1.15:
             recommended_habit = "SOMETIMES"
 
+        completion_entry = append_completion_log(
+            task_id=task_id,
+            category=category,
+            estimated_duration_min=estimated_min,
+            actual_duration_min=actual_min,
+            workspace_id=workspace_id,
+        )
+
         response: Dict[str, Any] = {
             "status": "COMPLETED" if completed else "PARTIAL_OVERRUN",
             "task_id": task_id,
@@ -501,6 +533,7 @@ def api_task_complete(payload: Dict[str, Any] = Body(...)):
             "overrun_ratio": ratio,
             "recommended_estimate_habit": recommended_habit,
             "recommended_alpha": round(max(1.0, min(1.6, ratio)), 2),
+            "completion_log": completion_entry,
         }
 
         if not completed and actual_min > estimated_min and payload.get("tasks"):
@@ -598,3 +631,68 @@ def api_overload_preview(payload: Dict[str, Any] = Body(...)):
         }
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/state")
+def api_get_state(workspace_id: str = "default"):
+    """Load persisted workspace state (commitments, tasks, pins, done blocks, algorithm) from SQLite."""
+    try:
+        record = load_workspace_state(workspace_id=workspace_id)
+        if record is None:
+            return {
+                "exists": False,
+                "workspace_id": (workspace_id or "default").strip() or "default",
+                "state": None,
+                "updated_at": None,
+            }
+        return {"exists": True, **record}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.put("/api/state")
+def api_put_state(payload: Dict[str, Any] = Body(...)):
+    """Save or overwrite persisted workspace state in SQLite."""
+    try:
+        workspace_id = str(payload.get("workspace_id") or "default").strip() or "default"
+        state_data = payload.get("state")
+        if not isinstance(state_data, dict):
+            state_data = {k: v for k, v in payload.items() if k != "workspace_id"}
+        updated_at = save_workspace_state(state_data, workspace_id=workspace_id)
+        return {
+            "status": "saved",
+            "workspace_id": workspace_id,
+            "updated_at": updated_at,
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.delete("/api/state")
+def api_delete_state(workspace_id: str = "default"):
+    """Reset/delete persisted workspace state in SQLite."""
+    try:
+        ws_id = (workspace_id or "default").strip() or "default"
+        removed = delete_workspace_state(workspace_id=ws_id)
+        return {
+            "status": "deleted",
+            "workspace_id": ws_id,
+            "removed": removed,
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/tasks/completions")
+def api_list_completions(workspace_id: str = "default", limit: int = 200):
+    """Retrieve historical M7 actual duration completion logs from SQLite."""
+    try:
+        ws_id = (workspace_id or "default").strip() or "default"
+        rows = list_completion_logs(workspace_id=ws_id, limit=limit)
+        return {
+            "workspace_id": ws_id,
+            "completions": rows,
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+

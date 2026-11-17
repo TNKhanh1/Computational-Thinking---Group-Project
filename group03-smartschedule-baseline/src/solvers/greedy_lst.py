@@ -28,7 +28,11 @@ class GreedyLSTSolver(BaseScheduler):
         t0 = time.perf_counter()
         week_start_iso = profile.planning_week_start
         now_slot = self.resolve_now_slot(profile)
-        horizon_slots = self.resolve_horizon_slots(tasks, week_start_iso=week_start_iso)
+        horizon_slots = self.resolve_horizon_slots(
+            tasks,
+            week_start_iso=week_start_iso,
+            horizon_days=getattr(profile, "horizon_days", 7),
+        )
 
         grid = TimeGridManager(total_slots=horizon_slots)
         grid.initialize_from_profile(profile)

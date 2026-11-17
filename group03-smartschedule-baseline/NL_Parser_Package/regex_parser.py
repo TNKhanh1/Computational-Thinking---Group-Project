@@ -8,8 +8,8 @@ precedence cues, and clean title in O(N) time.
 from __future__ import annotations
 import re
 from typing import Dict, List, Optional, Tuple
-from schema import PriorityLevel, ConstraintType, CognitiveDemand, WorkRhythm, SplittingConfig
-from tokenizer import clean_and_normalize
+from .schema import PriorityLevel, ConstraintType, CognitiveDemand, WorkRhythm, SplittingConfig
+from .tokenizer import clean_and_normalize
 
 
 # ---------------------------------------------------------------------------

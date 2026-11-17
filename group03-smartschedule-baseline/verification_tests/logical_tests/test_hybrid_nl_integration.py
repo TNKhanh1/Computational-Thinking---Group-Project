@@ -410,3 +410,227 @@ def test_double_bracket_citations_comparison_and_malformed_brackets():
     )
     assert r_bad.status_code == 200
     assert "E_INVALID_CITATION_FORMAT" in r_bad.json()["hybrid"]["errors"]
+
+
+def test_ui_attachments_string_and_mixed_lists_do_not_crash():
+    """Milestone 1: ui.attachments / ui.linked_files accept list[str] and mixed [str, dict] without AttributeError."""
+    from NL_Parser_Package import compile_hybrid_to_smartschedule, parse_hybrid_case
+
+    # 1. Pure list[str] through FastAPI endpoint
+    r_str = client.post(
+        "/api/tasks/natural-add",
+        json={
+            "prompt": "Làm lab Discrete Math [[Ch1. Logic_apcs.pdf]] tối thứ 6 90p",
+            "now": "2026-11-02T09:00:00+07:00",
+            "engine": "offline",
+            "ui": {"attachments": ["Ch1. Logic_apcs.pdf"], "linked_files": ["README.md"]},
+        },
+    )
+    assert r_str.status_code == 200
+    b_str = r_str.json()
+    assert b_str["hybrid"]["citations"]["matched"] == ["Ch1. Logic_apcs.pdf"]
+    assert b_str["hybrid"]["citations"]["missing_attachments"] == []
+
+    # 2. Mixed [str, dict] through FastAPI endpoint + @[link] mention
+    r_mixed = client.post(
+        "/api/tasks/natural-add",
+        json={
+            "prompt": "Ôn tập [[Ch1. Logic_apcs.pdf]] và @[README.md] trước Thứ 5 60p",
+            "now": "2026-11-02T09:00:00+07:00",
+            "engine": "offline",
+            "ui": {
+                "attachments": ["Other_Note.pdf", {"name": "Ch1. Logic_apcs.pdf", "size_mb": 2.5}],
+                "linked_files": ["README.md"],
+            },
+        },
+    )
+    assert r_mixed.status_code == 200
+    b_mix = r_mixed.json()
+    assert sorted(b_mix["hybrid"]["citations"]["matched"]) == ["Ch1. Logic_apcs.pdf", "README.md"]
+    assert b_mix["hybrid"]["citations"]["missing_attachments"] == []
+
+    # 3. Direct package helpers check with list[str]
+    parsed_direct = parse_hybrid_case("Review [[Ch1. Logic_apcs.pdf]] 45m", {"attachments": ["Ch1. Logic_apcs.pdf"]})
+    assert parsed_direct["citations"]["matched"] == ["Ch1. Logic_apcs.pdf"]
+    compiled = compile_hybrid_to_smartschedule(
+        "Review [[Ch1. Logic_apcs.pdf]] 45m",
+        ui={"attachments": ["Ch1. Logic_apcs.pdf"]},
+    )
+    assert compiled["hybrid"]["citations"]["matched"] == ["Ch1. Logic_apcs.pdf"]
+
+
+def test_nl_parser_package_clean_relative_imports_and_urgency_scale():
+    """Milestone 1: NL_Parser_Package imports via relative package structure without adding inner dir to sys.path."""
+    import sys
+    from pathlib import Path
+    import NL_Parser_Package as pkg
+    from NL_Parser_Package import compile_hybrid_to_smartschedule, hybrid_parser, map_user_urgency_to_solver_priority
+
+    pkg_dir = str(Path(pkg.__file__).resolve().parent)
+    assert pkg_dir not in sys.path
+    assert hybrid_parser.__package__ == "NL_Parser_Package"
+    assert callable(compile_hybrid_to_smartschedule)
+    assert [map_user_urgency_to_solver_priority(u) for u in (1, 2, 3, 4)] == [5, 4, 3, 1]
+
+
+def test_ai_status_telemetry_and_mocked_gemini_coarse_window_preservation():
+    """Milestone 1: Verify explicit ai_status telemetry + coarse window preservation when Gemini returns deadline_time=None."""
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    import src.nl_parser as nlp
+
+    # 1. Explicit offline request
+    r_off = nlp.parse_natural_language_task("Học Toán 1 tiếng tối mai", now="2026-11-02T09:00:00+07:00", engine="offline")
+    assert r_off["engine_used"] == "OFFLINE_DETERMINISTIC"
+    assert r_off["validation"]["ai_status"] == "OFFLINE_REQUESTED"
+
+    # 2. Missing google-genai package while GEMINI_API_KEY is present
+    with patch.object(nlp, "genai", None), patch.object(nlp, "_load_local_env", lambda: None), patch.dict(
+        "os.environ", {"GEMINI_API_KEY": "fake_key"}
+    ):
+        r_pkg = nlp.parse_natural_language_task("Học Toán 1 tiếng", now="2026-11-02T09:00:00+07:00", engine="auto")
+        assert r_pkg["validation"]["ai_status"] == "MISSING_GOOGLE_GENAI_PACKAGE"
+        assert any("google-genai" in a for a in r_pkg["assumptions"])
+
+    # 3. Missing API key when AI explicitly requested
+    with patch.object(nlp, "_load_local_env", lambda: None), patch.dict("os.environ", {}, clear=True):
+        r_nokey = nlp.parse_natural_language_task("Học Toán 1 tiếng", now="2026-11-02T09:00:00+07:00", engine="ai")
+        assert r_nokey["validation"]["ai_status"] == "MISSING_API_KEY"
+        assert any("GEMINI_API_KEY is missing" in a for a in r_nokey["assumptions"])
+
+    # 4. Mocked Gemini omits deadline_time -> preserves coarse 'chiều' -> '17:00' + accepts str attachments
+    fake_schema = nlp.GeminiNLSchema(
+        is_schedulable_task=True,
+        rejection_reason=None,
+        intent_type="TASK",
+        title="Làm slide thuyết trình nhóm CT",
+        category="PROJECT",
+        priority=5,
+        cognitive_load=3,
+        duration_min=90,
+        deadline_day="Wednesday",
+        deadline_time=None,
+        start_time=None,
+        is_fixed_event=False,
+        fixed_category=None,
+        is_splittable=False,
+        location=None,
+        assumptions=["Mocked Gemini omitting deadline_time"],
+    )
+
+    class _FakeResp:
+        def __init__(self, parsed_obj):
+            self.parsed = parsed_obj
+
+    class _FakeModels:
+        def generate_content(self, **kwargs):
+            return _FakeResp(fake_schema)
+
+    class _FakeClient:
+        def __init__(self):
+            self.models = _FakeModels()
+
+    fake_types = SimpleNamespace(GenerateContentConfig=lambda **kwargs: kwargs)
+    with (
+        patch.object(nlp, "genai", object()),
+        patch.object(nlp, "genai_types", fake_types),
+        patch.object(nlp, "_get_gemini_client", return_value=_FakeClient()),
+        patch.object(nlp, "_load_local_env", lambda: None),
+        patch.dict("os.environ", {"GEMINI_API_KEY": "fake_key"}),
+    ):
+        r_ai = nlp.parse_natural_language_task(
+            "Chiều mốt làm gấp slide thuyết trình nhóm CT khoảng tiếng rưỡi [[Slide_Draft.pptx]]",
+            now="2026-11-02T09:00:00+07:00",
+            engine="auto",
+            ui={"attachments": ["Slide_Draft.pptx"]},
+        )
+        assert r_ai["engine_used"] == "AI_GEMINI"
+        assert r_ai["validation"]["ai_status"] == "ACTIVE"
+        assert r_ai["draft"]["deadline_day"] == "Wednesday"
+        assert r_ai["draft"]["deadline_time"] == "17:00"
+        assert r_ai["draft"]["duration_min"] == 90
+        assert r_ai["hybrid"]["citations"]["matched"] == ["Slide_Draft.pptx"]
+
+    # 5. Mocked Gemini error -> explicit FALLBACK_AFTER_ERROR
+    class _BrokenModels:
+        def generate_content(self, **kwargs):
+            raise RuntimeError("simulated network blip")
+
+    class _BrokenClient:
+        def __init__(self):
+            self.models = _BrokenModels()
+
+    with (
+        patch.object(nlp, "genai", object()),
+        patch.object(nlp, "genai_types", fake_types),
+        patch.object(nlp, "_get_gemini_client", return_value=_BrokenClient()),
+        patch.object(nlp, "_load_local_env", lambda: None),
+        patch.dict("os.environ", {"GEMINI_API_KEY": "fake_key"}),
+    ):
+        r_err = nlp.parse_natural_language_task("Ôn Toán 60p mai", now="2026-11-02T09:00:00+07:00", engine="auto")
+        assert r_err["engine_used"] == "OFFLINE_DETERMINISTIC"
+        assert r_err["validation"]["ai_status"] == "FALLBACK_AFTER_ERROR"
+
+
+def test_fresh_student_prompts_beyond_200_yaml_and_default_scored_greedy_plan():
+    """Milestone 1 + Q10 Phase 1: 16 fresh EN/VI prompts outside YAML corpus + default /api/plan solver == SCORED_GREEDY."""
+    import src.nl_parser as nlp
+
+    cases = [
+        ("Chiều mốt làm gấp slide thuyết trình nhóm CT khoảng tiếng rưỡi [[Slide_Draft.pptx]]", {"attachments": ["Slide_Draft.pptx"]}, "DRAFT_READY", "Wednesday", "17:00", ["Slide_Draft.pptx"]),
+        ("Sáng thứ 5 nộp bài tập lớn Cấu trúc dữ liệu, cần 2 tiếng rưỡi ôn lại [[Lab3.pdf]]", {"attachments": ["Lab3.pdf"]}, "DRAFT_READY", "Thursday", "11:00", ["Lab3.pdf"]),
+        ("Tối mai ôn thi giữa kỳ Giải tích 1 khoảng 2 tiếng rưỡi", {}, "DRAFT_READY", "Tuesday", "21:30", []),
+        ("Trưa thứ 4 gửi email báo cáo thực tập, mất chừng 30 phút", {}, "DRAFT_READY", "Wednesday", "12:00", []),
+        ("Làm lab Discrete Math tối thứ 6 19h30 khoảng 90p", {}, "DRAFT_READY", "Friday", "19:30", []),
+        ("Học từ vựng IELTS 45 phút sáng thứ 7", {}, "DRAFT_READY", "Saturday", "11:00", []),
+        ("Đọc chương 3 sách Operating Systems [[OS_Ch3.pdf]] 1 tiếng trước 22h Chủ nhật", {"linked_files": ["OS_Ch3.pdf"]}, "DRAFT_READY", "Sunday", "22:00", ["OS_Ch3.pdf"]),
+        ("Soạn đề cương ôn tập Lập trình C++ trong 3 tiếng trước 17h thứ 6", {}, "DRAFT_READY", "Friday", "17:00", []),
+        ("Review Linear Algebra homework for 75 minutes before Thursday 5pm", {}, "DRAFT_READY", "Thursday", "17:00", []),
+        ("Urgently finish Physics lab report 90 mins before Friday 23:00", {}, "DRAFT_READY", "Friday", "23:00", []),
+        ("Tomorrow morning draft Database schema for 2 hours", {}, "DRAFT_READY", "Tuesday", "11:00", []),
+        ("Practice LeetCode dynamic programming 60m on Wednesday", {}, "DRAFT_READY", "Wednesday", "23:59", []),
+        ("Thứ 3 lúc 14h00 - 16h00 học lớp Tư duy tính toán ở phòng E104", {}, "DRAFT_READY", "Tuesday", "14:00", []),
+        ("Làm việc gì đó đi", {}, "DRAFT_READY", "Wednesday", "23:59", []),
+        ("Hôm qua đi uống trà sữa với bạn hết 2 tiếng rồi hehe", {}, "NO_TASK", None, None, []),
+        ("Chủ nhật vừa đi đá banh với lớp hết 2 tiếng mệt quá", {}, "NO_TASK", None, None, []),
+    ]
+    assert len(cases) == 16
+    for prompt, ui, exp_status, exp_day, exp_time, exp_matched in cases:
+        res = nlp.parse_natural_language_task(prompt, now="2026-11-02T09:00:00+07:00", engine="offline", ui=ui)
+        assert res["status"] == exp_status, f"Unexpected status for {prompt}: {res['status']}"
+        if exp_status == "DRAFT_READY":
+            d = res["draft"]
+            assert d["deadline_day"] == exp_day, f"Expected {exp_day} for {prompt}, got {d['deadline_day']}"
+            assert d["deadline_time"] == exp_time, f"Expected {exp_time} for {prompt}, got {d['deadline_time']}"
+            assert res["hybrid"]["citations"]["matched"] == exp_matched
+    r_vague = nlp.parse_natural_language_task("Làm việc gì đó đi", now="2026-11-02T09:00:00+07:00", engine="offline")
+    assert "W_NO_DEADLINE" in r_vague["validation"]["hybrid_warnings"]
+    assert "W_NO_DURATION" in r_vague["validation"]["hybrid_warnings"]
+
+    # Also verify POST /api/plan without 'algorithm' defaults to SCORED_GREEDY (Q10 Phase 1)
+    r_plan = client.post(
+        "/api/plan",
+        json={
+            "commitments": {
+                "sleep_schedule": {"start_time": "23:00", "end_time": "07:00"},
+                "fixed_events": [],
+                "preferences": {"buffer_min": 15, "chronotype": "MORNING_OWL", "overload_policy": "WARN_ONLY"},
+            },
+            "tasks": [
+                {
+                    "task_id": "T_Q10_DEF",
+                    "title": "Check Q10 Default Solver",
+                    "category": "EXAM",
+                    "priority": 5,
+                    "cognitive_load": 3,
+                    "duration_min": 60,
+                    "deadline_day": "Wednesday",
+                    "deadline_time": "17:00",
+                    "is_splittable": False,
+                }
+            ],
+            "now": "2026-11-02T08:00:00+07:00",
+        },
+    )
+    assert r_plan.status_code == 200
+    assert r_plan.json()["solver_used"] == "SCORED_GREEDY"

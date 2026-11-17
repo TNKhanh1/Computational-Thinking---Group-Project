@@ -28,6 +28,15 @@ class BacktrackingSolver(BaseScheduler):
 
     solver_name = "BACKTRACKING_BRANCH_AND_BOUND"
 
+    @staticmethod
+    def should_prefer_energy_placement(profile: CommitmentsProfile, chunk: TaskChunk) -> bool:
+        """Exact solver ranks & optimizes Pattern 3 Circadian and Pattern 4 Category Batching."""
+        return bool(
+            profile.focus_preference is not None
+            or profile.energy_profile is not None
+            or (chunk.cognitive_load is not None)
+        )
+
     def __init__(self, chunk_strategy: str = "UNIFORM", max_nodes: int = BACKTRACK_MAX_NODES):
         super().__init__(chunk_strategy=chunk_strategy)
         self.max_nodes = max_nodes
@@ -43,7 +52,11 @@ class BacktrackingSolver(BaseScheduler):
         self.nodes_explored = 0
         week_start_iso = profile.planning_week_start
         now_slot = self.resolve_now_slot(profile)
-        horizon_slots = self.resolve_horizon_slots(tasks, week_start_iso=week_start_iso)
+        horizon_slots = self.resolve_horizon_slots(
+            tasks,
+            week_start_iso=week_start_iso,
+            horizon_days=getattr(profile, "horizon_days", 7),
+        )
 
         base_grid = TimeGridManager(total_slots=horizon_slots)
         base_grid.initialize_from_profile(profile)
@@ -279,7 +292,8 @@ class BacktrackingSolver(BaseScheduler):
                 need = task_needed_slots[t_obj.task_id]
 
                 prereq_ok = True
-                earliest = now_slot
+                rel_slot = t_obj.resolve_start_after_slot(week_start_iso=week_start_iso)
+                earliest = max(now_slot, rel_slot) if rel_slot is not None else now_slot
                 for pid in t_obj.depends_on:
                     if pid not in cur_place:
                         prereq_ok = False

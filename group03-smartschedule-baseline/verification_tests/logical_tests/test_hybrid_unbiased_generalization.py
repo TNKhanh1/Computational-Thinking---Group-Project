@@ -16,11 +16,11 @@ from pathlib import Path
 
 import pytest
 
-PKG_DIR = Path(__file__).resolve().parent.parent.parent / "NL_Parser_Package"
-if str(PKG_DIR) not in sys.path:
-    sys.path.insert(0, str(PKG_DIR))
+BASELINE_ROOT = Path(__file__).resolve().parent.parent.parent
+if str(BASELINE_ROOT) not in sys.path:
+    sys.path.insert(0, str(BASELINE_ROOT))
 
-from hybrid_parser import (
+from NL_Parser_Package.hybrid_parser import (
     compile_hybrid_to_smartschedule,
     map_user_urgency_to_solver_priority,
     parse_hybrid_case,

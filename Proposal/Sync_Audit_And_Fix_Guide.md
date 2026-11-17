@@ -1,3 +1,6 @@
+> [!NOTE]
+> **ARCHIVED / TÀI LIỆU KIỂM TOÁN TIỀN ĐỒNG BỘ (LỊCH SỬ):** Tài liệu này phản ánh ảnh chụp kiểm toán mã nguồn trước đồng bộ trên `main` (`4c0a85a`), trước khi thực hiện đồng bộ trên `ltbinh/sync-proposal` và `M1-NL-Parser`. Không cập nhật đè số liệu mới lên file này; vui lòng xem trạng thái, số liệu kiểm thử mới nhất (`140` `--pass`, `5` `--gaps`, `146` `--all`, `200/200` YAML) và quyết định `Q1–Q10` tại [`Proposal/Sync_Completion_Report.md`](Sync_Completion_Report.md) và [`Proposal/Production_Readiness_And_Decision_Analysis.md`](Production_Readiness_And_Decision_Analysis.md).
+
 # Báo Cáo Đối Chiếu, Rà Soát Thuật Toán & Hướng Dẫn Đồng Bộ App — SmartSchedule
 
 > **Đối tượng đối chiếu:** Bộ tài liệu thiết kế trong `Proposal/` (`Proposal_Report.pdf`, `Presentation.pdf`, `work_division.pdf`, và bản mới nhất `Presentation2.pdf`), `Improve_Plan/improve_plan.md`, `Baseline_Plan/baseline_plan.md` **so với** mã nguồn hiện tại trên nhánh `main` (`4c0a85a`).

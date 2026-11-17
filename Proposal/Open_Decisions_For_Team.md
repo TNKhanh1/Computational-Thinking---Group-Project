@@ -1,25 +1,25 @@
 # Danh Sách Các Điểm & Thông Số Chưa Chốt — Cần Nhóm Thảo Luận & Quyết Định
 
-> **Mục đích:** Tổng hợp toàn bộ các tham số thuật toán, xung đột giữa tài liệu thiết kế (`Presentation2.pdf`, `Proposal_Report.pdf`, `Improve_Plan`) với mã nguồn (`main` vs `origin/hmanh`) để trình bày và thống nhất với các thành viên Nhóm 03.
+> **Mục đích:** Tổng hợp toàn bộ các tham số thuật toán, xung đột giữa tài liệu thiết kế (`Presentation2.pdf`, `Proposal_Report.pdf`, `Improve_Plan`) với mã nguồn (`main` → `ltbinh/sync-proposal` → `M1-NL-Parser`) để trình bày và thống nhất với các thành viên Nhóm 03.
 >
-> **Nhánh đối chiếu & thử nghiệm:** `ltbinh/sync-proposal` (xuất phát từ `main` `4c0a85a`).
+> **Nhánh & Tài liệu hợp nhất:** `M1-NL-Parser` (**ĐÃ CHỐT TOÀN BỘ `☑ Q1–Q10`** và hoàn tất cả Cột mốc 1 lẫn `Q10` Nhịp 2). Phân tích chuyên sâu & lộ trình Mốc 2 (bao gồm kế hoạch tối giản Modal Thêm Việc ở `STUDENT` vs `LAB` Mode) xem tại [`Proposal/Production_Readiness_And_Decision_Analysis.md`](Production_Readiness_And_Decision_Analysis.md) và [`Proposal/Sync_Completion_Report.md`](Sync_Completion_Report.md).
 
 ---
 
-## Tóm tắt nhanh các hạng mục cần nhóm biểu quyết
+## Tóm tắt nhanh các hạng mục quyết định (`Q1–Q10`) — Nhánh `M1-NL-Parser` (ĐÃ CHỐT)
 
-| Mã | Hạng mục chưa chốt | Nguồn xuất hiện | Mức độ ảnh hưởng | Mặc định tạm thời đề xuất để chạy thử |
+| Mã | Hạng mục | Nguồn xuất hiện | Mức độ ảnh hưởng | Quyết định ĐÃ CHỐT (`17/11/2026`) |
 | :--- | :--- | :--- | :--- | :--- |
-| **Q1** | Hệ số buffer **`α`** & tiêu chí chọn `α` theo **Habit** vs **Cognitive Load** | `Presentation2.pdf` Slide 7, 17 vs `src/estimate_buffer.py` | **Cao** (trực tiếp đổi thời lượng block & overload) | Chạy song song 2 chế độ: giữ `estimate_habit` khi bật, mặc định Load 1–2 = `1.20`, Load 3 = `1.35` + chạy 1D Grid Search |
-| **Q2** | Hằng số suy giảm **`γ`** & giá trị biên `Urgency` cho `Habit` / `Overdue` | `Presentation2.pdf` Slide 8 (`exp(-slack / γ)`) vs `Proposal_Report.pdf` (`24`) | **Cao** (thứ tự ưu tiên trong `SCORED_GREEDY`) | `γ = 24.0` giờ; `slack <= 0` kẹp về trần `1.5`; Habit không deadline = `0.20` |
-| **Q3** | **Pattern 3 (Circadian Matching):** Cứng (`strictly`) hay Mềm (`Soft`)? | `Presentation2.pdf` Slide 7 vs Slide 9 | **Cao** (có thể gây rớt deadline nếu khóa cứng) | Mô hình 2 tầng: bình thường ưu tiên Peak Energy (Level-3), fallback Level-2 trước khi trễ hạn; Crunch mới hạ xuống Level-1 |
-| **Q4** | Ngưỡng ổn định **`X%`** khi sửa lịch (`Schedule Stability`) | `Presentation2.pdf` Slide 5 & 8 (`>= X%`) | **Trung bình** (tiêu chí PASS cho M4 Local Repair) | Chốt **`X = 90%`** (khớp `Proposal_Report.pdf` & `benchmark_runner.py` T04) |
-| **Q5** | **M1 NL Parser:** Dùng LLM API hay Deterministic Parser (offline)? | `Presentation2.pdf` Slide 10 (`M1: LLM`) vs `web/app.js` & `web/api.py` | **Trung bình** (chạy offline khi demo/chấm tự động) | Hybrid: Backend Deterministic Parser làm lõi offline mặc định + hook LLM tùy chọn khi có API key |
-| **Q6** | Điều kiện kích hoạt nghỉ **15p (`Pattern 2`)**, khe **dead-zone `< 30m` (`Pattern 5`)** & **auto-split `> 90m`** | `Presentation2.pdf` Slide 7, 8, 16 vs `src/models.py` & `t03` | **Cao** (ảnh hưởng capacity T01–T10 & trải nghiệm) | Nghỉ 15p giữa 2 task liên tiếp sau block `>= 90p` hoặc `Load == 3` (trừ khi liền sau là `SLEEP`/`OCCUPIED`); dead-zone cấm `Load >= 2`; task `> 90m` tự tách nếu user không khóa `False` |
-| **Q7** | Công thức **`Experience Rating (1-5)`**, trọng số **`Category Batching`**, và **mẫu thử `1-week peer study`** | `Presentation2.pdf` Slide 6, 7, 17 | **Trung bình** (hiển thị đánh giá lịch & hiệu chỉnh thực tế) | Hàm fatigue tuyến tính 4 thành phần chuẩn hóa `[1.0..5.0]`; trọng số batching ~15% ưu tiên; bổ sung field `actual_duration_min` để team gom log |
-| **Q8** | Hợp nhất 2 nhánh Feature 001 (`main`: `estimate_buffer`) & Feature 002 (`origin/hmanh`: `overload_triage`) | Git `main` (`4c0a85a`) vs `origin/hmanh` (`5d8a30d`) | **Rất cao** (xung đột 47 file nếu merge trực tiếp) | Không merge thẳng `origin/hmanh`; port chọn lọc `overload_triage` + giữ `estimate_buffer` & Student UI trên `ltbinh/sync-proposal` |
-| **Q9** | **Sprint Mode Tier 1** có được phép tự nén thời lượng task gốc (`90m -> 75m`) hay giữ an toàn nguyên khối? | `verification_tests/logical_tests/test_scheduling_edge_cases.py` (`#113` `test_fail_edge_sprint_mode_compression_recovery`) | **Cao** (1 test `--all`/`pytest` còn fail có chủ đích) | Tạm giữ **không tự cắt xén** thời lượng task gốc khi chưa có xác nhận người dùng; chỉ mở đề xuất qua Overload Triage (`SHORTEN_TASK`) |
-| **Q10** | Tách rạch ròi **`EDF` V0 (Energy-Blind)** vs **`SCORED_GREEDY` (Energy-Aware)** & chọn solver mặc định trên Web UI | `src/solvers/base_solver.py` (`should_prefer_energy_placement`) vs `web/index.html` (`L1073`), `web/app.js` (`L655`), `T09` | **Cao** (trên `T09`, `EDF` và `SCORED_GREEDY` đang ra cùng lịch; UI vẫn mặc định `GREEDY_EDF_FIRST_FIT`) | Tạm giữ nguyên `should_prefer_energy_placement` để bảo toàn pass `--gaps`, giữ UI mặc định `GREEDY_EDF_FIRST_FIT`, chờ nhóm chốt chuyển mặc định UI sang `SCORED_GREEDY` hay giữ `EDF` |
+| **Q1** | Hệ số buffer **`α`** & tiêu chí chọn `α` theo **Habit** vs **Cognitive Load** | `Presentation2.pdf` Slide 7, 17 vs `src/estimate_buffer.py` | **Cao** | **☑ ĐÃ CHỐT:** Giữ Dual-Mode; Student UI mặc định `COGNITIVE_LOAD` (`1.20/1.35`, `RoundUp_15`), giữ `"HABIT"` V0 fallback ở `CommitmentsProfile`; dùng hàm `composite` sẵn có trong `benchmark_alpha_grid.py` (`Q1.3`) + pilot 7 ngày + stress `α >= 1.7`. |
+| **Q2** | Hằng số suy giảm **`γ`** & giá trị biên `Urgency` cho `Habit` / `Overdue` | `Presentation2.pdf` Slide 8 (`exp(-slack / γ)`) vs `Proposal_Report.pdf` (`24`) | **Cao** | **☑ ĐÃ CHỐT:** `γ = 24.0` giờ; `OVERDUE_URGENCY_CAP = 1.50` (+ tie-breaker); `HABIT_BASE_URGENCY = 0.20`; sửa nhãn Slide 8 thành *Exponential Urgency*. |
+| **Q3** | **Pattern 3 (Circadian Matching):** Cứng (`strictly`) hay Mềm (`Soft`)? | `Presentation2.pdf` Slide 7 vs Slide 9 | **Cao** | **☑ ĐÃ CHỐT:** Cơ chế **MỀM đa tầng** (ưu tiên Level-3 Peak → fallback Level-2 trước hạn → Crunch Level-1), bỏ *"strictly"* trên Slide 7. |
+| **Q4** | Ngưỡng ổn định **`X%`** khi sửa lịch (`Schedule Stability`) | `Presentation2.pdf` Slide 5 & 8 (`>= X%`) | **Trung bình** | **☑ ĐÃ CHỐT:** **`X = 90%`** (`STABILITY_TARGET_PCT = 90.0`, `T04` đạt `100.00%`). |
+| **Q5** | **M1 NL Parser:** Dùng LLM API hay Deterministic Parser (offline)? | `Presentation2.pdf` Slide 10 (`M1: LLM`) vs `src/nl_parser.py` | **Trung bình** | **☑ ĐÃ CHỐT & KIỂM CHỨNG LIVE:** Hybrid Dual-Engine (`Offline` 6 tầng tất định làm lõi + Gemini AI xem trước `#stTaskModal` có User xác nhận — LoA Level 4, giữ Solver SHA-256). Đã thêm `ai_status`, `17:00`, relative import; Mốc 2 thêm Progressive Disclosure tối giản `#stTaskModal` ở `STUDENT` Mode. |
+| **Q6** | Nghỉ **15p (`Pattern 2`)**, khe **dead-zone `< 30m` (`Pattern 5`)** & **auto-split `> 90m`** | `Presentation2.pdf` Slide 7, 8, 16 vs `src/models.py` & `t03` | **Cao** | **☑ ĐÃ CHỐT (`Q6.2 = A2`):** Giữ nghỉ `15p` sau block `>= 90p` hoặc `Load >= 3` trên ô `FREE`; khóa mọi dead-zone `<= 1 slot` kể cả `Load-1` ở lượt thường, chỉ mở ở Tier-1 Crunch; auto-split `> 90p` trừ `False`. |
+| **Q7** | Công thức **`Experience Rating (1-5)`**, **`Category Batching`**, **`PersonalHabit`** & pilot 1 tuần | `Presentation2.pdf` Slide 6, 7, 17 | **Trung bình** | **☑ ĐÃ CHỐT (`Q7.3 = A3`):** Lock hàm 4 thành phần `[1..5]` & batching `+0.35/-0.25` cho v1.0; `PersonalHabit` dùng **`1 preferred_window + frequency_per_week`** (dàn đều theo tuần, mở UI ở Mốc 2) + pilot 1 tuần. |
+| **Q8** | Quy trình hợp nhất nhánh, cập nhật `Proposal/` & `Presentation2.pdf` | Git `M1-NL-Parser` vs `main` | **Rất cao** | **☑ ĐÃ CHỐT:** Đã hoàn tất toàn bộ Cổng Pre-Merge (test tay UI, Live Gemini, `147/147` tests, cập nhật `Proposal/`) -> sẵn sàng Merge PR #4 vào `main`; sau đó cập nhật `Presentation2.pdf` và sang Mốc 2. |
+| **Q9** | **Sprint Mode Tier 1** có tự nén thời lượng task gốc (`90m -> 75m`) không? | `test_scheduling_edge_cases.py` (`#113`) | **Cao** | **☑ ĐÃ CHỐT & ÁP DỤNG PHƯƠNG ÁN A:** Tier-1 chỉ cắt nghỉ/dead-zone (`allow_breaks=False`), không tự cắt task gốc; rút ngắn phải qua Triage `SHORTEN_TASK` xác nhận + `Early Extension Alert`. Suite `--all` đạt `147/147 PASS`. |
+| **Q10** | Tách **`EDF` V0 (Energy-Blind)** vs **`SCORED_GREEDY`** & mặc định Web UI | `base_solver.py` vs `web/index.html`, `web/app.js`, `web/api.py`, `local_repair.py` | **Cao** | **☑ ĐÃ HOÀN TẤT CẢ 2 NHỊP:** (1) UI & `/api/plan` mặc định **`SCORED_GREEDY`**; (2) `EDF`/`LST`/`WSPT` thuần Energy-Blind trên `T09` (`4268107a006d` cố định vs `SCORED_GREEDY` dịch Peak), `--gaps` dùng `SCORED_GREEDY`, `_repair_full_rebuild()` giữ đúng solver qua `src/solvers/registry.py`. |
 
 ---
 
@@ -35,10 +35,10 @@
 * **Slide 17 còn nêu 2 bước Planned chưa làm:**
   1. **1D Grid Search:** Quét `α ∈ [1.00, 1.60]` bước `0.05` trên các kịch bản tuần mô phỏng để cân bằng giữa phút trễ (`late minutes`) và buffer dư thừa (`wasted idle buffer time`).
   2. **Stress Test & Real Calibration:** Thử nghiệm với sốc overrun `+25%` và `+50%`, rồi đo tỷ lệ thật `Actual / Estimated` qua 1 tuần dùng thử của nhóm.
-* **Cần nhóm chốt:**
-  1. Chọn chuẩn cuối cùng cho Student UI là **theo Cognitive Load (`1.20 / 1.35`)**, **theo thói quen (`1.0 / 1.1 / 1.25`)**, hay **kết hợp cả hai**?
-  2. Quy ước làm tròn dùng **`RoundUp_15`** (như Slide 7/17) hay **`Nearest_15`** (như `test_estimate_buffer.py`)?
-  3. Chốt trọng số hàm mất mát `Loss(α)` cho 1D Grid Search và phân công từng thành viên log `actual_duration_min` trong 1 tuần thử nghiệm.
+* **Trạng thái & Cần nhóm chốt:**
+  1. **Mặc định Student UI vs V0 Fallback:** Khuyến nghị mặc định tầng Student UI sang **`COGNITIVE_LOAD` (`1.20 / 1.35`)**, giữ `"HABIT"` tại `CommitmentsProfile` V0 (`src/models.py`) + nút opt-out `NONE` từng task.
+  2. **Làm tròn:** Dùng **`RoundUp_15`** trong `COGNITIVE_LOAD` (bảo đảm `+1 slot` cho micro-task), giữ `Nearest_15` cho `HABIT`.
+  3. **`Q1.3` Hàm mục tiêu `Loss(α)`:** `benchmark_alpha_grid.py` đã cài sẵn hàm `composite = 0.35*avg_dl + 0.25*avg_s25_dl + 0.20*avg_s50_dl + 0.20*avg_s25_zero - 4.0*max(0, avg_rating-2.0) - 2.0*avg_frag - 100.0*hard_violations` (đã quét `1.00–1.60`). Nhóm chỉ cần xác nhận công thức này, bổ sung stress-test `α >= 1.7` và phân công log `actual_duration_min` trong 1 tuần thử nghiệm ở Mốc 2.
 
 ---
 
@@ -67,44 +67,37 @@
 ---
 
 ### Q5. Module M1 (`Natural Language Parser (LLM)`) (`Slide 10`)
-* **Thực tế:** Slide 10 gọi tên M1 là **LLM**, trong khi máy người dùng/môi trường chấm bài chạy cục bộ (FastAPI + Python offline) không có LLM key sẵn, và UI hiện tự parse bằng regex JS (`parseQuickAdd`) trong khi backend `/api/tasks/natural-add` là stub cứng Thứ Tư.
-* **Cần nhóm chốt:** Nhóm có muốn gọi API LLM thật (như Gemini API nếu có key biến môi trường) làm lớp tùy chọn bên cạnh **Deterministic Backend Parser**, hay thống nhất **100% Rule-based Deterministic Parser** để đảm bảo tiêu chí **Pure Determinism (SHA-256)** ở Slide 12?
+* **Trạng thái hiện tại:** Đã nâng cấp lên Dual-Engine Hybrid (`src/nl_parser.py` + `NL_Parser_Package/`): **Offline 6 tầng tất định** (`200/200` YAML trong `616.5 ms`) kết hợp **Gemini Live API** (`gemini-3-flash-preview`, đã kiểm chứng chạy thật `17/11/2026`, `200 OK`, `ai_status="ACTIVE"`). Ở bước Cột mốc 1 đã vá thêm relative import `__init__.py`, `ui.attachments: list[str]`, cảnh báo `validation["ai_status"]` rõ ràng và giữ mốc giờ buổi (`sáng/trưa/chiều/tối`).
+* **Khuyến nghị chốt:** Duy trì kiến trúc **LoA Level 4** (AI/Hybrid chỉ điền nháp `#stTaskModal` cho người dùng xác nhận trước khi vào Solver để giữ **Pure Determinism SHA-256** Slide 12) và mở tùy chọn engine cho Lab Mode ở Mốc 2.
 
 ---
 
 ### Q6. Ranh giới kỹ thuật của Pattern 2, Pattern 5 & Cờ `is_splittable` (`Slide 6, 7, 8, 13, 16`)
-1. **Pattern 2 (15m REST):** Áp dụng bắt buộc sau **mọi block**, sau block **`>= 60–90 phút`**, hay chỉ **`cognitive_load == 3`**? Nếu ngay sau phiên học đã là giờ `MEAL` / `CLASS` / `SLEEP` (`OCCUPIED`), có cần chèn thêm `15m REST` nữa không?
-2. **Pattern 5 (`< 30m` Dead-zone `STATE_REST`):** Khe rảnh `15 phút` có chặn hoàn toàn cả task nhẹ `Load-1` (dài `15 phút`) ở chế độ thường, hay chỉ cấm deep focus `Load 2–3` (và mở lại cho `Load 1` khi Crunch)?
-3. **Auto-split task `> 90 phút`:** Nếu người dùng tạo task `120–180 phút` mà không chỉ định `is_splittable`, hệ thống có mặc định bật `is_splittable = True` (theo Slide 16) hay giữ `False` như `models.py:107`?
+1. **Pattern 2 (15m REST):** Áp dụng sau block `>= 90p` hoặc `cognitive_load >= 3`, chỉ chiếm ô `FREE` (tự miễn nếu liền sau đã là `SLEEP`/`MEAL`/`OCCUPIED`).
+2. **Pattern 5 (`< 30m` Dead-zone `STATE_REST` — ĐÃ CHỐT `Q6.2 = A2`):** Khóa mọi khe hở `<= 1 slot` (`15p`) kể cả với tác vụ nhẹ `Load-1` trong lượt xếp thường (`allow_breaks=True`) để tránh phân mảnh và dư lượng chú ý; tự mở khóa ở Tier-1 Crunch (`allow_breaks=False`).
+3. **Auto-split task `> 90 phút`:** Mặc định bật `is_splittable = True` khi `duration_min > 90p`, nhưng vẫn tôn trọng tuyệt đối nếu người dùng khóa `is_splittable = False`.
 
 ---
 
 ### Q7. Công thức `Experience Rating (1-5)` (`Slide 6`) & Trọng số `Category Batching` (`Slide 7`)
-* **`Experience Rating (1-5)`:** Slide 6 mô tả hàm mục tiêu chấm độ mệt mỏi từ `1 (Comfortable)` đến `5 (Exhausting)` nhưng chưa chốt công thức toán học. Nhóm cần duyệt 4 thành phần trọng số (tổng tải học/ngày, số lần thiếu nghỉ, tỷ lệ lệch Circadian, số lần chuyển môn `context_switches`).
-* **`Category Batching`:** Cần chốt mức phạt chuyển môn `w_switch` vừa đủ gom môn cùng nhóm nhưng không làm task gấp bị xếp trễ.
-* **`Personal Habits` (`Slide 6`):** Định dạng `(activity_name, time_intervals, priority_weights)` có nên cho phép gán nhiều khung giờ lặp trong tuần không?
+* **`Experience Rating (1-5)`:** Khóa công thức 4 thành phần chuẩn hóa `[1.0..5.0]` (`density 0..2.2`, `streak 0..0.8`, `circadian 0..0.6`, `overload 0..1.0`).
+* **`Category Batching`:** Chốt `CATEGORY_BATCH_BONUS = 0.35`, `CONTEXT_SWITCH_PENALTY = 0.25` (~7.5–15% biên độ Circadian `Load-3`, chỉ làm mượt lịch chứ không đảo deadline).
+* **`Personal Habits` (`Slide 6` — ĐÃ CHỐT `Q7.3 = A3`):** Giữ mô hình gọn **`1 preferred_window` (`MORNING | AFTERNOON | EVENING`) + `frequency_per_week`** (tự dàn đều giữa các ngày trong tuần khi nối `preferred_window` vào `expand_personal_habits()` và mở form UI Student Mode ở Mốc 2).
 
 ---
 
-### Q8. Quy trình chốt hợp nhất nhánh `origin/hmanh` và cập nhật lại `Presentation2.pdf`
-* Sau khi đồng bộ xong code trên nhánh `ltbinh/sync-proposal`, nhóm cần duyệt danh sách quyết định `Q1–Q10` và đồng thời cập nhật lại các chữ **`(Unverified)`**, **`(Planned)`**, **`≥ X%`**, **`γ`**, cùng số liệu benchmark/solver trên `Presentation2.pdf` trước khi nộp/thuyết trình chính thức.
+### Q8. Quy trình chốt hợp nhất nhánh và cập nhật `Proposal/` + `Presentation2.pdf`
+* Nhánh tích hợp hiện tại là `M1-NL-Parser` (đã port `overload_triage` + tích hợp `NL_Parser_Package/` + hoàn tất vá kỹ thuật Pre-Merge và cập nhật bộ tài liệu `Proposal/`). Sau khi nhóm duyệt `Q1–Q10` và kiểm thử thủ công UI trình duyệt thật sẽ Merge PR #4 vào `main`, rồi dọn sạch `(Unverified)`, `(Planned)`, `≥ X%`, `γ` trên `Presentation2.pdf`.
 
 ---
 
 ### Q9. Cơ chế nén thời lượng ở Tier-1 Sprint Mode (`test_fail_edge_sprint_mode_compression_recovery`)
-* **Bối cảnh thực tế:** Bài test thứ #113 trong `clean_runner.py --all` và `pytest -v` (`verification_tests/logical_tests/test_scheduling_edge_cases.py::test_fail_edge_sprint_mode_compression_recovery`) kiểm tra tình huống một task nguyên khối `90 phút` chỉ còn khe rảnh `75 phút` trước deadline (không có buffer/nghỉ để cắt). Hiện hệ thống báo `INFEASIBLE_CAPACITY` (`75p < 90p`) và đề xuất `Early Extension Alert` thay vì tự ý thu ngắn task xuống `75p`, nên bài test này đang **FAIL (`112 Passed | 1 Failed | Total: 113`)**.
-* **Phương án cần nhóm biểu quyết:**
-  * **Phương án A (Bảo toàn khối lượng gốc — đề xuất giữ an toàn):** Không bao giờ tự co ngắn thời lượng thô của task người dùng; chỉ cho phép nén thông qua **Overload Triage (`SHORTEN_TASK`)** có sự đồng ý của sinh viên, đồng thời điều chỉnh đặc tả bài test `test_fail_edge_sprint_mode_compression_recovery` sang kiểm tra Tier-2 Triage / Early Extension Alert.
-  * **Phương án B (Sprint Mode tự nén tối đa X%):** Cho phép Tier-1 Sprint Mode nén trực tiếp thời lượng tác vụ xuống tối đa (ví dụ `-15%` hoặc tối đa `15 phút`) khi sát deadline kèm cảnh báo trong lịch.
+* **Quyết định ĐÃ CHỐT & ÁP DỤNG (Phương án A):** Không bao giờ tự co ngắn thời lượng thô (`90p -> 75p`) của task người dùng nếu chưa có xác nhận. Tier-1 Sprint Mode chỉ tự cắt nghỉ 15p / dead-zone (`Cut breaks`), còn thiếu chỗ buộc phải qua **Overload Triage (`SHORTEN_TASK`)** + `Early Extension Alert`. Bài test `test_fail_edge_sprint_mode_compression_recovery` đã được cập nhật đúng spec Phương án A và toàn bộ **`clean_runner.py --all` đạt `146 Passed | 0 Failed`**.
 
 ---
 
 ### Q10. Tách rạch ròi Baseline `EDF` vs `SCORED_GREEDY` (`T09`) & Solver mặc định Web UI
-* **Bối cảnh thực tế:**
-  1. Trên kịch bản `t09_circadian_comparison.json` (`T09`), cả `EDF` lẫn `SCORED_GREEDY` hiện cho kết quả đặt block giống hệt nhau (sáng `06:30–08:00` cho `T09-DEEP-MATH` ở chế độ Morning; chuyển `T09-DEEP-MATH` xuống `18:00–19:30` ở chế độ Evening), vì `BaseScheduler.should_prefer_energy_placement()` cũng kích hoạt lọc năng lượng cho `EDF` (hiện đang được test `--gaps` `test_fail_circadian_energy_matching` kiểm tra với `algorithm="EDF"`).
-  2. Trên giao diện Web (`web/index.html` & `web/app.js`), tùy chọn solver mặc định đang vẫn là `GREEDY_EDF_FIRST_FIT`, dù Slide & `Improve_Plan` hướng tới `SCORED_GREEDY` (`E1–E4`).
-  3. Ngoài ra, khi `LocalRepairEngine` chạy ở chế độ `FULL_REBUILD` (`src/solvers/local_repair.py`), bên trong hiện vẫn gọi `GreedyEDFSolver` thay vì giữ đúng solver người dùng đang chọn.
-* **Phương án cần nhóm biểu quyết:**
-  * **Ý 1 (So sánh thực nghiệm `T09` & `--gaps`):** Có tách rạch ròi `EDF` V0 thành **thuần Energy-Blind First-Fit** để `benchmark_runner.py` / `T09` chứng minh sự khác biệt giữa V0 (`EDF`) và V1/V2 (`SCORED_GREEDY`) hay giữ `EDF` hỗ trợ energy preference như hiện tại (nếu tách thì cần cập nhật test `--gaps` dùng `SCORED_GREEDY`)?
-  * **Ý 2 (Mặc định Web UI & `FULL_REBUILD`):** Chuyển mặc định giao diện Student/Lab UI sang **`SCORED_GREEDY`** hay giữ `GREEDY_EDF_FIRST_FIT`, và `FULL_REBUILD` có tái sử dụng đúng solver của lịch hiện tại hay luôn fallback về `EDF`?
+* **Trạng thái (✅ ĐÃ HOÀN TẤT CẢ 2 NHỊP):**
+  * **Nhịp 1:** Đã chuyển mặc định `#solverSelect`, `#stSetSolver`, `#kpiSolverLabel` trên Web UI (`web/index.html`, `web/app.js`) và `POST /api/plan` (`web/api.py#L67`) sang **`SCORED_GREEDY`** (`solver_used == "SCORED_GREEDY"`).
+  * **Nhịp 2:** Đã tách `EDF`/`LST`/`WSPT` về thuần **Energy-Blind V0** (`BaseScheduler.should_prefer_energy_placement -> False`, giữ `SCORED_GREEDY` & `BacktrackingSolver` tối ưu Circadian + Batching, kiểm chứng trên `benchmark_runner.py` Bảng 5 `T09`), cập nhật `test_improve_plan_gaps.py` dùng `SCORED_GREEDY`, và dùng [`src/solvers/registry.py`](../group03-smartschedule-baseline/src/solvers/registry.py) để `LocalRepairEngine._repair_full_rebuild()`, `compare_repair_modes()` và `POST /api/repair` giữ đúng solver hiện hành.
 

@@ -23,10 +23,8 @@ def test_fail_circadian_energy_matching():
     """
     TARGET: Improve Plan §3.3 & §7.3, Proposal Pillar 2 (Pattern Recognition).
     A student with focus_preference='EVENING' (18:00–21:00) adding a DEEP focus task
-    MUST have that task placed during evening focus hours (>= 18:00).
-
-    WHY V0 CURRENTLY FAILS:
-    V0 Greedy EDF is energy-blind and places tasks into the earliest free slot (Monday 06:30).
+    MUST have that task placed during evening focus hours (>= 18:00) under SCORED_GREEDY
+    (while V0 Greedy EDF stays energy-blind per Controlled Ablation Q10 Phase 2).
     """
     profile = CommitmentsProfile(
         student_id="LAN_STUDENT",
@@ -45,7 +43,7 @@ def test_fail_circadian_energy_matching():
         cognitive_load=3,
     )
 
-    out, _ = ScheduleController.solve_schedule(profile, [deep_task], algorithm="EDF")
+    out, _ = ScheduleController.solve_schedule(profile, [deep_task], algorithm="SCORED_GREEDY")
     assert len(out.blocks) >= 1
     placed_block = out.blocks[0]
 
@@ -120,11 +118,9 @@ def test_fail_planning_fallacy_buffer_multiplier():
 def test_fail_why_popover_structured_reason_codes():
     """
     TARGET: Improve Plan §7.3 Table (Why Here? Popover reason codes).
-    Each scheduled block MUST return a structured `reasons[]` array containing
-    reasons such as 'ENERGY_MATCH' and 'BREAK_AFTER'.
-
-    WHY V0 CURRENTLY FAILS:
-    V0 only produces basic 'BEFORE_DEADLINE' and 'EARLIEST_FREE_GAP', missing 'ENERGY_MATCH'.
+    Each scheduled block under the V1/V2 Circadian-aware solver (`SCORED_GREEDY`)
+    MUST return a structured `reasons[]` array containing 'ENERGY_MATCH'.
+    (V0 Greedy EDF remains energy-blind per Controlled Ablation Q10 Phase 2.)
     """
     profile = CommitmentsProfile(
         student_id="REASON_STUDENT",
@@ -134,7 +130,7 @@ def test_fail_why_popover_structured_reason_codes():
     )
     task = Task(task_id="T_WHY", title="Math Review", duration_min=60, deadline_day="Monday", deadline_time="18:00", priority=4)
 
-    out, _ = ScheduleController.solve_schedule(profile, [task], algorithm="EDF")
+    out, _ = ScheduleController.solve_schedule(profile, [task], algorithm="SCORED_GREEDY")
     assert len(out.blocks) >= 1
     b = out.blocks[0]
 

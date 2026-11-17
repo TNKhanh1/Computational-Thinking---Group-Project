@@ -7,7 +7,7 @@ Guarantees O(N) linear time cleaning and prevents downstream context window over
 from __future__ import annotations
 import re
 from typing import List, Tuple
-from schema import TaskSchema
+from .schema import TaskSchema
 
 
 # Common conversational noise patterns to strip for abstraction

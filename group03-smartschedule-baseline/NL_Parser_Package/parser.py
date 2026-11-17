@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 import re
 from typing import Dict, List, Optional, Tuple
 
-from schema import (
+from .schema import (
     TaskSchema,
     PriorityLevel,
     ConstraintType,
@@ -22,9 +22,9 @@ from schema import (
     SubtaskWorkflowStatus,
     DeclaredSubtask,
 )
-from tokenizer import clean_and_normalize
-from regex_parser import parse_with_regex, clean_title
-from translator import translate_to_english
+from .tokenizer import clean_and_normalize
+from .regex_parser import parse_with_regex, clean_title
+from .translator import translate_to_english
 
 
 WEEKDAY_MAP = {

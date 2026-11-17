@@ -1,25 +1,27 @@
-# Báo Cáo Hoàn Thành Đồng Bộ Hệ Thống (`ltbinh/sync-proposal`) & Các Điểm Cần Nhóm Quyết Định
+# Báo Cáo Hoàn Thành Đồng Bộ Hệ Thống & Cập Nhật Cột Mốc 1 (`ltbinh/sync-proposal` → `M1-NL-Parser`)
 
-> **Nhánh thực hiện:** `ltbinh/sync-proposal` (xuất phát từ `main` commit `4c0a85a`, **không** làm thay đổi `main`).
+> **Nhánh thực hiện:** `M1-NL-Parser` (kế thừa từ `ltbinh/sync-proposal`, xuất phát từ `main` commit `4c0a85a`).  
 >
-> **Cơ sở đối chiếu:** `Proposal/Sync_Audit_And_Fix_Guide.md` (A1–A12, 8 Human Behavioral Patterns, Presentation2.pdf, Feature 001 + selective port Feature 002 từ `origin/hmanh`).
+> **Cơ sở đối chiếu:** `Proposal/Sync_Audit_And_Fix_Guide.md` *(Archived)*, [`Proposal/Production_Readiness_And_Decision_Analysis.md`](Production_Readiness_And_Decision_Analysis.md) và [`Proposal/Open_Decisions_For_Team.md`](Open_Decisions_For_Team.md) (`Q1–Q10`).  
 >
-> **Tài liệu đi kèm:** Danh sách biểu quyết chi tiết nằm tại [`Proposal/Open_Decisions_For_Team.md`](Open_Decisions_For_Team.md) (`Q1–Q10`).
+> **Cập nhật 17/11/2026:** Đã hoàn tất cả **Cột mốc 1**, **`Q10` Nhịp 1–2**, **Cột mốc 2 (`Gói A.0`, `Gói A.1–A.3`, `Gói B`)** và **Tái thiết lập UI/Lab (`Lần cập nhật 013`)** trên nhánh `M1-NL-Parser` (`149` `--pass`, `5` `--gaps`, **`155/155`** `--all` / `pytest`, `200/200` YAML).
 
 ---
 
 ## 1. Tóm tắt điều hành (Executive Summary)
 
-Toàn bộ các lỗi thuật toán (`A1–A12`), khoảng trống tính năng (`4/4` gap tests còn lại trên `main`), lệch công thức Buffer, hardcode giao diện và các phát hiện kiểm toán bổ sung sau đồng bộ so với `Presentation2.pdf` đã được xử lý trên nhánh `ltbinh/sync-proposal` (riêng 1 bài test Sprint Mode #113 và một số điểm cấu hình mặc định/nghiệp vụ được giữ mở có chủ đích để cả nhóm biểu quyết `Q1–Q10`):
+Toàn bộ các lỗi thuật toán (`A1–A12`), khoảng trống tính năng (`5/5` gap tests), lệch công thức Buffer, 8 Behavioral Patterns, tích hợp Hybrid EN/VI NL Parser, **`Q10` Nhịp 1 & Nhịp 2**, **Cột mốc 2 (UX Progressive Disclosure `Gói A.0`, SQLite Persistence `Gói A.1`, Đồng hồ thực & `horizon_days=7..14` `Gói A.2`, Student CRUD + `PersonalHabit` UI + Solver nối `start_after`/`work_rhythm` + Regex sửa giờ `Gói A.3`, Dọn `.bat`/deps `Gói B`)** và **Tái thiết lập UI ngày cụ thể `DD/MM/YYYY` + Lab Workbench 3 tab** đã hoàn thiện và chạy xanh **100%** trên nhánh `M1-NL-Parser`:
 
-| Hạng mục kiểm chứng | Trước đồng bộ (`main` `4c0a85a`) | Sau đồng bộ & vá kiểm toán (`ltbinh/sync-proposal`) |
+| Hạng mục kiểm chứng | Trước đồng bộ (`main` `4c0a85a`) | Sau Cột mốc 1, `Q10`, Cột mốc 2 & UI Redesign (`M1-NL-Parser`) |
 | :--- | :--- | :--- |
-| **Operational Verification (`clean_runner.py --pass`)** | `84 Passed \| 0 Failed` | **`107 Passed \| 0 Failed`** (`12.09s`, `ALL PASSED`) |
-| **Improve Plan Gap Tests (`clean_runner.py --gaps`)** | `1 Passed \| 4 Failed` | **`5 Passed \| 0 Failed`** (`1.64s`, `ALL PASSED`) |
-| **Toàn bộ Ma trận Kiểm thử (`--all` & `pytest -v`)** | `89 tests` | **`112 Passed \| 1 Failed \| Total: 113 Tests`** (`test_fail_edge_sprint_mode_compression_recovery` giữ mở theo **`Q9`**) |
-| **Benchmark Scenarios (`T01–T10`, `benchmark_runner.py`)** | `C_hard = 0`, 3x Determ PASS (T04 `100%` nhưng chưa vá topo/pin A6) | **`T01–T10 C_hard = 0`**, 3x Determ `PASS`, Bảng 2 đủ **5 solvers** (kèm `SCORED_GREEDY`), T04 `LOCAL_INSERTION` giữ **`100.00%` Stability** (`Moved=2`, `1.54 ms`) vs `FULL_REBUILD` (`0.00%`, `Moved=12`, `2.89 ms`), `N=50` = **`7.89 ms`** (`<= 200 ms`) |
-| **1D Alpha Grid Search & Stress Test (`benchmark_alpha_grid.py`)** | Chưa có | Đã hiệu chỉnh `α ∈ [1.00, 1.60]` bước `0.05` + sốc `+25% / +50%`, lưu kết quả tại [`data/alpha_grid_calibration.json`](../group03-smartschedule-baseline/data/alpha_grid_calibration.json) |
-| **Trạng thái các điểm cần nhóm chốt (`Q1–Q10`)** | Nằm rải rác `(Unverified)` / `(Planned)` / `X%` / `γ` trong slide | Cấu hình tập trung tại [`src/config.py`](../group03-smartschedule-baseline/src/config.py), tổng hợp đầy đủ ngay tại **Mục 5** bên dưới và [`Proposal/Open_Decisions_For_Team.md`](Open_Decisions_For_Team.md) |
+| **Operational Verification (`clean_runner.py --pass`)** | `84 Passed \| 0 Failed` | **`149 Passed \| 0 Failed`** (`17.65s`, `ALL PASSED`) |
+| **Improve Plan Gap Tests (`clean_runner.py --gaps`)** | `1 Passed \| 4 Failed` | **`5 Passed \| 0 Failed`** (`1.55s`, `ALL PASSED`) |
+| **Toàn bộ Ma trận Kiểm thử (`--all` & `pytest`)** | `89 tests` | **`155 Passed \| 0 Failed \| Total: 155 Tests`** (`17.77s` `--all`, `ALL PASSED` — gồm `8/8` `test_milestone2_production_readiness.py`) |
+| **Hybrid NL Benchmark (`verify_hybrid_200.py` + `validate_cases.py`)** | Chưa có | **`200/200 (100.0%)`** (`backend=rule`, `620.6 ms`, `3.10 ms/case`) + `validate_cases.py` pass + **`16` câu EN/VI mới** |
+| **Live Gemini API (`gemini-3-flash-preview`) & UI** | Chưa nối LLM | **ĐÃ XÁC MINH (`200 OK`, `AI_GEMINI`, `ai_status="ACTIVE"`)** + User đã test tay Web UI (`17/11/2026`, sau đó tái thiết lập `DD/MM/YYYY`, tab `PersonalHabit` và Lab 3 workspace ở `Lần cập nhật 013`) |
+| **Benchmark Scenarios (`T01–T10`, `benchmark_runner.py`)** | `C_hard = 0`, 3x Determ PASS | **`T01–T10 C_hard = 0`**, 3x Determ `PASS`, Bảng 2 đủ **5 solvers**, T04 `LOCAL_INSERTION` **`100.00%`** (`1.30 ms`) vs `FULL_REBUILD` (`0.00%`, `2.73 ms`), `N=50` = **`7.29 ms`**, **Bảng 5 `T09` Ablation:** `EDF` Energy-Blind (`4268107a006d` giống nhau) vs `SCORED_GREEDY` dịch Peak (`f65266353eff` -> `ac905601e5bf`) |
+| **1D Alpha Grid Search & Stress Test (`benchmark_alpha_grid.py`)** | Chưa có | Đã hiệu chỉnh `α ∈ [1.00, 1.60]` bước `0.05` + sốc `+25% / +50%`, lưu tại [`data/alpha_grid_calibration.json`](../group03-smartschedule-baseline/data/alpha_grid_calibration.json) |
+| **Trạng thái quyết định nhóm (`Q1–Q10`)** | Nằm rải rác `(Unverified)` / `(Planned)` / `X%` / `γ` trong slide | **Đã chốt toàn bộ `☑ Q1–Q10`** (bao gồm `Q6.2 = A2`, `Q7.3 = A3`, `Q9 = A`, `Q10` cả 2 nhịp); xem tại [`Proposal/Production_Readiness_And_Decision_Analysis.md`](Production_Readiness_And_Decision_Analysis.md) |
 
 ---
 
@@ -77,9 +79,12 @@ Toàn bộ các lỗi thuật toán (`A1–A12`), khoảng trống tính năng (
 7. **M1 Multilingual EN/VI Parser & M7 Check-in ([`src/nl_parser.py`](../group03-smartschedule-baseline/src/nl_parser.py), `web/api.py`):**
    * Tạo `parse_natural_language_task()` phân tích đa ngữ EN/VI (ngày tương đối theo `now_day`, thứ trong tuần không còn hardcode `"Wednesday"`, giờ hạn chót, thời lượng `1h30`/`90p`/`2 tiếng`, category/priority/cognitive_load/splittability) và nối vào `POST /api/tasks/natural-add`.
    * Bổ sung `POST /api/tasks/complete` ghi nhận `actual_duration_min` phục vụ thu thập tỷ lệ `Actual / Estimated` (M7).
-8. **Đồng bộ Frontend Student & Lab UI (`web/index.html`, `web/app.js`):**
+8. **Đồng bộ Frontend Student & Lab UI (`web/index.html`, `web/app.js`, `web/api.py`):**
    * Gỡ toàn bộ ngày tuần cố định `"2 Thg 11 – 8 Thg 11, 2026"`, banner ngủ cứng `23:30 – 06:30`, text hardcode EDF trong `openWhyHereModal()` và double-buffer `* 1.2` ở `saveStudentTask()` / `updateStBufferPreview()`.
-   * Bổ sung hiển thị Experience Rating, Early Extension Alert banner, `.slot-rest` & `.slot-block-proposed`, `#stSettingsModal` (cấu hình giờ ngủ `>= 6h`, `focus_preference`, `buffer_mode`, `alpha_light`, `alpha_heavy`; lựa chọn solver mặc định giao diện hiện vẫn giữ `GREEDY_EDF_FIRST_FIT` chờ nhóm chốt `Q10`), `#stTaskModal` (M1 Quick-Add + `category`/`cognitive_load` + bật/tắt buffer từng task), `#stDisruptionModal` (M5 Local Repair), Overload Preview/Apply/Undo bar, lưu bền vững `localStorage` (`doneBlocks`, `actualDurations`, `pinnedBlocks`), M7 `actual_duration_min` check-in, và kéo thả nối `POST /api/validate-move`.
+   * Bổ sung hiển thị Experience Rating, Early Extension Alert banner, `.slot-rest` & `.slot-block-proposed`, `#stSettingsModal` (cấu hình giờ ngủ `>= 6h`, `focus_preference`, `buffer_mode`, `alpha_light`, `alpha_heavy`; lựa chọn solver mặc định ở `#solverSelect`, `#stSetSolver`, `#kpiSolverLabel`, `web/app.js` và `/api/plan` **đã chuyển sang `SCORED_GREEDY` theo `Q10` Nhịp 1**), `#stTaskModal` (M1 Quick-Add + kéo-thả tệp đa trình duyệt `[[filename]]`/`@[path]` + `category`/`cognitive_load` + bật/tắt buffer từng task), `#stDisruptionModal` (M5 Local Repair), Overload Preview/Apply/Undo bar, lưu bền vững `localStorage` (`doneBlocks`, `actualDurations`, `pinnedBlocks`), M7 `actual_duration_min` check-in, và kéo thả nối `POST /api/validate-move`.
+9. **Tích hợp & Gia cố Hybrid EN/VI NL Parser Cột mốc 1 (`NL_Parser_Package/`, `src/nl_parser.py`):**
+   * Đưa `NL_Parser_Package/` vào hệ thống (`200/200` YAML trong `616.5 ms`) kết hợp Dual-Engine Gemini (`gemini-3-flash-preview`, đã xác minh chạy thật ngày `17/11/2026`).
+   * **Bản vá Cột mốc 1 (17/11/2026):** Sửa `AttributeError` khi `ui.attachments`/`ui.linked_files` nhận `list[str]` bằng `_normalize_attachment_items()`; chuyển `NL_Parser_Package/` & caller sang relative/package imports sạch (bỏ `sys.path.insert()` thư mục con); bổ sung docstring thang `{1:5, 2:4, 3:3, 4:1}` trong `map_user_urgency_to_solver_priority()`; thêm `validation["ai_status"]` + cảnh báo rõ khi thiếu `google-genai`/`GEMINI_API_KEY`; và giữ giờ buổi (`sáng->11:00`, `trưa->12:00`, `chiều->17:00`, `tối->21:30`) khi Gemini trả `deadline_time=None`.
 
 ---
 
@@ -100,31 +105,33 @@ Sau khi rà soát toàn diện đối chiếu mã nguồn với `Presentation2.p
 
 ## 3. Kết quả kiểm thử, Benchmark & Calibration sau chỉnh sửa cuối cùng
 
-### 3.1. Bộ kiểm thử tự động (`verification_tests/clean_runner.py` & `pytest -v`)
-* `python -B verification_tests/clean_runner.py --pass`: **`107 Passed | 0 Failed | Total: 107 Tests`** (`12.09s`, `ALL PASSED`):
+### 3.1. Bộ kiểm thử tự động (`verification_tests/clean_runner.py`, YAML NL & `pytest`)
+* `python -B verification_tests/clean_runner.py --pass`: **`141 Passed | 0 Failed | Total: 141 Tests`** (`25.27s`, `ALL PASSED`):
   * Phase 1 UI (`ui_tests`): `test_ui_contract_improve_plan.py` (`1/1`), `test_ui_endpoints.py` (`5/5`).
   * Phase 2 Architecture (`architecture_tests`): `test_memory_leaks.py` (`2/2`), `test_production_failures.py` (`3/3`), `test_system_architecture.py` (`4/4`).
-  * Phase 3 Logical (`logical_tests`): `test_circular_dependencies.py` (`4/4`), `test_estimate_buffer.py` (`34/34`), `test_generation.py` (`4/4`), `test_overload_triage.py` (`9/9`), `test_scheduling_edge_cases.py` (`3/3`), `test_sync_algorithm_fixes.py` (`14/14`), `test_undefined_behaviors.py` (`4/4`).
+  * Phase 3 Logical (`logical_tests`): `test_circular_dependencies.py` (`4/4`), `test_estimate_buffer.py` (`34/34`), `test_generation.py` (`4/4`), `test_hybrid_nl_integration.py` (`12/12`), `test_hybrid_unbiased_generalization.py` (`9/9`), `test_nl_parser_w04_integration.py` (`12/12`), `test_overload_triage.py` (`9/9`), `test_scheduling_edge_cases.py` (`3/3`), `test_sync_algorithm_fixes.py` (`15/15` — gồm `Q10` Nhịp 2 ablation & `FULL_REBUILD`), `test_undefined_behaviors.py` (`4/4`).
   * Phase 4 Benchmark (`benchmark_tests`): `test_constraints.py` (`3/3`), `test_edf_solver.py` (`2/2`), `test_feasibility_benchmarks.py` (`5/5`), `test_scenarios_t01_t10.py` (`7/7`), `test_time_grid.py` (`3/3`).
-* `python -B verification_tests/clean_runner.py --gaps`: **`5 Passed | 0 Failed | Total: 5 Tests`** (`1.64s`, `ALL PASSED`).
-* `python -B verification_tests/clean_runner.py --all`: **`112 Passed | 1 Failed | Total: 113 Tests`** (`12.59s`, `Status: 1 ISSUES/GAPS DETECTED`).
-* `python -B -m pytest -v`: **`1 failed, 112 passed, 1 warning in 12.31s`**.
-  * Bài test duy nhất fail (`test_fail_edge_sprint_mode_compression_recovery` trong `verification_tests/logical_tests/test_scheduling_edge_cases.py`) được giữ trung thực theo **`Q9`**: hệ thống từ chối tự ý nén tác vụ nguyên khối `90p` xuống `75p` khi thiếu slot rảnh trước deadline, thay bằng `INFEASIBLE_CAPACITY` + `Early Extension Alert`.
+* `python -B verification_tests/clean_runner.py --gaps`: **`5 Passed | 0 Failed | Total: 5 Tests`** (`0.93s`, `ALL PASSED`).
+* `python -B verification_tests/clean_runner.py --all` & `python -B -m pytest -q`: **`147 Passed | 0 Failed | Total: 147 Tests`** (`14.27s` / `15.25s`, `Status: ALL PASSED` — gồm cả `test_fail_edge_sprint_mode_compression_recovery` theo **`Q9` Phương án A**).
+* `validate_cases.py` & `verify_hybrid_200.py`: **`200/200 (100.0%)`** (`backend=rule`, `696.3 ms`, `3.48 ms/case`) + **Live Gemini API (`gemini-3-flash-preview`)** xác minh trực tiếp `200 OK` (`AI_GEMINI`, `ai_status="ACTIVE"`).
 
 ### 3.2. Kết quả Benchmark & CLI (`python -B benchmark_runner.py` & `python -B main.py`)
-* **Kịch bản chuẩn `T01–T10`:** `C_hard = 0` trên toàn bộ 10 kịch bản, `3x Determ = PASS` (latency `0.54 ms – 2.45 ms`). `T03` chẩn đoán `CAPACITY_SHORTAGE (shortage=90m)` (`R_dl = 50.0%`), `T06` chẩn đoán `CAPACITY_SHORTAGE (shortage=105m)` (`R_dl = 66.7%`); 8 kịch bản còn lại đạt `R_dl = 100.0%`.
+* **Kịch bản chuẩn `T01–T10`:** `C_hard = 0` trên toàn bộ 10 kịch bản, `3x Determ = PASS` (latency `0.51 ms – 3.18 ms`; riêng `T09` dưới `EDF` Energy-Blind đạt `0.51 ms`, `FragIdx = 0.000`). `T03` chẩn đoán `CAPACITY_SHORTAGE (shortage=90m)` (`R_dl = 50.0%`), `T06` chẩn đoán `CAPACITY_SHORTAGE (shortage=105m)` (`R_dl = 66.7%`); 8 kịch bản còn lại đạt `R_dl = 100.0%`.
 * **Bảng 2 — Đối sánh 5 Thuật toán trên `T01`:**
-  * `GREEDY_EDF_FIRST_FIT`: `C_hard=0`, `R_dl=100.0%`, `Blocks=7`, `FragIdx=0.000`, `1.38 ms` (`SHA-256: 394e7b2ea28a3a11...`)
-  * `GREEDY_LST_BEST_FIT`: `C_hard=0`, `R_dl=100.0%`, `Blocks=7`, `FragIdx=0.290`, `2.05 ms` (`SHA-256: e2f849322f364331...`)
-  * `GREEDY_WSPT_SMITH_RULE`: `C_hard=0`, `R_dl=100.0%`, `Blocks=7`, `FragIdx=0.000`, `1.39 ms` (`SHA-256: 6fb72da16b1cb058...`)
-  * `BACKTRACKING_BRANCH_AND_BOUND`: `C_hard=0`, `R_dl=100.0%`, `Blocks=7`, `FragIdx=0.290`, `89.26 ms` (`SHA-256: 9129eb0b8fcf2ec0...`)
-  * `SCORED_GREEDY`: `C_hard=0`, `R_dl=100.0%`, `Blocks=7`, `FragIdx=0.290`, `7.70 ms` (`SHA-256: b2260750a83e5730...`)
+  * `GREEDY_EDF_FIRST_FIT`: `C_hard=0`, `R_dl=100.0%`, `Blocks=7`, `FragIdx=0.000`, `1.26 ms` (`SHA-256: 394e7b2ea28a3a11...`)
+  * `GREEDY_LST_BEST_FIT`: `C_hard=0`, `R_dl=100.0%`, `Blocks=7`, `FragIdx=0.290`, `2.06 ms` (`SHA-256: e2f849322f364331...`)
+  * `GREEDY_WSPT_SMITH_RULE`: `C_hard=0`, `R_dl=100.0%`, `Blocks=7`, `FragIdx=0.000`, `1.50 ms` (`SHA-256: 6fb72da16b1cb058...`)
+  * `BACKTRACKING_BRANCH_AND_BOUND`: `C_hard=0`, `R_dl=100.0%`, `Blocks=7`, `FragIdx=0.290`, `96.86 ms` (`SHA-256: 9129eb0b8fcf2ec0...`)
+  * `SCORED_GREEDY`: `C_hard=0`, `R_dl=100.0%`, `Blocks=7`, `FragIdx=0.290`, `8.40 ms` (`SHA-256: b2260750a83e5730...`)
 * **Độ ổn định sự cố (`T04`) & Trượt thời lượng (`T05`):**
-  * `LOCAL_INSERTION (Targeted M4)`: **Stability = `100.00%`**, `Moved = 2 blocks`, `C_hard = 0`, `R_dl = 100.0%`, `1.54 ms`.
-  * `FULL_REBUILD (Scratch EDF)`: **Stability = `0.00%`**, `Moved = 12 blocks`, `C_hard = 0`, `R_dl = 100.0%`, `2.89 ms`.
+  * `LOCAL_INSERTION (Targeted M4)`: **Stability = `100.00%`**, `Moved = 2 blocks`, `C_hard = 0`, `R_dl = 100.0%`, `1.42 ms`.
+  * `FULL_REBUILD`: **Stability = `0.00%`**, `Moved = 12 blocks`, `C_hard = 0`, `R_dl = 100.0%`, `3.24 ms`.
   * `T05 Overrun (90m -> 135m)`: `Shifted Downstream Blocks = 2`, `C_hard = 0`, `R_dl = 100.0%`.
-* **Khả năng mở rộng (`Scalability`):** `N=10` (`1.75 ms`), `N=25` (`3.93 ms`, đạt `<= 50 ms`), `N=50` (`7.89 ms`, đạt `<= 200 ms`), đều `100% placed`, `C_hard = 0`, `[PASS]`.
-* **Kiểm chứng CLI `main.py --preset minh` (sau chỉnh sửa cuối cùng):**
+* **Khả năng mở rộng (`Scalability`):** `N=10` (`2.44 ms`), `N=25` (`3.78 ms`, đạt `<= 50 ms`), `N=50` (`8.89 ms`, đạt `<= 200 ms`), đều `100% placed`, `C_hard = 0`, `[PASS]`.
+* **Bảng 5 — Controlled Ablation `T09` (`EDF V0 Energy-Blind` vs `SCORED_GREEDY`):**
+  * `EDF`: `MORNING` `Monday 06:30-08:00 (4268107a006d)` vs `EVENING` `Monday 06:30-08:00 (4268107a006d)` (`Circadian Shift = NO (Energy-Blind V0)`).
+  * `SCORED_GREEDY`: `MORNING` `Monday 06:30-08:00 (f65266353eff)` vs `EVENING` `Monday 18:00-19:30 (ac905601e5bf)` (`Circadian Shift = YES (Adaptive)`).
+* **Kiểm chứng CLI `main.py --preset minh` (từ đợt đồng bộ Entry 008):**
   * `--solver SCORED_GREEDY`: `100.00% (9/9 tasks, 14/14 chunks)`, `C_hard=0`, `FragIdx=0.3600`, `Experience Rating: 2.48/5 (2 - Manageable) | Crunch Tier=0`, `672-Slot Breakdown: SLEEP=196 | OCCUPIED=132 | BLOCK=57 | REST=8 | FREE=279` (tổng = `672`), `SHA-256: 55c47d51a1f753eb`.
   * `--solver EDF`: `100.00% (9/9 tasks, 14/14 chunks)`, `C_hard=0`, `FragIdx=0.3600`, `Experience Rating: 2.08/5 (2 - Manageable) | Crunch Tier=0`, `672-Slot Breakdown: SLEEP=196 | OCCUPIED=132 | BLOCK=57 | REST=10 | FREE=277` (tổng = `672`), `SHA-256: a091f3a5e8385c70`.
 
@@ -139,31 +146,33 @@ Kết quả hiệu chỉnh trước đợt vá cuối trên `7` kịch bản (`M
 
 ---
 
-## 4. Những hạn chế / khoảng trống còn lại chưa thể tự quyết định (Honest Remaining Gaps)
+## 4. Những hạng mục đã đóng xong & phần còn lại cho Gói C / Bảo vệ
 
-1. **Test #113 `test_fail_edge_sprint_mode_compression_recovery` (`1 Failed` trong `--all`/`pytest -v`):** Vẫn FAIL có chủ đích do không tự nén tác vụ `90p -> 75p` khi thiếu slot, cần cả nhóm chốt ở **`Q9`**.
-2. **`M1 NL Parser` (`src/nl_parser.py`) chưa nối LLM API thật:** Đang chạy thuần `HYBRID_DETERMINISTIC` regex/rule-based offline (giữ nguyên toàn văn prompt làm `title`, mặc định `"Monday"` nếu không truyền `now`) theo hướng ưu tiên tính tất định **`Q5`**.
-3. **Thiếu form nhập liệu trên UI (`web/index.html`) cho một số trường nâng cao:** `PersonalHabit`, `horizon_days` (chỉ định 7 hoặc 14 ngày) và `planning_week_start` đã hoạt động ở Pydantic model / API / solver, nhưng chưa mở ô nhập trực quan trong Student/Lab UI.
-4. **Chưa có kịch bản stress tải cực hẹp cho `α >= 1.7` & chưa có log thực nghiệm `1-week peer study`:** 7 kịch bản của `benchmark_alpha_grid.py` đều còn quỹ rảnh lớn (`~5250–5595` phút rảnh/tuần) nên chưa chạm ngưỡng gãy deadline ở `α = 1.70`, và nhóm chưa thu thập log `actual_duration_min` thực tế ngoài đời (`Q1`, `Q7`).
-5. **Khác biệt `T09`, mặc định UI solver & `FULL_REBUILD` (`Q10`):** `EDF` và `SCORED_GREEDY` đang cho lịch giống nhau trên `T09` (do `should_prefer_energy_placement()` bật chung để pass `--gaps`); Web UI mặc định vẫn chọn `GREEDY_EDF_FIRST_FIT`; và `LocalRepairEngine._repair_full_rebuild()` hiện vẫn gọi `GreedyEDFSolver`.
-6. **File thuyết trình `Proposal/Presentation2.pdf` chưa chỉnh sửa:** Toàn bộ ký hiệu `(Unverified)`, `(Planned)`, `≥ X%`, `γ`, `M1: LLM`, và số liệu benchmark mới trên slide chỉ cập nhật sau khi cả nhóm thống nhất xong `Q1–Q10` (`Q8`).
+1. **Test #113 (`Q9`) & `Q10` (Nhịp 1 + Nhịp 2) — ĐÃ ĐÓNG:** Toàn bộ `Q9`/`Q10` đều xanh, `EDF` thuần Energy-Blind trên `T09`, Web UI & `/api/plan` mặc định `SCORED_GREEDY`, `_repair_full_rebuild()` giữ đúng solver.
+2. **Gói A.0 + Gói A.1–A.3 + Gói B (Cột mốc 2) — ĐÃ ĐÓNG (`153/153` tests):**
+   * Progressive Disclosure `#stTaskModal` (`STUDENT` Mode tối giản còn prompt + 4 trường + `<details>`, `LAB` Mode bung full).
+   * SQLite Persistence (`src/storage.py`: `GET/PUT/DELETE /api/state`, `GET /api/tasks/completions`, `POST /api/tasks/complete`), đồng bộ `localStorage`.
+   * Đồng hồ thực & đa tuần (`horizon_days=7..14`, `1344` `grid_states`, `Tuần 1/2`, `🕒 Tuần này`).
+   * Đầy đủ Sửa/Xóa Task trong Student Mode, form `PersonalHabit` (`Q7.3=A3`), `Task.start_after` + `work_rhythm` + `preferred_window` nối Solver, Student UI mặc định `COGNITIVE_LOAD`, gỡ `"offline"` trong `analyzeQuickAddHybrid()`, vá regex `OfflineNLParser` (`19h30`, `14h00 - 16h00`), cập nhật 3 file `.bat` dùng `.venv` và tách `requirements-nllb.txt`.
+3. **Chưa có kịch bản stress tải cực hẹp cho `α >= 1.7` & log thực nghiệm `1-week peer study`:** Nhóm tự thu thập thêm khi vận hành thực tế tuần tới.
+4. **Cập nhật [`Proposal/Presentation2.pdf`](Presentation2.pdf) & Gói C SaaS:** Slide `.pdf` (chưa có nguồn `.pptx` trong repo) cần nhóm chỉnh trực tiếp trên slide gốc để gỡ `(Unverified)`, `(Planned)`, `≥ X%`, `γ`; các hạng mục SaaS đa người dùng (Auth, CORS, Google Calendar sync) thuộc Gói C Post-V1.
 
 ---
 
-## 5. Tổng hợp ĐẦY ĐỦ 10 hạng mục cần nhóm thảo luận & quyết định (`Q1–Q10`)
+## 5. Tổng hợp ĐẦY ĐỦ 10 hạng mục đã chốt (`☑ Q1–Q10`)
 
-Toàn bộ nhóm cần họp biểu quyết `10` điểm sau (chi tiết lập luận & phương án xem thêm tại [`Proposal/Open_Decisions_For_Team.md`](Open_Decisions_For_Team.md)). Mặc định tạm thời hiện nay đang được gom trong [`src/config.py`](../group03-smartschedule-baseline/src/config.py) để hệ thống chạy ổn định:
+Toàn bộ danh sách và phân tích khoa học chi tiết nằm tại [`Proposal/Production_Readiness_And_Decision_Analysis.md`](Production_Readiness_And_Decision_Analysis.md) và [`Proposal/Open_Decisions_For_Team.md`](Open_Decisions_For_Team.md). Các tham số lõi được gom trong [`src/config.py`](../group03-smartschedule-baseline/src/config.py):
 
-| Mã | Hạng mục cần nhóm quyết định | Nguồn phát sinh | Mức độ ảnh hưởng | Tạm dùng hiện tại & phương án cần biểu quyết |
+| Mã | Hạng mục | Nguồn phát sinh | Mức độ ảnh hưởng | Trạng thái ĐÃ CHỐT (`17/11/2026`) |
 | :--- | :--- | :--- | :--- | :--- |
-| **`Q1`** | Hệ số buffer **`α`**, chế độ **Habit vs Cognitive Load**, quy tắc làm tròn & kế hoạch `1-week peer study` | `Presentation2.pdf` Slide 7, 17 vs `src/estimate_buffer.py` | **Cao** | Tạm giữ song song `HABIT` + `COGNITIVE_LOAD` (`α_light=1.20`, `α_heavy=1.35`, `Score=99.34`). Nhóm cần chốt: giữ `1.20/1.35` hay nâng lên `1.40` (`Score=99.90`), `RoundUp_15` vs `Nearest_15`, và bổ sung stress-test `α >= 1.7` + thu log M7 1 tuần. |
-| **`Q2`** | Hằng số suy giảm **`γ`** & giá trị biên `Urgency` cho `Habit` / `Overdue` | `Presentation2.pdf` Slide 8 (`exp(-slack / γ)`) | **Cao** | Tạm chốt `γ = 24.0` giờ, `OVERDUE_URGENCY_CAP = 1.50`, `HABIT_BASE_URGENCY = 0.20` (đã thay chỗ bỏ trống `γ` trên Slide 8). Nhóm cần xác nhận chính thức `3` hằng số này. |
-| **`Q3`** | **Pattern 3 (Circadian Matching):** Cứng (`strictly`) hay Mềm (`Soft`)? | Slide 7 (*strictly*) vs Slide 9 (*Soft*) | **Cao** | Đang chạy cơ chế mềm 2 tầng (ưu tiên Level-3, fallback Level-2 trước deadline, hạ Level-1 khi Crunch). Nhóm chốt giữ mềm để tránh rớt deadline oan hay khóa cứng theo Slide 7. |
-| **`Q4`** | Ngưỡng ổn định **`X%`** khi sửa lịch (`Schedule Stability` — Pattern 8) | Slide 5 & Slide 8 (`≥ X%`) | **Trung bình** | Tạm chốt **`X = 90%`** (khớp `Proposal_Report.pdf`; `T04 LOCAL_INSERTION` đạt `100.00%`). Nhóm duyệt chốt số `90%` để thay `≥ X%` trên slide. |
-| **`Q5`** | **M1 NL Parser:** Dùng LLM API thật hay giữ Deterministic Parser (offline)? | Slide 10 (`M1: LLM`) vs `src/nl_parser.py` | **Trung bình** | Hiện dùng **Deterministic Parser** offline (`HYBRID_DETERMINISTIC`, không tốn quota/mạng, giữ SHA-256 tất định). Nhóm chốt giữ Hybrid (offline mặc định + hook LLM tùy chọn khi có key) hay tích hợp LLM bắt buộc. |
-| **`Q6`** | Biên kỹ thuật **Pattern 2 (`15m REST`)**, **Pattern 5 (`< 30m` Dead-zone)** & **auto-split `> 90m`** | Slide 6, 7, 8, 13, 16 vs `src/models.py` | **Cao** | Tạm dùng: nghỉ `15p` sau phiên `>= 90p` hoặc `Load == 3` (trừ khi sát `SLEEP`/`OCCUPIED`), dead-zone cấm deep work, task `> 90m` auto-split nếu không truyền `is_splittable=False`. Nhóm chốt 3 ranh giới này (tránh ảnh hưởng ngược `T03`/`T06`). |
-| **`Q7`** | Công thức **`Experience Rating (1–5)`**, trọng số **`Category Batching`** & UI `PersonalHabit` | Slide 6, 7 vs `src/metrics.py` | **Trung bình** | Đã cài hàm 4 thành phần chuẩn hóa `[1.0..5.0]`, `CATEGORY_BATCH_BONUS=0.35`, `CONTEXT_SWITCH_PENALTY=0.25`. Nhóm duyệt trọng số các thành phần và quyết định có mở form `PersonalHabit`/`horizon_days` trên Web UI hay không. |
-| **`Q8`** | Quy trình hợp nhất nhánh `origin/hmanh` & lộ trình sửa `Presentation2.pdf` | Git `main` (`4c0a85a`) vs `origin/hmanh` (`5d8a30d`) | **Rất cao** | Dùng `ltbinh/sync-proposal` (port chọn lọc `overload_triage` + giữ `estimate_buffer` & Student UI) để tránh xung đột 47 file; sau khi duyệt `Q1–Q10`, xóa `(Unverified)` / `(Planned)` trên `Presentation2.pdf`. |
-| **`Q9`** | **Sprint Mode Tier 1** có tự nén thời lượng task gốc (`90m -> 75m`) không? (`#113` fail) | `test_scheduling_edge_cases.py` (`test_fail_edge_sprint_mode_compression_recovery`) | **Cao** | **Phương án A (đề xuất):** Giữ nguyên tắc không tự cắt xén task người dùng, chuyển Sprint Mode sang gợi ý `SHORTEN_TASK` + `Early Extension Alert` và cập nhật spec bài test #113. **Phương án B:** Cho phép tự nén tối đa `X%` khi sát deadline. |
-| **`Q10`** | Tách rạch ròi **`EDF` V0 (Energy-Blind)** vs **`SCORED_GREEDY`** trên `T09` & Solver mặc định Web UI | `base_solver.py` vs `web/index.html`, `web/app.js`, `local_repair.py` | **Cao** | Chốt (1) Có tách `EDF` thành thuần Energy-Blind trên `T09` & sửa `--gaps` sang `SCORED_GREEDY` để đối chứng R&D rõ ràng không; (2) Chốt mặc định Web UI dùng `SCORED_GREEDY` hay giữ `GREEDY_EDF_FIRST_FIT`, và `FULL_REBUILD` có giữ nguyên solver đang chọn thay vì hardcode `EDF` không. |
+| **`Q1`** | Hệ số buffer **`α`**, chế độ **Habit vs Cognitive Load**, quy tắc làm tròn & `Loss(α)` | `Presentation2.pdf` Slide 7, 17 vs `src/estimate_buffer.py` | **Cao** | **☑ ĐÃ CHỐT:** Dual-Mode; Student UI mặc định `COGNITIVE_LOAD` (`1.20/1.35`, `RoundUp_15`), giữ `"HABIT"` V0 fallback; `Q1.3` dùng hàm `composite` sẵn có trong `benchmark_alpha_grid.py` + pilot 7 ngày + stress `α >= 1.7`. |
+| **`Q2`** | Hằng số suy giảm **`γ`** & giá trị biên `Urgency` cho `Habit` / `Overdue` | `Presentation2.pdf` Slide 8 (`exp(-slack / γ)`) | **Cao** | **☑ ĐÃ CHỐT:** `γ = 24.0` giờ, `OVERDUE_URGENCY_CAP = 1.50`, `HABIT_BASE_URGENCY = 0.20`; đổi nhãn Slide 8 thành *Exponential Urgency*. |
+| **`Q3`** | **Pattern 3 (Circadian Matching):** Cứng (`strictly`) hay Mềm (`Soft`)? | Slide 7 (*strictly*) vs Slide 9 (*Soft*) | **Cao** | **☑ ĐÃ CHỐT:** Cơ chế **Mềm 2 tầng** (ưu tiên Level-3, fallback Level-2 trước deadline, hạ Level-1 khi Crunch); bỏ *"strictly"* Slide 7. |
+| **`Q4`** | Ngưỡng ổn định **`X%`** khi sửa lịch (`Schedule Stability` — Pattern 8) | Slide 5 & Slide 8 (`≥ X%`) | **Trung bình** | **☑ ĐÃ CHỐT:** **`X = 90%`** (`T04 LOCAL_INSERTION` đạt `100.00%`). |
+| **`Q5`** | **M1 NL Parser:** Dùng LLM API hay Deterministic Parser (offline)? | Slide 10 (`M1: LLM`) vs `src/nl_parser.py` | **Trung bình** | **☑ ĐÃ CHỐT & KIỂM CHỨNG LIVE:** Hybrid Dual-Engine (`Offline` 6 tầng tất định + Gemini xem trước LoA Level 4, giữ Solver SHA-256); thêm Progressive Disclosure `Gói A.0` ở Mốc 2. |
+| **`Q6`** | Biên kỹ thuật **Pattern 2 (`15m REST`)**, **Pattern 5 (`< 30m` Dead-zone)** & **auto-split `> 90m`** | Slide 6, 7, 8, 13, 16 vs `src/models.py` | **Cao** | **☑ ĐÃ CHỐT (`Q6.2 = A2`):** Nghỉ `15p` sau `>= 90p`/`Load >= 3` trên ô `FREE`; khóa mọi dead-zone `<= 1 slot` kể cả `Load-1` ở lượt thường, mở ở Tier-1 Crunch; auto-split `> 90m` trừ `False`. |
+| **`Q7`** | Công thức **`Experience Rating (1–5)`**, **`Category Batching`**, & **`PersonalHabit`** | Slide 6, 7 vs `src/metrics.py` | **Trung bình** | **☑ ĐÃ CHỐT (`Q7.3 = A3`):** Lock 4 thành phần `[1..5]`, `0.35 / 0.25`; `PersonalHabit` dùng **`1 preferred_window + frequency_per_week`** (mở UI & nối Solver ở Mốc 2) + pilot 1 tuần. |
+| **`Q8`** | Hợp nhất nhánh & lộ trình sửa `Presentation2.pdf` | Git `M1-NL-Parser` vs `main` | **Rất cao** | **☑ ĐÃ CHỐT:** Đã hoàn tất Cổng Pre-Merge -> Merge PR #4 vào `main` -> sang Mốc 2 & cập nhật `Presentation2.pdf`. |
+| **`Q9`** | **Sprint Mode Tier 1** có tự nén thời lượng task gốc (`90m -> 75m`) không? | `test_scheduling_edge_cases.py` | **Cao** | **☑ ĐÃ CHỐT PHƯƠNG ÁN A:** Tier-1 chỉ cắt nghỉ/dead-zone; rút ngắn phải qua `SHORTEN_TASK` + `Early Extension Alert` (`147/147 PASS`). |
+| **`Q10`** | Tách rạch ròi **`EDF` V0** vs **`SCORED_GREEDY`** (`T09`) & Solver mặc định Web UI | `base_solver.py` vs `web/index.html`, `web/app.js`, `web/api.py`, `local_repair.py` | **Cao** | **☑ ĐÃ HOÀN TẤT CẢ 2 NHỊP:** (1) UI & `/api/plan` mặc định **`SCORED_GREEDY`**; (2) `EDF`/`LST`/`WSPT` thuần Energy-Blind (`T09` Bảng 5), `--gaps` dùng `SCORED_GREEDY`, `_repair_full_rebuild()` giữ đúng solver qua `src/solvers/registry.py`. |
 

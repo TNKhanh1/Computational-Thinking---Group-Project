@@ -36,7 +36,7 @@ from src.models import (
 )
 from src.overload_triage import OverloadTriageEngine
 from src.solvers.base_solver import BaseScheduler
-from src.solvers.greedy_edf import GreedyEDFSolver
+from src.solvers.registry import resolve_solver
 from src.utils import (
     MINUTES_PER_SLOT,
     SLOTS_PER_WEEK,
@@ -78,13 +78,20 @@ class LocalRepairEngine:
         current_schedule: ScheduleOutput,
         disruption: DisruptionEvent,
         mode: str = "LOCAL_INSERTION",
+        algorithm: Optional[str] = None,
     ) -> RepairOutput:
         mode_norm = mode.strip().upper()
         if mode_norm in ("LOCAL", "LOCAL_REPAIR", "LOCAL_INSERTION"):
             return cls._repair_local_insertion(profile, tasks, current_schedule, disruption)
         elif mode_norm in ("RIPPLE", "RIPPLE_SHIFT"):
             return cls._repair_ripple_shift(profile, tasks, current_schedule, disruption)
-        return cls._repair_full_rebuild(profile, tasks, current_schedule, disruption)
+        return cls._repair_full_rebuild(
+            profile,
+            tasks,
+            current_schedule,
+            disruption,
+            algorithm=algorithm,
+        )
 
     @staticmethod
     def _record_move_change(
@@ -332,7 +339,11 @@ class LocalRepairEngine:
         t0 = time.perf_counter()
         week_start_iso = profile.planning_week_start
         d_start, d_end, now_slot = cls.resolve_disruption_slots(disruption, week_start_iso=week_start_iso)
-        horizon_slots = BaseScheduler.resolve_horizon_slots(tasks, week_start_iso=week_start_iso)
+        horizon_slots = BaseScheduler.resolve_horizon_slots(
+            tasks,
+            week_start_iso=week_start_iso,
+            horizon_days=getattr(profile, "horizon_days", 7),
+        )
 
         updated_profile = profile.model_copy(deep=True)
         updated_profile.fixed_events.append(
@@ -574,8 +585,9 @@ class LocalRepairEngine:
         tasks: List[Task],
         current_schedule: ScheduleOutput,
         disruption: DisruptionEvent,
+        algorithm: Optional[str] = None,
     ) -> RepairOutput:
-        """Full Regeneration / Global Rebuild baseline for stability comparison."""
+        """Full Regeneration / Global Rebuild respecting the active scheduling algorithm."""
         t0 = time.perf_counter()
         week_start_iso = profile.planning_week_start
         d_start, d_end, _ = cls.resolve_disruption_slots(disruption, week_start_iso=week_start_iso)
@@ -599,7 +611,8 @@ class LocalRepairEngine:
             if b.state in ("PINNED", "DONE") and (b.end_slot <= d_start or b.start_slot >= d_end)
         ]
 
-        solver = GreedyEDFSolver()
+        eff_algo = algorithm or getattr(current_schedule, "solver_used", None) or "EDF"
+        solver = resolve_solver(eff_algo)
         rebuilt_output, rebuilt_grid = solver.solve(updated_profile, tasks, pinned_blocks=pinned_blocks)
 
         rebuilt_map = {(b.task_id, b.chunk_index): b for b in rebuilt_output.blocks}
@@ -668,7 +681,11 @@ class LocalRepairEngine:
         t0 = time.perf_counter()
         week_start_iso = profile.planning_week_start
         d_start, d_end, now_slot = cls.resolve_disruption_slots(disruption, week_start_iso=week_start_iso)
-        horizon_slots = BaseScheduler.resolve_horizon_slots(tasks, week_start_iso=week_start_iso)
+        horizon_slots = BaseScheduler.resolve_horizon_slots(
+            tasks,
+            week_start_iso=week_start_iso,
+            horizon_days=getattr(profile, "horizon_days", 7),
+        )
 
         updated_profile = profile.model_copy(deep=True)
         updated_profile.fixed_events.append(
@@ -804,7 +821,11 @@ class LocalRepairEngine:
         """
         t0 = time.perf_counter()
         week_start_iso = profile.planning_week_start
-        horizon_slots = BaseScheduler.resolve_horizon_slots(updated_tasks, week_start_iso=week_start_iso)
+        horizon_slots = BaseScheduler.resolve_horizon_slots(
+            updated_tasks,
+            week_start_iso=week_start_iso,
+            horizon_days=getattr(profile, "horizon_days", 7),
+        )
         resolved_now = BaseScheduler.resolve_now_slot(profile) if now_slot is None else now_slot
 
         grid = TimeGridManager(total_slots=horizon_slots)
@@ -1107,7 +1128,7 @@ class LocalRepairEngine:
             overload_reports=overload_reports,
             overload=overload_reports[0] if overload_reports else None,
             warnings=all_warnings,
-            grid_states=list(grid.grid[:SLOTS_PER_WEEK]),
+            grid_states=list(grid.grid[:grid.total_slots]),
         )
         OverloadTriageEngine.enrich_schedule_overload(schedule_out, profile, tasks)
 

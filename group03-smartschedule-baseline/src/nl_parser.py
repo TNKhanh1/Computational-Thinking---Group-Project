@@ -566,36 +566,67 @@ class OfflineNLParser:
                 return f"{hh:02d}:00", False, False, True
 
         # 6. Coarse keyword windows (normalized: trưa/noon -> 12:00 instead of W04's MORNING 09:00 bug)
-        if re.search(r"\b(?:trua|noon)\b", norm_text):
-            return "12:00", True, False, False
-        if re.search(r"\b(?:chieu|afternoon)\b", norm_text):
-            return "17:00", True, False, False
-        if re.search(r"\b(?:toi|evening)\b", norm_text):
-            return "21:30", True, False, False
-        if re.search(r"\b(?:sang|morning)\b", norm_text):
-            return "11:00", True, False, False
+        coarse_time = self.extract_coarse_window_time(norm_text)
+        if coarse_time is not None:
+            return coarse_time, True, False, False
 
         return None, True, False, False
 
+    @staticmethod
+    def extract_coarse_window_time(norm_text: str) -> Optional[str]:
+        """Resolve coarse time-of-day anchors when no explicit clock hour is present."""
+        if re.search(r"\b(?:trua|noon)\b", norm_text):
+            return "12:00"
+        if re.search(r"\b(?:chieu|afternoon)\b", norm_text):
+            return "17:00"
+        if re.search(r"\b(?:toi|evening)\b", norm_text):
+            return "21:30"
+        if re.search(r"\b(?:sang|morning)\b", norm_text):
+            return "11:00"
+        return None
+
     def extract_duration_min(self, norm_text: str) -> Tuple[Optional[int], bool]:
-        """Extract duration in minutes while stripping clock-time tokens first."""
+        """Extract duration in minutes while stripping clock-time tokens and ranges first."""
+        # Strip explicit clock ranges first (e.g. "14h00 - 16h00", "14:00 - 16:00", "tu 19h30 den 21h")
         cleaned = re.sub(
-            r"\b(?:truoc|before|by|at|luc|han|deadline|vao)\s+\d{1,2}\s*(?:h|gio|:)\s*(?:\d{1,2}|ruoi)?\s*(?:sang|trua|chieu|toi|dem)?\b",
+            r"\b(?:tu\s+)?\d{1,2}\s*(?:h|gio|:)\s*\d{0,2}\s*(?:-|–|—|den|toi|to)\s*\d{1,2}\s*(?:h|gio|:)\s*\d{0,2}\b",
             " ",
             norm_text,
         )
+        # Strip deadline / clock-preposition expressions (including optional minutes like "truoc 18h30", "luc 19h30")
+        cleaned = re.sub(
+            r"\b(?:truoc|before|by|at|luc|han|deadline|vao)\s+\d{1,2}\s*(?:h|gio|:)\s*(?:\d{1,2}|ruoi)?\s*(?:sang|trua|chieu|toi|dem)?\b",
+            " ",
+            cleaned,
+        )
         cleaned = re.sub(r"\b\d{1,2}:\d{2}\s*(?:am|pm)?\b", " ", cleaned)
         cleaned = re.sub(r"\b\d{1,2}\s*(?:am|pm)\b", " ", cleaned)
+        # Strip unambiguous 24h clock expressions with h/gio (13h..23h, e.g. "19h30", "14h00")
         cleaned = re.sub(
-            r"\b(sang|trua|chieu|toi|dem)\s+(?:nay|mai|mot|kia|t[2-7]|cn|thu\s*(?:[2-7]|hai|ba|tu|nam|sau|bay)|chu\s*nhat)?\s*\d{1,2}\s*(?:h|gio)\b",
+            r"\b(?:1[3-9]|2[0-3])\s*(?:h|gio)\s*(?:\d{1,2}|ruoi)?\b",
             " ",
             cleaned,
         )
         cleaned = re.sub(
-            r"\b\d{1,2}\s*(?:h|gio)\s*(?:ruoi)?\s*(?:sang|trua|chieu|toi|dem)\b",
+            r"\b(sang|trua|chieu|toi|dem)\s+(?:nay|mai|mot|kia|t[2-7]|cn|thu\s*(?:[2-7]|hai|ba|tu|nam|sau|bay)|chu\s*nhat)?\s*\d{1,2}\s*(?:h|gio)\s*(?:\d{1,2}|ruoi)?\b",
             " ",
             cleaned,
         )
+        cleaned = re.sub(
+            r"\b\d{1,2}\s*(?:h|gio)\s*(?:\d{1,2}|ruoi)?\s*(?:sang|trua|chieu|toi|dem)\b",
+            " ",
+            cleaned,
+        )
+
+        # Explicit duration-prefixed minutes (e.g. "khoang 90p", "trong 45 phut") outrank bare hour-like tokens
+        m_cue = re.search(
+            r"\b(?:khoang|mat|trong|tam|het|du\s*kien|roughly|about|for)\s+(\d+)\s*(?:phut|mins?|minutes?|m|p)\b",
+            cleaned,
+        )
+        if m_cue:
+            mins = int(m_cue.group(1))
+            if 10 <= mins <= 1200:
+                return mins, False
 
         # Compound: 1h30 / 1h30m / 2 gio 15 phut
         m = re.search(r"\b(\d+)\s*(?:h|gio|tieng)\s*(\d{1,2})\s*(?:m|min|phut|p)?\b", cleaned)
@@ -850,7 +881,10 @@ class GeminiNLParser:
             "set intent_type='FIXED_EVENT', is_fixed_event=true, start_time='HH:MM', and fixed_category in "
             "{ACADEMIC_CLASS, MEAL, WORK, MEETING}. For homework/study deadlines (e.g. 'trước 17h thứ 6'), "
             "set is_fixed_event=false and deadline_time='17:00'.\n"
-            "6. Leave duration_min or deadline_day null ONLY if omitted in the prompt.\n"
+            "6. If a study task mentions a coarse Vietnamese/English time-of-day window without an exact hour, "
+            "map it to: 'sáng'/'morning' -> '11:00', 'trưa'/'noon' -> '12:00', 'chiều'/'afternoon' -> '17:00', "
+            "'tối'/'evening' -> '21:30'.\n"
+            "7. Leave duration_min or deadline_day null ONLY if omitted in the prompt.\n"
         )
 
     def parse(self, raw: str, *, now_day: str, existing_count: int) -> Dict[str, Any]:
@@ -908,6 +942,12 @@ class GeminiNLParser:
             parsed.cognitive_load,
             parsed.is_splittable,
         )
+        eff_deadline_time = parsed.deadline_time
+        eff_time_inferred = parsed.deadline_time is None and not parsed.start_time
+        if eff_deadline_time is None and not parsed.start_time and not parsed.is_fixed_event:
+            coarse_dl = OfflineNLParser.extract_coarse_window_time(norm_raw)
+            if coarse_dl is not None:
+                eff_deadline_time = coarse_dl
         loc = _capitalize_first(parsed.location.strip()) if parsed.location and parsed.location.strip() else None
 
         return _finalize_parsed_payload(
@@ -922,8 +962,8 @@ class GeminiNLParser:
             dur_inferred=parsed.duration_min is None,
             deadline_day=norm_day,
             day_inferred=day_inferred,
-            deadline_time=parsed.deadline_time,
-            time_inferred=parsed.deadline_time is None and not parsed.start_time,
+            deadline_time=eff_deadline_time,
+            time_inferred=eff_time_inferred,
             start_time=parsed.start_time,
             is_fixed_event=parsed.is_fixed_event,
             fixed_category=parsed.fixed_category,
@@ -945,13 +985,13 @@ class NLParserController:
 
     @staticmethod
     def _load_hybrid_module():
-        for candidate in (_PROJECT_ROOT / "NL_Parser_Package", _REPO_ROOT / "NL_Parser_Package"):
-            if candidate.is_dir():
-                pkg_str = str(candidate)
-                if pkg_str not in sys.path:
-                    sys.path.insert(0, pkg_str)
+        for parent in (_PROJECT_ROOT, _REPO_ROOT):
+            if (parent / "NL_Parser_Package" / "__init__.py").is_file():
+                parent_str = str(parent)
+                if parent_str not in sys.path:
+                    sys.path.insert(0, parent_str)
                 try:
-                    import hybrid_parser as _hp  # type: ignore
+                    from NL_Parser_Package import hybrid_parser as _hp
 
                     return _hp
                 except Exception:
@@ -1130,11 +1170,13 @@ class NLParserController:
             try:
                 ai_engine = GeminiNLParser(api_key=api_key)
                 res = ai_engine.parse(raw, now_day=now_day, existing_count=existing_count)
+                res.setdefault("validation", {})["ai_status"] = "ACTIVE"
                 return self._enrich_with_hybrid(
                     raw, res, now=now, existing_count=existing_count, ui=ui, translation_backend=translation_backend
                 )
             except Exception as exc:
                 result = self.offline.parse(raw, now_day=now_day, existing_count=existing_count)
+                result.setdefault("validation", {})["ai_status"] = "FALLBACK_AFTER_ERROR"
                 result.setdefault("assumptions", []).append(
                     f"AI Engine unavailable ({type(exc).__name__}); automatically fell back to Offline Deterministic engine."
                 )
@@ -1143,6 +1185,19 @@ class NLParserController:
                 )
 
         result = self.offline.parse(raw, now_day=now_day, existing_count=existing_count)
+        if requested_engine == "offline":
+            result.setdefault("validation", {})["ai_status"] = "OFFLINE_REQUESTED"
+        elif api_key and genai is None:
+            result.setdefault("validation", {})["ai_status"] = "MISSING_GOOGLE_GENAI_PACKAGE"
+            result.setdefault("assumptions", []).append(
+                "GEMINI_API_KEY is set, but `google-genai` is missing; fell back to Offline Deterministic engine."
+            )
+        elif not api_key:
+            result.setdefault("validation", {})["ai_status"] = "MISSING_API_KEY"
+            if requested_engine == "ai":
+                result.setdefault("assumptions", []).append(
+                    "AI engine was requested, but GEMINI_API_KEY is missing; fell back to Offline Deterministic engine."
+                )
         return self._enrich_with_hybrid(
             raw, result, now=now, existing_count=existing_count, ui=ui, translation_backend=translation_backend
         )

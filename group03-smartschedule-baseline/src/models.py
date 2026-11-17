@@ -5,6 +5,7 @@ Supports both:
   2. Improve Plan Contract (improve_plan.md §7: ISO-8601 datetimes, explicit `now`, reason codes)
 """
 
+import re
 from typing import Any, Dict, List, Optional, Tuple, Union
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -21,10 +22,17 @@ from src.utils import (
     iso_to_slot,
     iso_to_slot_with_status,
     minutes_to_slots,
+    parse_time_to_slot_offset,
     round_up_to_15,
     slot_to_day_time,
     slot_to_iso,
 )
+
+WORK_RHYTHM_BOUNDS: Dict[str, Tuple[int, int]] = {
+    "LIGHT": (30, 45),
+    "BALANCED": (45, 90),
+    "FLOW": (60, 120),
+}
 
 GRADE_WEIGHT_TO_PRIORITY = {
     "30+": 5,
@@ -175,6 +183,12 @@ class CommitmentsProfile(BaseModel):
     )
     alpha_light: float = Field(default=ALPHA_LIGHT_DEFAULT, ge=1.0, le=2.0)
     alpha_heavy: float = Field(default=ALPHA_HEAVY_DEFAULT, ge=1.0, le=2.0)
+    horizon_days: int = Field(
+        default=7,
+        ge=7,
+        le=14,
+        description="Planning horizon in days (7 for single week, 14 for multi-week)",
+    )
     personal_habits: List[PersonalHabit] = Field(default_factory=list)
 
     @field_validator("estimate_habit", mode="before")
@@ -218,6 +232,18 @@ class Task(BaseModel):
     min_chunk_min: int = Field(default=45, ge=15, description="Minimum chunk length in minutes")
     max_chunk_min: int = Field(default=90, ge=15, description="Maximum chunk length in minutes")
     depends_on: List[str] = Field(default_factory=list, description="Prerequisite task_ids that must finish first")
+    start_after: Optional[str] = Field(
+        default=None,
+        description="Optional release lower bound (ISO-8601 datetime, 'Day HH:MM', or 'HH:MM')",
+    )
+    work_rhythm: Optional[str] = Field(
+        default=None,
+        description="Optional chunking preset (LIGHT | BALANCED | FLOW | CUSTOM)",
+    )
+    preferred_window: Optional[str] = Field(
+        default=None,
+        description="Optional preferred time-of-day window (MORNING | AFTERNOON | EVENING | ANYTIME)",
+    )
     cognitive_load: Optional[int] = Field(default=None, description="Optional 1..3 load (ignored by pure V0 EDF/LST)")
     buffer_multiplier: float = Field(
         default=1.0,
@@ -286,6 +312,23 @@ class Task(BaseModel):
         if not out.get("title"):
             out["title"] = out.get("task_id", "Untitled Task")
 
+        raw_rhythm = str(out.get("work_rhythm") or "").strip().upper()
+        if raw_rhythm in WORK_RHYTHM_BOUNDS:
+            out["work_rhythm"] = raw_rhythm
+            if out.get("min_chunk_min") is None and out.get("max_chunk_min") is None:
+                out["min_chunk_min"], out["max_chunk_min"] = WORK_RHYTHM_BOUNDS[raw_rhythm]
+        elif raw_rhythm == "CUSTOM":
+            out["work_rhythm"] = "CUSTOM"
+        else:
+            out["work_rhythm"] = None if not out.get("work_rhythm") else raw_rhythm
+
+        if out.get("preferred_window") is not None:
+            pw = str(out.get("preferred_window") or "").strip().upper()
+            out["preferred_window"] = pw if pw in ("MORNING", "AFTERNOON", "EVENING", "ANYTIME") else None
+
+        if out.get("start_after") is not None and not str(out.get("start_after")).strip():
+            out["start_after"] = None
+
         if out.get("min_chunk_min") is None or int(out.get("min_chunk_min", 0) or 0) < 15:
             out["min_chunk_min"] = 45
 
@@ -293,7 +336,14 @@ class Task(BaseModel):
 
     @model_validator(mode="after")
     def apply_auto_splitting_default(self) -> "Task":
-        """A10 / Presentation2 Step 2: auto-split >max_chunk_min tasks unless explicitly locked unsplittable."""
+        """Apply explicit work_rhythm bounds when omitted, then auto-split >max_chunk_min unless locked."""
+        rhythm = (self.work_rhythm or "").strip().upper()
+        if (
+            rhythm in WORK_RHYTHM_BOUNDS
+            and "min_chunk_min" not in self.model_fields_set
+            and "max_chunk_min" not in self.model_fields_set
+        ):
+            self.min_chunk_min, self.max_chunk_min = WORK_RHYTHM_BOUNDS[rhythm]
         if "is_splittable" not in self.model_fields_set and self.duration_min > self.max_chunk_min:
             self.is_splittable = True
         return self
@@ -331,6 +381,24 @@ class Task(BaseModel):
             d_time = self.deadline_time if self.deadline_time else "23:59"
             return day_time_to_slot(self.deadline_day, d_time, is_end_or_deadline=True), False, False
         return None, False, False
+
+    def resolve_start_after_slot(self, week_start_iso: str = "2026-11-02T00:00:00+07:00") -> Optional[int]:
+        """Resolve optional release lower bound (`start_after`) into a 0-based slot index."""
+        raw = (self.start_after or "").strip()
+        if not raw:
+            return None
+        try:
+            if re.match(r"^\d{4}-\d{2}-\d{2}", raw):
+                return iso_to_slot(raw, week_start_iso=week_start_iso, is_end_or_deadline=False)
+            if re.match(r"^\d{1,2}:\d{2}$", raw):
+                return parse_time_to_slot_offset(raw, is_end_or_deadline=False)
+            if " " in raw:
+                day_part, time_part = raw.rsplit(" ", 1)
+                if re.match(r"^\d{1,2}:\d{2}$", time_part):
+                    return day_time_to_slot(day_part.strip(), time_part.strip(), is_end_or_deadline=False)
+            return day_time_to_slot(raw, "00:00", is_end_or_deadline=False)
+        except Exception:
+            return None
 
     def resolve_deadline_slot(self, week_start_iso: str = "2026-11-02T00:00:00+07:00") -> Optional[int]:
         """
@@ -373,6 +441,7 @@ class TaskChunk(BaseModel):
     min_chunk_min: int = 45
     cognitive_load: Optional[int] = None
     category: str = "DEADLINE"
+    preferred_window: Optional[str] = None
 
 
 class ScheduleBlock(BaseModel):

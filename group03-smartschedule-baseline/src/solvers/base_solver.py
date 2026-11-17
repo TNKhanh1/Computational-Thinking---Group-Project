@@ -43,6 +43,7 @@ from src.models import (
 from src.utils import (
     MAX_HORIZON_SLOTS,
     MINUTES_PER_SLOT,
+    SLOTS_PER_DAY,
     SLOTS_PER_WEEK,
     day_time_to_slot,
     iso_to_slot,
@@ -78,13 +79,17 @@ class BaseScheduler(ABC):
     def resolve_horizon_slots(
         tasks: List[Task],
         week_start_iso: str = "2026-11-02T00:00:00+07:00",
+        horizon_days: int = 7,
     ) -> int:
-        """A8: Automatically expand grid horizon to 2 weeks (1344 slots) for cross-week deadlines."""
+        """Expand grid horizon up to 2 weeks (1344 slots) for multi-week planning or cross-week deadlines."""
+        base_horizon = SLOTS_PER_WEEK
+        if horizon_days and int(horizon_days) > 7:
+            base_horizon = max(SLOTS_PER_WEEK, min(MAX_HORIZON_SLOTS, int(horizon_days) * SLOTS_PER_DAY))
         for t in tasks:
             d_slot = t.resolve_deadline_slot(week_start_iso=week_start_iso)
             if d_slot is not None and d_slot > SLOTS_PER_WEEK:
                 return MAX_HORIZON_SLOTS
-        return SLOTS_PER_WEEK
+        return base_horizon
 
     @staticmethod
     def split_task_into_chunks(
@@ -123,6 +128,7 @@ class BaseScheduler(ABC):
                     min_chunk_min=min_chunk,
                     cognitive_load=task.cognitive_load,
                     category=task.category,
+                    preferred_window=task.preferred_window,
                 )
             ]
 
@@ -165,6 +171,7 @@ class BaseScheduler(ABC):
                     min_chunk_min=min_chunk,
                     cognitive_load=task.cognitive_load,
                     category=task.category,
+                    preferred_window=task.preferred_window,
                 )
             )
         return chunks
@@ -482,21 +489,39 @@ class BaseScheduler(ABC):
                 else:
                     batch_score -= CONTEXT_SWITCH_PENALTY
 
+        # Pattern 3b: Optional preferred time-of-day window (e.g., PersonalHabit MORNING / AFTERNOON / EVENING)
+        pref_win = (getattr(chunk, "preferred_window", None) or "").strip().upper()
+        window_bonus = 0.0
+        if pref_win in ("MORNING", "AFTERNOON", "EVENING"):
+            in_window = 0
+            for s in range(start_slot, start_slot + chunk.duration_slots):
+                tod = s % SLOTS_PER_DAY
+                if pref_win == "MORNING" and 24 <= tod < 48:
+                    in_window += 1
+                elif pref_win == "AFTERNOON" and 48 <= tod < 72:
+                    in_window += 1
+                elif pref_win == "EVENING" and 72 <= tod < 92:
+                    in_window += 1
+            frac = in_window / float(max(1, chunk.duration_slots))
+            if frac >= 0.999:
+                window_bonus = 8.0
+            elif frac >= 0.5:
+                window_bonus = 2.5
+            else:
+                window_bonus = -5.0
+
         # Small chronological preference so earliest slot still wins ties deterministically
         early_bias = -0.002 * start_slot
-        return (energy_score + batch_score + early_bias), avg_energy
+        return (energy_score + batch_score + window_bonus + early_bias), avg_energy
 
     @staticmethod
     def should_prefer_energy_placement(profile: CommitmentsProfile, chunk: TaskChunk) -> bool:
         """
-        Use Circadian & Batching candidate ranking whenever explicit focus_preference,
-        energy_profile, or chunk.cognitive_load is specified. Keeps V0 first-fit untouched otherwise.
+        Keep Baseline V0 greedy solvers (EDF, LST, WSPT) strictly Energy-Blind.
+        Subclasses implementing Circadian & Category Batching (SCORED_GREEDY, BACKTRACK)
+        explicitly override this hook.
         """
-        return bool(
-            profile.focus_preference is not None
-            or profile.energy_profile is not None
-            or (chunk.cognitive_load is not None)
-        )
+        return False
 
     @staticmethod
     def find_valid_start_slots(
@@ -521,8 +546,9 @@ class BaseScheduler(ABC):
                 run_len = 0
         return valid
 
-    @staticmethod
+    @classmethod
     def build_chunk_reasons(
+        cls,
         task: Task,
         chunk: TaskChunk,
         start_slot: int,
@@ -550,23 +576,25 @@ class BaseScheduler(ABC):
             "text": primary_text,
         })
 
+        energy_aware = cls.should_prefer_energy_placement(profile, chunk)
         energy_prof = profile.get_energy_profile()
         load = chunk.cognitive_load
         pref_label = energy_prof.focus_preference
-        if load is not None and load >= 3 and avg_energy < 1.8:
-            codes.append({
-                "code": "ENERGY_FALLBACK",
-                "energy_level": round(avg_energy, 2),
-                "focus_preference": pref_label,
-                "text": f"Xếp vào khung năng lượng thấp hơn ({avg_energy:.1f}/3) để đảm bảo kịp hạn ({pref_label}).",
-            })
-        else:
-            codes.append({
-                "code": "ENERGY_MATCH",
-                "energy_level": round(avg_energy, 2),
-                "focus_preference": pref_label,
-                "text": f"Khớp nhịp sinh học ({pref_label}, mức năng lượng {avg_energy:.1f}/3).",
-            })
+        if energy_aware:
+            if load is not None and load >= 3 and avg_energy < 1.8:
+                codes.append({
+                    "code": "ENERGY_FALLBACK",
+                    "energy_level": round(avg_energy, 2),
+                    "focus_preference": pref_label,
+                    "text": f"Xếp vào khung năng lượng thấp hơn ({avg_energy:.1f}/3) để đảm bảo kịp hạn ({pref_label}).",
+                })
+            else:
+                codes.append({
+                    "code": "ENERGY_MATCH",
+                    "energy_level": round(avg_energy, 2),
+                    "focus_preference": pref_label,
+                    "text": f"Khớp nhịp sinh học ({pref_label}, mức năng lượng {avg_energy:.1f}/3).",
+                })
 
         if has_prereq:
             codes.append({
@@ -602,7 +630,7 @@ class BaseScheduler(ABC):
             for b in placed_blocks
             if b.task_id != chunk.task_id
         )
-        if batched:
+        if energy_aware and batched:
             codes.append({
                 "code": "BATCHED_CATEGORY",
                 "category": chunk.category,
@@ -644,8 +672,9 @@ class BaseScheduler(ABC):
         chunks = self.split_task_into_chunks(task, original_order=order_index, week_start_iso=week_start_iso)
         task_warnings: List[str] = []
 
-        # H5 Prerequisite check: if any prerequisite is missing from placed tasks, fail fast
-        prereq_end = now_slot
+        # H5 Prerequisite + Release lower bound check
+        release_slot = task.resolve_start_after_slot(week_start_iso=week_start_iso)
+        prereq_end = max(now_slot, release_slot) if release_slot is not None else now_slot
         for pid in task.depends_on:
             if pid not in task_end_slots:
                 return False, [], {
@@ -878,7 +907,11 @@ class BaseScheduler(ABC):
         t0 = time.perf_counter()
         week_start_iso = profile.planning_week_start
         now_slot = self.resolve_now_slot(profile)
-        horizon_slots = self.resolve_horizon_slots(tasks, week_start_iso=week_start_iso)
+        horizon_slots = self.resolve_horizon_slots(
+            tasks,
+            week_start_iso=week_start_iso,
+            horizon_days=getattr(profile, "horizon_days", 7),
+        )
 
         grid = TimeGridManager(total_slots=horizon_slots)
         grid.initialize_from_profile(profile)
@@ -1184,7 +1217,7 @@ class BaseScheduler(ABC):
             overload_reports=overload_reports,
             overload=overload_reports[0] if overload_reports else None,
             warnings=all_warnings,
-            grid_states=list(grid_manager.grid[:SLOTS_PER_WEEK]),
+            grid_states=list(grid_manager.grid[:grid_manager.total_slots]),
         )
 
     @abstractmethod

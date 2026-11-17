@@ -28,12 +28,17 @@ const state = {
   commitments: {
     student_id: "MINH_YEAR2_CS",
     planning_week_start: "2026-11-02T00:00:00+07:00",
+    horizon_days: 7,
+    buffer_mode: "COGNITIVE_LOAD",
+    alpha_light: 1.2,
+    alpha_heavy: 1.35,
     sleep_schedule: {
       daily_start_time: "23:30",
       daily_end_time: "06:30",
       is_hard_lock: true,
     },
     fixed_events: [],
+    personal_habits: [],
   },
   tasks: [],
   currentSchedule: null,
@@ -44,6 +49,8 @@ const state = {
   appMode: "STUDENT", // 'STUDENT' (Clean) | 'LAB' (Benchmark)
   studentView: "WEEK", // 'WEEK' | 'TODAY' | 'TASKS'
   todayDay: "Monday",
+  viewWeekOffset: 0, // 0 = Week 1 (days 0..6), 1 = Week 2 (days 7..13)
+  useRealTimeNow: false,
   pinnedBlocks: new Map(), // block_id -> ScheduleBlock
   doneBlocks: new Set(), // block_id
   taskBufferMap: new Map(), // task_id -> { raw_min, buffered_min }
@@ -62,7 +69,29 @@ const state = {
   stModalDraft: null,
   lastAnalyzedHybrid: null,
   lastAnalyzedTranslation: null,
+  lastComparison: null,
+  studentTasksSubtab: "TASKS",
+  observedRange: { startIdx: 0, endIdx: 6 },
+  miniCalendarMonth: null,
 };
+
+const WORKSPACE_STORAGE_KEY = "smartschedule_workspace_v2";
+let _serverStateSaveTimer = null;
+
+function getCurrentMondayIso() {
+  const now = new Date();
+  const day = now.getDay();
+  const diffToMon = day === 0 ? -6 : 1 - day;
+  const mon = new Date(now.getFullYear(), now.getMonth(), now.getDate() + diffToMon);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${mon.getFullYear()}-${pad(mon.getMonth() + 1)}-${pad(mon.getDate())}T00:00:00+07:00`;
+}
+
+function getCurrentLocalIso() {
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}:00+07:00`;
+}
 
 function _storageKey() {
   const sid = state.commitments?.student_id || "DEFAULT";
@@ -71,6 +100,7 @@ function _storageKey() {
 
 function savePersistedStudentState() {
   try {
+    const algorithm = document.getElementById("solverSelect")?.value || "SCORED_GREEDY";
     localStorage.setItem(
       _storageKey(),
       JSON.stringify({
@@ -78,11 +108,32 @@ function savePersistedStudentState() {
         actualDurations: Array.from(state.actualDurations.entries()),
         pinnedBlocks: Array.from(state.pinnedBlocks.entries()),
         focus_preference: state.commitments?.focus_preference || "BALANCED",
-        buffer_mode: state.commitments?.buffer_mode || "HABIT",
-        alpha_light: state.commitments?.alpha_light,
-        alpha_heavy: state.commitments?.alpha_heavy,
+        buffer_mode: state.commitments?.buffer_mode || "COGNITIVE_LOAD",
+        alpha_light: state.commitments?.alpha_light ?? 1.2,
+        alpha_heavy: state.commitments?.alpha_heavy ?? 1.35,
       })
     );
+    if (state.activeScenario) return;
+    const workspacePayload = {
+      version: 2,
+      commitments: state.commitments,
+      tasks: state.tasks,
+      algorithm,
+      pinned_blocks: Array.from(state.pinnedBlocks.entries()),
+      done_blocks: Array.from(state.doneBlocks),
+      actual_durations: Array.from(state.actualDurations.entries()),
+      viewWeekOffset: state.viewWeekOffset || 0,
+      useRealTimeNow: Boolean(state.useRealTimeNow),
+    };
+    localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(workspacePayload));
+    clearTimeout(_serverStateSaveTimer);
+    _serverStateSaveTimer = setTimeout(() => {
+      fetch("/api/state", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workspace_id: "default", state: workspacePayload }),
+      }).catch(() => {});
+    }, 150);
   } catch (_) {}
 }
 
@@ -97,15 +148,625 @@ function loadPersistedStudentState() {
   } catch (_) {}
 }
 
+async function restorePersistedWorkspace() {
+  let saved = null;
+  try {
+    const res = await fetch("/api/state?workspace_id=default");
+    if (res.ok) {
+      const d = await res.json();
+      if (d && d.exists && d.state && typeof d.state === "object") {
+        saved = d.state;
+      }
+    }
+  } catch (_) {}
+
+  if (!saved) {
+    try {
+      const raw = localStorage.getItem(WORKSPACE_STORAGE_KEY);
+      if (raw) saved = JSON.parse(raw);
+    } catch (_) {}
+  }
+
+  if (!saved || !saved.commitments) return false;
+  state.commitments = {
+    horizon_days: 7,
+    personal_habits: [],
+    ...saved.commitments,
+  };
+  state.tasks = Array.isArray(saved.tasks) ? saved.tasks : [];
+  state.activeScenario = null;
+  state.pinnedBlocks = new Map(Array.isArray(saved.pinned_blocks) ? saved.pinned_blocks : []);
+  state.doneBlocks = new Set(Array.isArray(saved.done_blocks) ? saved.done_blocks : []);
+  state.actualDurations = new Map(Array.isArray(saved.actual_durations) ? saved.actual_durations : []);
+  state.viewWeekOffset = Number(saved.viewWeekOffset || 0) === 1 && (state.commitments.horizon_days || 7) >= 14 ? 1 : 0;
+  state.useRealTimeNow = Boolean(saved.useRealTimeNow);
+  if (state.useRealTimeNow) {
+    state.commitments.now = getCurrentLocalIso();
+  }
+  const solverEl = document.getElementById("solverSelect");
+  if (solverEl && saved.algorithm) solverEl.value = saved.algorithm;
+  syncAllLeftPanels();
+  await solveSchedule();
+  return true;
+}
+
+// ============================================================================
+// TEMPORAL ENGINE (DD/MM/YYYY, PAST / TODAY+NOW / FUTURE, DEMO VS REALTIME)
+// ============================================================================
+
+function pad2(n) {
+  return String(n).padStart(2, "0");
+}
+
+function slotOffsetToTime(slotOffset) {
+  const totalMin = slotOffset * 15;
+  const hh = Math.floor(totalMin / 60);
+  const mm = totalMin % 60;
+  return `${pad2(hh)}:${pad2(mm)}`;
+}
+
+function parseIsoDateLocal(isoStr, fallbackIso = "2026-11-02T00:00:00") {
+  const raw = String(isoStr || "").trim();
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2}))?/);
+  if (m) {
+    return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4] || 0), Number(m[5] || 0), 0, 0);
+  }
+  const fm = fallbackIso.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (fm) return new Date(Number(fm[1]), Number(fm[2]) - 1, Number(fm[3]), 0, 0, 0, 0);
+  return new Date();
+}
+
+function formatDateDDMMYYYY(d) {
+  return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}`;
+}
+
+function formatDateShort(d) {
+  return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}`;
+}
+
+function formatTimeHHMM(d) {
+  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
+function getYmdNumber(d) {
+  return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
+}
+
+function getWeekBaseDate() {
+  return parseIsoDateLocal(state.commitments?.planning_week_start || getCurrentMondayIso(), "2026-11-02T00:00:00");
+}
+
+function getDayDate(globalDayIdx) {
+  const base = getWeekBaseDate();
+  return new Date(base.getFullYear(), base.getMonth(), base.getDate() + globalDayIdx, 0, 0, 0, 0);
+}
+
+function getActiveNowDate() {
+  if (state.useRealTimeNow) return new Date();
+  if (state.commitments?.now) return parseIsoDateLocal(state.commitments.now);
+  const realToday = new Date();
+  const baseYmd = getYmdNumber(getWeekBaseDate());
+  const curMon = parseIsoDateLocal(getCurrentMondayIso());
+  if (baseYmd === getYmdNumber(curMon)) return realToday;
+  return getWeekBaseDate();
+}
+
+function getDayTemporalState(dayDate, nowRef = getActiveNowDate()) {
+  const ymd = getYmdNumber(dayDate);
+  const nowYmd = getYmdNumber(nowRef);
+  if (ymd < nowYmd) return "PAST";
+  if (ymd === nowYmd) return "TODAY";
+  return "FUTURE";
+}
+
+function parseHHMMToDate(dayDate, timeStr) {
+  const [hh, mm] = String(timeStr || "00:00").split(":").map(Number);
+  if (hh === 24 && (!mm || mm === 0)) {
+    return new Date(dayDate.getFullYear(), dayDate.getMonth(), dayDate.getDate() + 1, 0, 0, 0, 0);
+  }
+  return new Date(dayDate.getFullYear(), dayDate.getMonth(), dayDate.getDate(), hh || 0, mm || 0, 0, 0);
+}
+
+function getBlockTemporalState(dayDate, startTime, endTime, nowRef = getActiveNowDate()) {
+  const sDt = parseHHMMToDate(dayDate, startTime);
+  const eDt = parseHHMMToDate(dayDate, endTime);
+  const nowMs = nowRef.getTime();
+  if (nowMs >= sDt.getTime() && nowMs < eDt.getTime()) {
+    return { status: "ACTIVE", label: "ĐANG DIỄN RA", deltaMin: Math.round((eDt.getTime() - nowMs) / 60000) };
+  }
+  if (eDt.getTime() <= nowMs) {
+    return { status: "PAST", label: "Đã qua", deltaMin: Math.round((nowMs - eDt.getTime()) / 60000) };
+  }
+  return { status: "FUTURE", label: "Sắp tới", deltaMin: Math.round((sDt.getTime() - nowMs) / 60000) };
+}
+
+function formatCountdownMin(mins) {
+  const m = Math.max(0, Math.round(mins));
+  if (m >= 1440) {
+    const d = Math.floor(m / 1440);
+    const h = Math.floor((m % 1440) / 60);
+    return h > 0 ? `${d}d ${h}h` : `${d} ngày`;
+  }
+  if (m >= 60) {
+    const h = Math.floor(m / 60);
+    const rem = m % 60;
+    return rem > 0 ? `${h}h ${rem}p` : `${h}h`;
+  }
+  return `${m}p`;
+}
+
+function resolveDeadlineDisplay(item, nowRef = getActiveNowDate()) {
+  let targetDate = null;
+  if (item.due) {
+    targetDate = parseIsoDateLocal(item.due);
+  } else if (item.deadline_day) {
+    const rawDay = String(item.deadline_day).trim();
+    const isNext = rawDay.toLowerCase().startsWith("next ");
+    const cleanDay = isNext ? rawDay.slice(5).trim() : rawDay;
+    const foundIdx = DAYS_EN.findIndex((en) => en.toLowerCase().startsWith(cleanDay.toLowerCase().slice(0, 3)));
+    if (foundIdx >= 0) {
+      const dayIdx = foundIdx + (isNext ? 7 : 0);
+      targetDate = parseHHMMToDate(getDayDate(dayIdx), item.deadline_time || "23:59");
+    }
+  } else if (typeof item.deadline_slot === "number" && item.deadline_slot >= 0) {
+    const base = getWeekBaseDate();
+    targetDate = new Date(base.getTime() + item.deadline_slot * 15 * 60000);
+  } else if (item.deadline_str && item.deadline_str !== "No deadline (Flexible / Habit)") {
+    const parts = String(item.deadline_str).split(" ");
+    const tStr = parts[parts.length - 1];
+    const dName = parts.slice(0, -1).join(" ");
+    const isNext = dName.toLowerCase().startsWith("next ");
+    const cleanDay = isNext ? dName.slice(5).trim() : dName;
+    const foundIdx = DAYS_EN.findIndex((en) => en.toLowerCase().startsWith(cleanDay.toLowerCase().slice(0, 3)));
+    if (foundIdx >= 0) {
+      targetDate = parseHHMMToDate(getDayDate(foundIdx + (isNext ? 7 : 0)), tStr);
+    }
+  }
+
+  if (!targetDate || Number.isNaN(targetDate.getTime())) {
+    return { dateObj: null, dateText: "Linh hoạt (Habit)", isOverdue: false, badgeHtml: `<span class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px]">Habit</span>` };
+  }
+
+  const jsDay = targetDate.getDay();
+  const viShort = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"][jsDay];
+  const hhmm = formatTimeHHMM(targetDate);
+  const displayTime = (item.deadline_time === "23:59" || (hhmm === "00:00" && String(item.deadline_time) === "23:59")) ? "23:59" : hhmm;
+  const dateText = `${viShort} · ${formatDateDDMMYYYY(targetDate)} ${displayTime}`;
+  const diffMin = Math.round((targetDate.getTime() - nowRef.getTime()) / 60000);
+
+  if (diffMin < 0) {
+    return {
+      dateObj: targetDate,
+      dateText,
+      isOverdue: true,
+      badgeHtml: `<span class="px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 font-bold text-[10px]">Quá hạn ${formatCountdownMin(-diffMin)}</span>`,
+    };
+  }
+  if (diffMin <= 24 * 60) {
+    return {
+      dateObj: targetDate,
+      dateText,
+      isOverdue: false,
+      badgeHtml: `<span class="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-bold text-[10px]">Còn ${formatCountdownMin(diffMin)}</span>`,
+    };
+  }
+  return {
+    dateObj: targetDate,
+    dateText,
+    isOverdue: false,
+    badgeHtml: `<span class="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 font-semibold text-[10px]">Còn ${formatCountdownMin(diffMin)}</span>`,
+  };
+}
+
+function updateTemporalContextUI() {
+  const realNow = new Date();
+  const realMondayDate = parseIsoDateLocal(getCurrentMondayIso());
+  const viDaysFull = ["Chủ Nhật", "Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy"];
+  const clockEl = document.getElementById("topClockLiveLabel");
+  if (clockEl) {
+    clockEl.textContent = `Đồng hồ thực: ${viDaysFull[realNow.getDay()]}, ${formatDateDDMMYYYY(realNow)} ${formatTimeHHMM(realNow)}`;
+  }
+
+  const weekOff = state.viewWeekOffset || 0;
+  const viewStart = getDayDate(weekOff * 7);
+  const viewEnd = getDayDate(weekOff * 7 + 6);
+  const rangeStr = `${formatDateDDMMYYYY(viewStart)} – ${formatDateDDMMYYYY(viewEnd)}`;
+  const pillEl = document.getElementById("topWeekRangePill");
+  if (pillEl) {
+    const span = pillEl.querySelector("span") || pillEl;
+    span.textContent = rangeStr;
+  }
+  const labPillEl = document.getElementById("labObservedRangePill");
+  if (labPillEl) {
+    labPillEl.textContent = `Chuỗi xem: ${rangeStr}`;
+  }
+
+  const base = getWeekBaseDate();
+  const dateInp = document.getElementById("inpWeekStartDate");
+  if (dateInp) {
+    dateInp.value = `${base.getFullYear()}-${pad2(base.getMonth() + 1)}-${pad2(base.getDate())}`;
+  }
+
+  const banner = document.getElementById("temporalContextBanner");
+  const bannerTxt = document.getElementById("temporalContextText");
+  if (banner && bannerTxt) {
+    const isHistoricalOrSim = getYmdNumber(base) !== getYmdNumber(realMondayDate) || !state.useRealTimeNow;
+    if (isHistoricalOrSim) {
+      const activeNow = getActiveNowDate();
+      banner.classList.remove("hidden");
+      bannerTxt.innerHTML = state.activeScenario
+        ? `<span>🧪 <strong>Đang chạy kịch bản Benchmark ${_escHtml(state.activeScenario.scenario_id || "")}:</strong> Tuần cố định <span class="mono">${formatDateDDMMYYYY(getDayDate(0))} – ${formatDateDDMMYYYY(getDayDate(6))}</span> (Mốc giả lập: <span class="mono">${formatDateDDMMYYYY(activeNow)} ${formatTimeHHMM(activeNow)}</span>).</span>`
+        : `<span>📌 <strong>Đang xem lịch tuần khác với tuần thực tế:</strong> <span class="mono">${formatDateDDMMYYYY(getDayDate(0))} – ${formatDateDDMMYYYY(getDayDate(6))}</span> (Hôm nay là <span class="mono">${formatDateDDMMYYYY(realNow)}</span>).</span>`;
+    } else {
+      banner.classList.add("hidden");
+    }
+  }
+
+  const pop = document.getElementById("observedRangeCalendarPopover");
+  if (pop && !pop.classList.contains("hidden")) {
+    renderObservedRangeCalendar();
+  }
+}
+
+function toggleStudentToolsMenu() {
+  document.getElementById("studentToolsMenu")?.classList.toggle("hidden");
+}
+
+function closeStudentToolsMenu() {
+  document.getElementById("studentToolsMenu")?.classList.add("hidden");
+}
+
+// ============================================================================
+// MONTH RANGE CALENDAR POPOVER & HORIZONTAL TIMELINE SCRUBBER
+// ============================================================================
+
+function toggleObservedRangeCalendar(forceOpen = null) {
+  const pop = document.getElementById("observedRangeCalendarPopover");
+  if (!pop) return;
+  const shouldOpen = forceOpen === null ? pop.classList.contains("hidden") : Boolean(forceOpen);
+  if (shouldOpen) {
+    const visStart = state.appMode === "STUDENT" && state.studentView === "WEEK"
+      ? (state.observedRange?.startIdx ?? 0)
+      : (state.viewWeekOffset || 0) * 7;
+    const anchor = getDayDate(visStart);
+    state.miniCalendarMonth = { year: anchor.getFullYear(), month: anchor.getMonth() };
+    pop.classList.remove("hidden");
+    renderObservedRangeCalendar();
+  } else {
+    pop.classList.add("hidden");
+  }
+}
+
+function closeObservedRangeCalendar() {
+  document.getElementById("observedRangeCalendarPopover")?.classList.add("hidden");
+}
+
+function shiftMiniCalendarMonth(delta) {
+  if (!state.miniCalendarMonth) {
+    const base = getWeekBaseDate();
+    state.miniCalendarMonth = { year: base.getFullYear(), month: base.getMonth() };
+  }
+  const dt = new Date(state.miniCalendarMonth.year, state.miniCalendarMonth.month + delta, 1);
+  state.miniCalendarMonth = { year: dt.getFullYear(), month: dt.getMonth() };
+  renderObservedRangeCalendar();
+}
+
+function renderObservedRangeCalendar() {
+  const grid = document.getElementById("calPopoverGrid");
+  const titleEl = document.getElementById("calPopoverMonthTitle");
+  const rangeEl = document.getElementById("calPopoverRangeText");
+  const horizonEl = document.getElementById("calPopoverHorizonText");
+  if (!grid) return;
+
+  const base = getWeekBaseDate();
+  if (!state.miniCalendarMonth) {
+    state.miniCalendarMonth = { year: base.getFullYear(), month: base.getMonth() };
+  }
+  const { year, month } = state.miniCalendarMonth;
+  if (titleEl) titleEl.textContent = `Tháng ${pad2(month + 1)} / ${year}`;
+
+  const horizonDays = Number(state.commitments?.horizon_days || 7) >= 14 ? 14 : 7;
+  const isContinuousWeek = state.appMode === "STUDENT" && state.studentView === "WEEK";
+  const visStartIdx = isContinuousWeek ? Math.max(0, state.observedRange?.startIdx ?? 0) : (state.viewWeekOffset || 0) * 7;
+  const visEndIdx = isContinuousWeek
+    ? Math.min(horizonDays - 1, Math.max(visStartIdx, state.observedRange?.endIdx ?? Math.min(6, horizonDays - 1)))
+    : Math.min(horizonDays - 1, visStartIdx + 6);
+
+  const visStartDt = getDayDate(visStartIdx);
+  const visEndDt = getDayDate(visEndIdx);
+  if (rangeEl) {
+    rangeEl.textContent = `${formatDateDDMMYYYY(visStartDt)} → ${formatDateDDMMYYYY(visEndDt)} (${visEndIdx - visStartIdx + 1} ngày)`;
+  }
+  if (horizonEl) {
+    horizonEl.textContent = `Cửa sổ lập lịch: ${formatDateDDMMYYYY(getDayDate(0))} – ${formatDateDDMMYYYY(getDayDate(horizonDays - 1))} (${horizonDays} ngày)`;
+  }
+
+  const firstOfMonth = new Date(year, month, 1);
+  const startJsDay = firstOfMonth.getDay(); // 0=Sun..6=Sat
+  const padMon = startJsDay === 0 ? 6 : startJsDay - 1;
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const totalCells = Math.ceil((padMon + daysInMonth) / 7) * 7;
+
+  const realNow = new Date();
+  const realTodayYmd = getYmdNumber(realNow);
+  const weekBaseMs = new Date(base.getFullYear(), base.getMonth(), base.getDate()).getTime();
+  const visStartYmd = getYmdNumber(visStartDt);
+  const visEndYmd = getYmdNumber(visEndDt);
+
+  let html = "";
+  for (let c = 0; c < totalCells; c++) {
+    const cellDate = new Date(year, month, 1 - padMon + c);
+    const inCurrentMonth = cellDate.getMonth() === month;
+    const cellYmd = getYmdNumber(cellDate);
+    const isoStr = `${cellDate.getFullYear()}-${pad2(cellDate.getMonth() + 1)}-${pad2(cellDate.getDate())}`;
+    const dayIdx = Math.round((cellDate.getTime() - weekBaseMs) / 86400000);
+    const inHorizon = dayIdx >= 0 && dayIdx < horizonDays;
+    const inVisible = cellYmd >= visStartYmd && cellYmd <= visEndYmd;
+    const isRealToday = cellYmd === realTodayYmd;
+
+    let cls = "py-1.5 text-[11px] mono cursor-pointer transition relative select-none ";
+    if (inVisible) {
+      cls += "bg-indigo-600 text-white font-bold shadow-sm hover:bg-indigo-500 ";
+      if (cellYmd === visStartYmd) cls += "rounded-l-lg ";
+      if (cellYmd === visEndYmd) cls += "rounded-r-lg ";
+    } else if (inHorizon) {
+      cls += "bg-indigo-100 text-indigo-900 font-semibold hover:bg-indigo-200 ";
+      if (dayIdx === 0) cls += "rounded-l-lg ";
+      if (dayIdx === horizonDays - 1) cls += "rounded-r-lg ";
+    } else {
+      cls += inCurrentMonth
+        ? "text-slate-700 hover:bg-slate-100 rounded-lg font-medium "
+        : "text-slate-300 hover:bg-slate-50 rounded-lg ";
+    }
+
+    const todayRing = isRealToday ? "ring-2 ring-rose-500 ring-inset" : "";
+    const todayDot = isRealToday
+      ? `<span class="w-1 h-1 rounded-full ${inVisible ? "bg-rose-300" : "bg-rose-500"} mx-auto block mt-0.5"></span>`
+      : "";
+
+    html += `
+      <button type="button" onclick="onMiniCalendarDateClick('${isoStr}', ${inHorizon ? dayIdx : -1})" class="${cls} ${todayRing}" title="${formatDateDDMMYYYY(cellDate)}${inVisible ? " (Đang xem)" : inHorizon ? " (Bấm để cuộn tới)" : " (Bấm để nhảy tới tuần này)"}">
+        <span>${cellDate.getDate()}</span>${todayDot}
+      </button>`;
+  }
+  grid.innerHTML = html;
+}
+
+async function onMiniCalendarDateClick(isoStr, horizonDayIdx) {
+  if (horizonDayIdx >= 0) {
+    if (state.appMode === "STUDENT") {
+      if (state.studentView !== "WEEK") {
+        switchStudentView("WEEK");
+      }
+      scrollToCalendarDay(horizonDayIdx);
+    } else {
+      const targetWeekOff = horizonDayIdx >= 7 ? 1 : 0;
+      if ((state.viewWeekOffset || 0) !== targetWeekOff) {
+        state.viewWeekOffset = targetWeekOff;
+        savePersistedStudentState();
+        updateTemporalContextUI();
+        renderStudentViews();
+        renderMainGrid();
+      }
+    }
+    renderObservedRangeCalendar();
+    return;
+  }
+  closeObservedRangeCalendar();
+  await setPlanningWeekFromDate(isoStr);
+}
+
+function _applySliderToScroll(containerId, sliderVal) {
+  const sc = document.getElementById(containerId);
+  if (!sc) return;
+  const maxScroll = Math.max(0, sc.scrollWidth - sc.clientWidth);
+  sc.style.scrollBehavior = "auto";
+  sc.scrollLeft = (Number(sliderVal) / 1000) * maxScroll;
+}
+
+function _restoreSmoothScroll(containerId) {
+  const sc = document.getElementById(containerId);
+  if (sc) sc.style.scrollBehavior = "";
+}
+
+function _syncRangeSliderFromScroll(containerId, sliderId) {
+  const sc = document.getElementById(containerId);
+  const sl = document.getElementById(sliderId);
+  if (!sc || !sl) return;
+  const maxScroll = Math.max(0, sc.scrollWidth - sc.clientWidth);
+  if (maxScroll <= 2) {
+    sl.value = "0";
+    sl.disabled = true;
+    sl.classList.add("opacity-40");
+  } else {
+    sl.disabled = false;
+    sl.classList.remove("opacity-40");
+    sl.value = String(Math.round((sc.scrollLeft / maxScroll) * 1000));
+  }
+}
+
+function onStHorizontalSliderInput(val) {
+  _applySliderToScroll("stCalendarScrollContainer", val);
+  updateObservedViewportRange();
+}
+
+function restoreCalendarSmoothScroll() {
+  _restoreSmoothScroll("stCalendarScrollContainer");
+}
+
+function onLabHorizontalSliderInput(val) {
+  _applySliderToScroll("labGridScrollContainer", val);
+}
+
+function restoreLabSmoothScroll() {
+  _restoreSmoothScroll("labGridScrollContainer");
+}
+
+function syncLabSliderFromScroll() {
+  _syncRangeSliderFromScroll("labGridScrollContainer", "labGridHorizontalSlider");
+}
+
+function syncSliderFromCalendarScroll() {
+  _syncRangeSliderFromScroll("stCalendarScrollContainer", "stCalendarHorizontalSlider");
+  updateObservedViewportRange();
+}
+
+function scrollToCalendarDay(globalDayIdx) {
+  const sc = document.getElementById("stCalendarScrollContainer");
+  const col = document.getElementById(`stDayColWrapper_${globalDayIdx}`);
+  if (!sc || !col) return;
+  sc.style.scrollBehavior = "";
+  const targetLeft = Math.max(0, col.offsetLeft - sc.offsetLeft - 8);
+  sc.scrollTo({ left: targetLeft, behavior: "smooth" });
+}
+
+function panCalendarByDays(deltaDays) {
+  const totalDays = Number(state.commitments?.horizon_days || 7) >= 14 ? 14 : 7;
+  const curStart = state.observedRange?.startIdx ?? 0;
+  const nextIdx = Math.max(0, Math.min(totalDays - 1, curStart + deltaDays));
+  scrollToCalendarDay(nextIdx);
+}
+
+function scrollToTodayColumn() {
+  const totalDays = Number(state.commitments?.horizon_days || 7) >= 14 ? 14 : 7;
+  const activeNow = getActiveNowDate();
+  for (let i = 0; i < totalDays; i++) {
+    if (getDayTemporalState(getDayDate(i), activeNow) === "TODAY") {
+      scrollToCalendarDay(i);
+      return;
+    }
+  }
+  scrollToCalendarDay(0);
+}
+
+function updateObservedViewportRange() {
+  const sc = document.getElementById("stCalendarScrollContainer");
+  const rangeEl = document.getElementById("stObservedRangeLabel");
+  const countEl = document.getElementById("stObservedWindowCount");
+  const stripEl = document.getElementById("stObservedDaysStrip");
+  if (!sc) return;
+
+  _syncRangeSliderFromScroll("stCalendarScrollContainer", "stCalendarHorizontalSlider");
+
+  const totalDays = Number(state.commitments?.horizon_days || 7) >= 14 ? 14 : 7;
+  const viewLeft = sc.scrollLeft;
+  const viewRight = viewLeft + sc.clientWidth;
+
+  let visStart = -1;
+  let visEnd = -1;
+  if (sc.clientWidth > 0) {
+    for (let i = 0; i < totalDays; i++) {
+      const col = document.getElementById(`stDayColWrapper_${i}`);
+      if (!col) continue;
+      const colLeft = col.offsetLeft - sc.offsetLeft;
+      const colRight = colLeft + col.offsetWidth;
+      // Consider a day "observed" when at least 60px (or half) is visible inside viewport
+      const overlap = Math.min(viewRight, colRight) - Math.max(viewLeft, colLeft);
+      if (overlap >= Math.min(70, col.offsetWidth * 0.35)) {
+        if (visStart === -1) visStart = i;
+        visEnd = i;
+      }
+    }
+  }
+  if (visStart === -1) {
+    visStart = 0;
+    visEnd = Math.min(6, totalDays - 1);
+  }
+  state.observedRange = { startIdx: visStart, endIdx: visEnd };
+
+  const sDate = getDayDate(visStart);
+  const eDate = getDayDate(visEnd);
+  const shortVi = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"];
+  if (rangeEl) {
+    rangeEl.textContent = `${shortVi[visStart % 7]} ${formatDateDDMMYYYY(sDate)} → ${shortVi[visEnd % 7]} ${formatDateDDMMYYYY(eDate)}`;
+  }
+  if (countEl) {
+    countEl.textContent = `${visEnd - visStart + 1}/${totalDays} ngày đang hiện`;
+  }
+
+  if (stripEl) {
+    const activeNow = getActiveNowDate();
+    let stripHtml = "";
+    for (let i = 0; i < totalDays; i++) {
+      const dObj = getDayDate(i);
+      const tState = getDayTemporalState(dObj, activeNow);
+      const isVis = i >= visStart && i <= visEnd;
+      const dot = tState === "TODAY" ? `<span class="inline-block w-1.5 h-1.5 rounded-full ${isVis ? "bg-rose-300" : "bg-rose-500"} mr-1"></span>` : "";
+      const pillCls = isVis
+        ? "bg-indigo-600 text-white border-indigo-700 font-bold shadow-sm"
+        : tState === "TODAY"
+          ? "bg-indigo-50 text-indigo-800 border-indigo-300 font-semibold hover:bg-indigo-100"
+          : tState === "PAST"
+            ? "bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200"
+            : "bg-white text-slate-700 border-slate-200 hover:bg-slate-100";
+
+      stripHtml += `
+        <button type="button" onclick="scrollToCalendarDay(${i})" class="px-2 py-1 rounded-lg border text-[11px] mono transition ${pillCls}" title="Bấm để cuộn tới ${DAYS_VI[i % 7]} (${formatDateDDMMYYYY(dObj)})">
+          ${dot}${shortVi[i % 7]} ${formatDateShort(dObj)}
+        </button>`;
+    }
+    stripEl.innerHTML = stripHtml;
+  }
+
+  const pop = document.getElementById("observedRangeCalendarPopover");
+  if (pop && !pop.classList.contains("hidden")) {
+    renderObservedRangeCalendar();
+  }
+}
+
 // ============================================================================
 // INITIALIZATION & PRESET / SCENARIO LOADERS
 // ============================================================================
 
 document.addEventListener("DOMContentLoaded", async () => {
-  updateSlotEquivalent();
   await loadScenariosDropdown();
-  await loadPreset("minh");
+  const restored = await restorePersistedWorkspace();
+  if (!restored) {
+    await loadPresetIntoCurrentWeek("minh");
+  }
+  const realJsDay = new Date().getDay();
+  const realMonIdx = realJsDay === 0 ? 6 : realJsDay - 1;
+  if (state.useRealTimeNow) {
+    state.todayDay = DAYS_EN[realMonIdx];
+  }
   switchAppMode("STUDENT");
+  updateTemporalContextUI();
+  requestAnimationFrame(() => {
+    updateObservedViewportRange();
+    syncLabSliderFromScroll();
+  });
+
+  window.addEventListener("resize", () => {
+    updateObservedViewportRange();
+    syncLabSliderFromScroll();
+  });
+
+  setInterval(() => {
+    if (state.useRealTimeNow && state.commitments) {
+      state.commitments.now = getCurrentLocalIso();
+    }
+    updateTemporalContextUI();
+    if (state.currentSchedule) {
+      if (state.appMode === "STUDENT") renderStudentViews();
+      else renderMainGrid();
+    }
+  }, 60000);
+
+  document.addEventListener("click", (e) => {
+    const menu = document.getElementById("studentToolsMenu");
+    const btn = document.getElementById("btnStudentToolsMenu");
+    if (menu && !menu.classList.contains("hidden") && !menu.contains(e.target) && !btn?.contains(e.target)) {
+      closeStudentToolsMenu();
+    }
+    const calPop = document.getElementById("observedRangeCalendarPopover");
+    if (
+      calPop &&
+      !calPop.classList.contains("hidden") &&
+      !e.target.closest("#observedRangeCalendarPopover, #topWeekRangePill, #btnToggleObservedCalendar, #labObservedRangePill, #btnStOpenMonthCal")
+    ) {
+      closeObservedRangeCalendar();
+    }
+  });
 
   const modal = document.getElementById("stTaskModal");
   if (modal) {
@@ -146,6 +807,8 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
+      closeStudentToolsMenu();
+      closeObservedRangeCalendar();
       const stModal = document.getElementById("stTaskModal");
       if (stModal && !stModal.classList.contains("hidden")) {
         closeStudentTaskModal();
@@ -153,17 +816,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 });
-
-function pad2(n) {
-  return String(n).padStart(2, "0");
-}
-
-function slotOffsetToTime(slotOffset) {
-  const totalMin = slotOffset * 15;
-  const hh = Math.floor(totalMin / 60);
-  const mm = totalMin % 60;
-  return `${pad2(hh)}:${pad2(mm)}`;
-}
 
 async function loadScenariosDropdown() {
   try {
@@ -184,7 +836,61 @@ async function loadScenariosDropdown() {
   }
 }
 
-async function loadPreset(presetId) {
+async function loadPresetIntoCurrentWeek(presetId = "minh") {
+  await loadPreset(presetId, { rebaseToCurrentWeek: true });
+}
+
+async function rebaseScheduleToCurrentWeek() {
+  if (!state.commitments) return;
+  state.activeScenario = null;
+  const sel = document.getElementById("scenarioSelect");
+  if (sel) sel.value = "";
+  document.getElementById("scenarioBanner")?.classList.add("hidden");
+
+  state.commitments.planning_week_start = getCurrentMondayIso();
+  state.commitments.now = getCurrentLocalIso();
+  state.useRealTimeNow = true;
+  state.viewWeekOffset = 0;
+
+  for (const t of state.tasks || []) {
+    if (t.due && t.deadline_day) delete t.due;
+  }
+  const realJsDay = new Date().getDay();
+  state.todayDay = DAYS_EN[realJsDay === 0 ? 6 : realJsDay - 1];
+
+  syncAllLeftPanels();
+  updateTemporalContextUI();
+  await solveSchedule();
+  savePersistedStudentState();
+}
+
+async function setPlanningWeekFromDate(dateStr) {
+  if (!dateStr) return;
+  const picked = parseIsoDateLocal(dateStr);
+  const day = picked.getDay();
+  const diffToMon = day === 0 ? -6 : 1 - day;
+  const mon = new Date(picked.getFullYear(), picked.getMonth(), picked.getDate() + diffToMon);
+  const monIso = `${mon.getFullYear()}-${pad2(mon.getMonth() + 1)}-${pad2(mon.getDate())}T00:00:00+07:00`;
+  const isCurrentWeek = monIso === getCurrentMondayIso();
+
+  state.commitments.planning_week_start = monIso;
+  state.useRealTimeNow = isCurrentWeek;
+  if (isCurrentWeek) {
+    state.commitments.now = getCurrentLocalIso();
+    const realJsDay = new Date().getDay();
+    state.todayDay = DAYS_EN[realJsDay === 0 ? 6 : realJsDay - 1];
+  } else {
+    delete state.commitments.now;
+    state.todayDay = "Monday";
+  }
+  state.viewWeekOffset = 0;
+  syncAllLeftPanels();
+  updateTemporalContextUI();
+  await solveSchedule();
+  if (!state.activeScenario) savePersistedStudentState();
+}
+
+async function loadPreset(presetId, options = {}) {
   try {
     const res = await fetch("/api/presets");
     if (!res.ok) throw new Error("Failed to fetch /api/presets");
@@ -193,7 +899,26 @@ async function loadPreset(presetId) {
     const chosen = presets[presetId] || presets.minh;
     if (!chosen) return;
 
-    state.commitments = chosen.commitments;
+    state.commitments = {
+      horizon_days: 7,
+      personal_habits: [],
+      ...chosen.commitments,
+    };
+    const shouldRebase = Boolean(options.rebaseToCurrentWeek) || presetId === "empty";
+    if (shouldRebase) {
+      state.commitments.planning_week_start = getCurrentMondayIso();
+      state.commitments.now = getCurrentLocalIso();
+      state.commitments.buffer_mode = presetId === "empty" ? "COGNITIVE_LOAD" : (state.commitments.buffer_mode || "COGNITIVE_LOAD");
+      state.commitments.alpha_light = state.commitments.alpha_light ?? 1.2;
+      state.commitments.alpha_heavy = state.commitments.alpha_heavy ?? 1.35;
+      state.useRealTimeNow = true;
+      const realJsDay = new Date().getDay();
+      state.todayDay = DAYS_EN[realJsDay === 0 ? 6 : realJsDay - 1];
+    } else {
+      state.useRealTimeNow = false;
+      state.todayDay = "Monday";
+    }
+    state.viewWeekOffset = 0;
     state.tasks = Array.isArray(chosen.tasks) ? chosen.tasks : chosen.tasks.tasks || [];
     state.activeScenario = null;
     state.repairedMovedIds.clear();
@@ -202,7 +927,6 @@ async function loadPreset(presetId) {
     state.taskBufferMap.clear();
     state.actualDurations.clear();
     state.previewState = null;
-    loadPersistedStudentState();
 
     const sel = document.getElementById("scenarioSelect");
     if (sel) sel.value = "";
@@ -211,7 +935,9 @@ async function loadPreset(presetId) {
     document.getElementById("repairLogPanel")?.classList.add("hidden");
 
     syncAllLeftPanels();
+    updateTemporalContextUI();
     await solveSchedule();
+    savePersistedStudentState();
   } catch (err) {
     console.error("Failed to load preset:", err);
   }
@@ -224,10 +950,22 @@ async function onScenarioSelectChange(scenarioId) {
     if (!res.ok) throw new Error(`Failed to fetch scenario ${scenarioId}`);
     const sc = await res.json();
 
-    state.commitments = sc.commitments;
+    state.commitments = {
+      horizon_days: 7,
+      personal_habits: [],
+      ...sc.commitments,
+    };
     state.tasks = sc.tasks || [];
     state.activeScenario = sc;
+    state.useRealTimeNow = false;
+    state.viewWeekOffset = 0;
+    state.todayDay = "Monday";
     state.repairedMovedIds.clear();
+    state.pinnedBlocks.clear();
+    state.doneBlocks.clear();
+    state.taskBufferMap.clear();
+    state.actualDurations.clear();
+    state.previewState = null;
 
     // Show scenario banner
     const banner = document.getElementById("scenarioBanner");
@@ -248,6 +986,7 @@ async function onScenarioSelectChange(scenarioId) {
     }
 
     syncAllLeftPanels();
+    updateTemporalContextUI();
     await solveSchedule();
   } catch (err) {
     console.error("Error loading scenario:", err);
@@ -257,65 +996,87 @@ async function onScenarioSelectChange(scenarioId) {
 function clearAllData() {
   state.tasks = [];
   state.commitments.fixed_events = [];
+  state.commitments.personal_habits = [];
+  state.commitments.planning_week_start = getCurrentMondayIso();
+  state.commitments.now = getCurrentLocalIso();
+  state.useRealTimeNow = true;
+  state.viewWeekOffset = 0;
+  state.activeScenario = null;
   state.repairedMovedIds.clear();
   state.pinnedBlocks.clear();
   state.doneBlocks.clear();
   state.taskBufferMap.clear();
+  state.actualDurations.clear();
+  try {
+    localStorage.removeItem(WORKSPACE_STORAGE_KEY);
+    localStorage.removeItem(_storageKey());
+  } catch (_) {}
+  fetch("/api/state?workspace_id=default", { method: "DELETE" }).catch(() => {});
   syncAllLeftPanels();
+  updateTemporalContextUI();
   solveSchedule();
 }
 
 // ============================================================================
-// LEFT PANE TABS & INPUT FORMS
+// LAB CONTROL RAIL & UNIFIED TASK INPUT
 // ============================================================================
 
-function switchLeftTab(tabName) {
-  const map = {
-    TASKS: { btn: "tabBtnTasks", panel: "tabPanelTasks" },
-    COMMITMENTS: { btn: "tabBtnCommitments", panel: "tabPanelCommitments" },
-    DISRUPTION: { btn: "tabBtnDisruption", panel: "tabPanelDisruption" },
-  };
-  for (const [k, cfg] of Object.entries(map)) {
-    const btnEl = document.getElementById(cfg.btn);
-    const panelEl = document.getElementById(cfg.panel);
-    if (k === tabName) {
-      btnEl.className = "py-2.5 px-2 border-b-2 border-indigo-600 text-indigo-700 bg-white";
-      panelEl.classList.remove("hidden");
-    } else {
-      btnEl.className = "py-2.5 px-2 border-b-2 border-transparent text-slate-600 hover:text-slate-900";
-      panelEl.classList.add("hidden");
-    }
+function syncLabParamsUI() {
+  const focusSel = document.getElementById("labFocusPrefSelect");
+  const bufSel = document.getElementById("labBufferModeSelect");
+  const aLight = document.getElementById("labAlphaLight");
+  const aHeavy = document.getElementById("labAlphaHeavy");
+  const nowInp = document.getElementById("labNowInput");
+  const habitRow = document.getElementById("labHabitRow");
+  const alphaRow = document.getElementById("labAlphaRow");
+
+  const mode = state.commitments?.buffer_mode || "HABIT";
+  if (focusSel) focusSel.value = state.commitments?.focus_preference || "BALANCED";
+  if (bufSel) bufSel.value = mode;
+  if (aLight) aLight.value = String(state.commitments?.alpha_light ?? 1.2);
+  if (aHeavy) aHeavy.value = String(state.commitments?.alpha_heavy ?? 1.35);
+  if (nowInp) nowInp.value = state.commitments?.now || "";
+  if (habitRow) habitRow.classList.toggle("hidden", mode === "COGNITIVE_LOAD");
+  if (alphaRow) alphaRow.classList.toggle("hidden", mode !== "COGNITIVE_LOAD");
+}
+
+async function onLabParamChange() {
+  state.commitments.focus_preference = document.getElementById("labFocusPrefSelect")?.value || "BALANCED";
+  state.commitments.buffer_mode = document.getElementById("labBufferModeSelect")?.value || "COGNITIVE_LOAD";
+  state.commitments.alpha_light = parseFloat(document.getElementById("labAlphaLight")?.value || "1.2");
+  state.commitments.alpha_heavy = parseFloat(document.getElementById("labAlphaHeavy")?.value || "1.35");
+  const rawNow = (document.getElementById("labNowInput")?.value || "").trim();
+  if (rawNow) {
+    state.commitments.now = rawNow;
+    state.useRealTimeNow = false;
+  } else {
+    delete state.commitments.now;
   }
-  if (tabName === "DISRUPTION") {
-    populateOverrunSelect();
-  }
+  syncLabParamsUI();
+  updateTemporalContextUI();
+  await solveSchedule();
+}
+
+async function setLabNowCurrent() {
+  const curIso = getCurrentLocalIso();
+  state.commitments.now = curIso;
+  state.useRealTimeNow = false;
+  const nowInp = document.getElementById("labNowInput");
+  if (nowInp) nowInp.value = curIso;
+  updateTemporalContextUI();
+  await solveSchedule();
 }
 
 function syncAllLeftPanels() {
   syncEstimateHabitUI();
+  syncLabParamsUI();
   renderTaskQueue();
   renderFixedEventsList();
   syncSleepUI();
   populateOverrunSelect();
 }
 
-function updateSlotEquivalent() {
-  const dur = Math.max(15, parseInt(document.getElementById("inpTaskDuration")?.value || "120", 10));
-  const slots = Math.ceil(dur / 15);
-  const hours = (dur / 60).toFixed(1);
-  const lbl = document.getElementById("slotEquivalentLabel");
-  if (lbl) lbl.textContent = `= ${slots} slots (${hours} giờ)`;
-  updatePlannedDurationLabel();
-}
-
-function updatePlannedDurationLabel() {
-  const lbl = document.getElementById("plannedDurationLabel");
-  if (!lbl) return;
-  const est = Math.max(15, parseInt(document.getElementById("inpTaskDuration")?.value || "120", 10));
-  const mult = currentBufferMultiplier();
-  const planned = plannedMinutesFor(est, mult);
-  lbl.textContent = mult > 1 ? `${est}p → dự trù ${planned}p (×${mult})` : `dự trù ${planned}p`;
-}
+function updateSlotEquivalent() {}
 
 function syncEstimateHabitUI() {
   const sel = document.getElementById("inpEstimateHabit");
@@ -323,10 +1084,8 @@ function syncEstimateHabitUI() {
   if (state.commitments.estimate_habit) {
     sel.value = String(state.commitments.estimate_habit).toUpperCase();
   } else if (sel.value) {
-    // Keep the student's answer when a preset / scenario replaces the commitments.
     state.commitments.estimate_habit = sel.value;
   }
-  updatePlannedDurationLabel();
 }
 
 async function onEstimateHabitChange() {
@@ -334,29 +1093,8 @@ async function onEstimateHabitChange() {
   if (!sel) return;
   if (sel.value) state.commitments.estimate_habit = sel.value;
   else delete state.commitments.estimate_habit;
-  updatePlannedDurationLabel();
   renderTaskQueue();
   await solveSchedule();
-}
-
-function adjustDuration(delta) {
-  const inp = document.getElementById("inpTaskDuration");
-  if (!inp) return;
-  const cur = parseInt(inp.value || "60", 10);
-  inp.value = Math.max(15, cur + delta);
-  updateSlotEquivalent();
-}
-
-function setPriority(prio) {
-  document.getElementById("inpTaskPriority").value = String(prio);
-  document.querySelectorAll(".prio-btn").forEach((btn) => {
-    const bPrio = parseInt(btn.getAttribute("data-prio"), 10);
-    if (bPrio === prio) {
-      btn.className = "prio-btn flex-1 py-1 text-xs rounded border bg-indigo-600 text-white border-indigo-600 font-semibold";
-    } else {
-      btn.className = "prio-btn flex-1 py-1 text-xs rounded border border-slate-300 font-semibold";
-    }
-  });
 }
 
 // Quick-Add Regex Parser (supports Vietnamese & English shorthand)
@@ -450,27 +1188,84 @@ function previewQuickAdd(val) {
   `;
 }
 
-function applyQuickAdd() {
+async function applyQuickAdd() {
   const inp = document.getElementById("quickAddInput");
   const parsed = parseQuickAdd(inp?.value || "");
   if (!parsed) return;
 
-  document.getElementById("inpTaskId").value = `TASK-${state.tasks.length + 1}`;
-  document.getElementById("inpTaskTitle").value = parsed.title;
-  document.getElementById("inpTaskDuration").value = parsed.duration_min;
-  document.getElementById("inpTaskDeadlineDay").value = parsed.deadline_day;
-  document.getElementById("inpTaskDeadlineTime").value = parsed.deadline_time;
-  setPriority(parsed.priority);
-  document.getElementById("inpTaskSplittable").checked = parsed.is_splittable;
-  document.getElementById("inpTaskMinChunk").value = parsed.min_chunk_min;
-  document.getElementById("inpTaskDependsOn").value = parsed.depends_on.join(", ");
-  updateSlotEquivalent();
-
-  inp.value = "";
-  document.getElementById("quickAddChips").innerHTML = "";
+  const newTask = {
+    task_id: `TASK-${state.tasks.length + 1}`,
+    title: parsed.title,
+    duration_min: parsed.duration_min,
+    deadline_day: parsed.deadline_day,
+    deadline_time: parsed.deadline_time,
+    priority: parsed.priority,
+    category: parsed.deadline_day ? "ASSIGNMENT" : "HABIT",
+    is_splittable: parsed.is_splittable,
+    min_chunk_min: parsed.min_chunk_min,
+    max_chunk_min: 90,
+    depends_on: parsed.depends_on,
+  };
+  state.tasks.push(newTask);
+  if (inp) inp.value = "";
+  const chips = document.getElementById("quickAddChips");
+  if (chips) chips.innerHTML = "";
   const diagBox = document.getElementById("quickAddHybridDiag");
   if (diagBox) diagBox.innerHTML = "";
-  saveTaskFromForm();
+
+  syncAllLeftPanels();
+  await solveSchedule();
+}
+
+function openQuickHybridDraftInModal() {
+  const d = state.lastQuickHybridDraft;
+  if (!d) {
+    openStudentTaskModal();
+    return;
+  }
+  openStudentTaskModal();
+  if (document.getElementById("stInpTaskId")) document.getElementById("stInpTaskId").value = d.task_id || "";
+  if (document.getElementById("stInpTitle")) document.getElementById("stInpTitle").value = d.title || "";
+  if (document.getElementById("stInpDuration")) document.getElementById("stInpDuration").value = String(d.duration_min || 60);
+  if (document.getElementById("stInpDeadlineDay")) document.getElementById("stInpDeadlineDay").value = d.deadline_day || "";
+  if (document.getElementById("stInpDeadlineTime")) document.getElementById("stInpDeadlineTime").value = d.deadline_time || "23:59";
+  if (document.getElementById("stInpDependsOn")) document.getElementById("stInpDependsOn").value = (d.depends_on || []).join(", ");
+  if (document.getElementById("stInpStartAfter") && d.start_after) document.getElementById("stInpStartAfter").value = d.start_after;
+  setStNlUrgency(d.user_priority || _mapSolverToUserUrgency(d.priority || 3));
+  setStNlPacing(d.work_rhythm || "BALANCED");
+  setStNlSession(d.is_splittable === false ? "single" : "splittable");
+  updateStBufferPreview();
+}
+
+async function commitQuickHybridDraft() {
+  const d = state.lastQuickHybridDraft;
+  if (!d) return;
+  const tid = d.task_id || `TASK_${state.tasks.length + 1}`;
+  state.tasks.push({
+    task_id: tid,
+    title: d.title || "Bài tập mới",
+    duration_min: d.duration_min || 60,
+    deadline_day: d.deadline_day || null,
+    deadline_time: d.deadline_time || "23:59",
+    priority: d.priority || 3,
+    category: d.category || (d.deadline_day ? "ASSIGNMENT" : "HABIT"),
+    is_splittable: d.is_splittable !== false,
+    min_chunk_min: d.min_chunk_min || 30,
+    max_chunk_min: d.max_chunk_min || 60,
+    work_rhythm: d.work_rhythm || "BALANCED",
+    start_after: d.start_after || null,
+    depends_on: d.depends_on || [],
+    cognitive_load: d.cognitive_load || 2,
+  });
+  state.lastQuickHybridDraft = null;
+  const inp = document.getElementById("quickAddInput");
+  if (inp) inp.value = "";
+  const chips = document.getElementById("quickAddChips");
+  if (chips) chips.innerHTML = "";
+  const diagBox = document.getElementById("quickAddHybridDiag");
+  if (diagBox) diagBox.innerHTML = "";
+  syncAllLeftPanels();
+  await solveSchedule();
 }
 
 async function analyzeQuickAddHybrid() {
@@ -492,7 +1287,7 @@ async function analyzeQuickAddHybrid() {
         prompt,
         now: state.commitments?.now || null,
         existing_count: state.tasks.length,
-        engine: "offline",
+        engine: document.getElementById("quickAddNlBackend")?.value || "hybrid",
         translation_backend: state.nlTransBackend || "rule",
       }),
     });
@@ -507,16 +1302,7 @@ async function analyzeQuickAddHybrid() {
     }
 
     const d = data.draft || {};
-    document.getElementById("inpTaskId").value = d.task_id || `TASK-${state.tasks.length + 1}`;
-    document.getElementById("inpTaskTitle").value = d.title || prompt;
-    document.getElementById("inpTaskDuration").value = d.duration_min || 60;
-    document.getElementById("inpTaskDeadlineDay").value = d.deadline_day || "Friday";
-    document.getElementById("inpTaskDeadlineTime").value = d.deadline_time || "23:59";
-    setPriority(d.priority || 3);
-    document.getElementById("inpTaskSplittable").checked = d.is_splittable !== false;
-    document.getElementById("inpTaskMinChunk").value = d.min_chunk_min || 30;
-    document.getElementById("inpTaskDependsOn").value = (d.depends_on || []).join(", ");
-    updateSlotEquivalent();
+    state.lastQuickHybridDraft = d;
 
     if (chipsBox) {
       chipsBox.innerHTML = `
@@ -524,6 +1310,10 @@ async function analyzeQuickAddHybrid() {
         <span class="px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded text-[10px] mono">⏱ ${d.duration_min || 60}p</span>
         <span class="px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded text-[10px] mono">📅 ${_escHtml(d.deadline_day || "Habit")} ${_escHtml(d.deadline_time || "")}</span>
         <span class="px-1.5 py-0.5 bg-purple-100 text-purple-800 rounded text-[10px] mono">★ P${d.priority || 3} (${_escHtml(d.work_rhythm || "BALANCED")})</span>
+        <div class="w-full flex gap-1.5 pt-1">
+          <button type="button" onclick="commitQuickHybridDraft()" class="px-2 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[10px] font-bold">➕ Xếp vào lịch ngay</button>
+          <button type="button" onclick="openQuickHybridDraftInModal()" class="px-2 py-1 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded text-[10px] font-semibold">✏️ Mở trong Modal Lab</button>
+        </div>
       `;
     }
     if (diagBox) {
@@ -538,79 +1328,15 @@ async function analyzeQuickAddHybrid() {
 
 function resetTaskForm() {
   state.editingTaskId = null;
-  document.getElementById("taskFormHeading").textContent = "📝 Biểu Mẫu Thông Số Task Chuẩn";
-  document.getElementById("btnCancelEditTask").classList.add("hidden");
-  document.getElementById("btnSaveTask").innerHTML = `<span>➕</span> Thêm Task Vào Hàng Đợi`;
-  document.getElementById("inpTaskId").value = "";
-  document.getElementById("inpTaskTitle").value = "";
-  document.getElementById("inpTaskDuration").value = "120";
-  document.getElementById("inpTaskDependsOn").value = "";
-  setPriority(5);
-  updateSlotEquivalent();
-}
-
-async function saveTaskFromForm() {
-  const idRaw = document.getElementById("inpTaskId").value.trim().toUpperCase();
-  const taskId = idRaw || `TASK-${state.tasks.length + 1}`;
-  const title = document.getElementById("inpTaskTitle").value.trim() || taskId;
-  const durationMin = Math.max(15, parseInt(document.getElementById("inpTaskDuration").value || "120", 10));
-  const deadlineDay = document.getElementById("inpTaskDeadlineDay").value || null;
-  const deadlineTime = document.getElementById("inpTaskDeadlineTime").value || "23:59";
-  const priority = parseInt(document.getElementById("inpTaskPriority").value || "3", 10);
-  const isSplittable = document.getElementById("inpTaskSplittable").checked;
-  const minChunkMin = Math.max(15, parseInt(document.getElementById("inpTaskMinChunk").value || "45", 10));
-  const depStr = document.getElementById("inpTaskDependsOn").value.trim();
-  const dependsOn = depStr ? depStr.split(",").map((s) => s.trim()).filter(Boolean) : [];
-
-  const taskObj = {
-    task_id: taskId,
-    title,
-    duration_min: durationMin,
-    deadline_day: deadlineDay,
-    deadline_time: deadlineTime,
-    priority,
-    category: deadlineDay ? "DEADLINE" : "HABIT",
-    is_splittable: isSplittable,
-    min_chunk_min: minChunkMin,
-    max_chunk_min: 90,
-    depends_on: dependsOn,
-  };
-
-  if (state.editingTaskId) {
-    const idx = state.tasks.findIndex((t) => (t.task_id || t.id) === state.editingTaskId);
-    if (idx >= 0) state.tasks[idx] = taskObj;
-    else state.tasks.push(taskObj);
-  } else {
-    state.tasks.push(taskObj);
-  }
-
-  resetTaskForm();
-  syncAllLeftPanels();
-  await solveSchedule();
 }
 
 function editTask(taskId) {
-  const t = state.tasks.find((x) => (x.task_id || x.id) === taskId);
-  if (!t) return;
-  state.editingTaskId = taskId;
-  document.getElementById("taskFormHeading").textContent = `✏️ Đang Sửa Task: ${taskId}`;
-  document.getElementById("btnCancelEditTask").classList.remove("hidden");
-  document.getElementById("btnSaveTask").innerHTML = `<span>💾</span> Lưu Cập Nhật Task`;
-
-  document.getElementById("inpTaskId").value = t.task_id || t.id;
-  document.getElementById("inpTaskTitle").value = t.title || "";
-  document.getElementById("inpTaskDuration").value = t.duration_min || t.estimate_min || 60;
-  document.getElementById("inpTaskDeadlineDay").value = t.deadline_day || "";
-  document.getElementById("inpTaskDeadlineTime").value = t.deadline_time || "23:59";
-  setPriority(t.priority || 3);
-  document.getElementById("inpTaskSplittable").checked = Boolean(t.is_splittable ?? t.splittable);
-  document.getElementById("inpTaskMinChunk").value = t.min_chunk_min || 45;
-  document.getElementById("inpTaskDependsOn").value = (t.depends_on || t.after || []).join(", ");
-  updateSlotEquivalent();
+  editStudentTask(taskId);
 }
 
 async function deleteTask(taskId) {
   state.tasks = state.tasks.filter((t) => (t.task_id || t.id) !== taskId);
+  savePersistedStudentState();
   syncAllLeftPanels();
   await solveSchedule();
 }
@@ -635,35 +1361,39 @@ function renderTaskQueue() {
   const unplacedIds = new Set(
     ((state.currentSchedule && state.currentSchedule.unplaced_tasks) || []).map((u) => u.task_id)
   );
+  const activeNow = getActiveNowDate();
 
   container.innerHTML = state.tasks
     .map((t) => {
       const tid = t.task_id || t.id;
       const dur = t.duration_min || t.estimate_min || 60;
       const plannedDur = plannedMinutesFor(dur, currentBufferMultiplier());
-      const dl = t.due ? t.due.slice(0, 16).replace("T", " ") : t.deadline_day ? `${t.deadline_day} ${t.deadline_time || "23:59"}` : "Linh hoạt";
+      const dlInfo = resolveDeadlineDisplay(t, activeNow);
       const isUnplaced = unplacedIds.has(tid);
       const deps = t.depends_on || t.after || [];
+      const rhythmBadge = t.work_rhythm === "DEEP_FLOW" ? "🔥" : t.work_rhythm === "LIGHT_PACE" ? "🐢" : "";
 
       return `
       <div class="p-2.5 rounded-lg border ${isUnplaced ? "border-rose-400 bg-rose-50" : "border-slate-200 bg-slate-50/70"} hover:border-indigo-300 transition flex items-start justify-between gap-2">
-        <div class="space-y-0.5">
+        <div class="space-y-0.5 min-w-0">
           <div class="flex items-center gap-1.5 flex-wrap">
-            <span class="px-1.5 py-0.5 text-[10px] font-bold mono rounded bg-slate-800 text-white">${tid}</span>
-            <span class="text-xs font-bold text-slate-800">${t.title}</span>
+            <span class="px-1.5 py-0.5 text-[10px] font-bold mono rounded bg-slate-800 text-white">${_escHtml(tid)}</span>
+            <span class="text-xs font-bold text-slate-800 truncate">${_escHtml(t.title)}</span>
+            ${rhythmBadge ? `<span title="${_escHtml(t.work_rhythm)}">${rhythmBadge}</span>` : ""}
             ${isUnplaced ? `<span class="px-1.5 py-0.5 text-[10px] font-bold bg-rose-600 text-white rounded mono">UNPLACED</span>` : ""}
           </div>
-          <div class="text-[11px] text-slate-600 mono flex flex-wrap items-center gap-2">
+          <div class="text-[11px] text-slate-600 mono flex flex-wrap items-center gap-1.5">
             <span>⏱ ${dur}p${plannedDur > Math.ceil(dur / 15) * 15 ? ` <span class="text-amber-700 font-semibold">→ ${plannedDur}p</span>` : ""}</span>
-            <span>📅 ${dl}</span>
+            <span>📅 ${_escHtml(dlInfo.dateText)}</span>
+            ${dlInfo.badgeHtml}
             <span>★ P${t.priority || 3}</span>
-            <span>${t.is_splittable || t.splittable ? `✂️ Cắt (≥${t.min_chunk_min || 45}p)` : "🧱 Nguyên khối"}</span>
-            ${deps.length ? `<span class="text-indigo-700 font-semibold">🔗 sau: ${deps.join(",")}</span>` : ""}
+            <span>${t.is_splittable || t.splittable ? `✂️ Cắt (≥${t.min_chunk_min || 45}p)` : "🧱 Khối"}</span>
+            ${deps.length ? `<span class="text-indigo-700 font-semibold">🔗 sau: ${_escHtml(deps.join(","))}</span>` : ""}
           </div>
         </div>
         <div class="flex items-center gap-1 shrink-0">
-          <button onclick="editTask('${tid}')" class="px-1.5 py-1 text-xs text-slate-600 hover:text-indigo-600 rounded hover:bg-slate-200" title="Sửa Task">✏️</button>
-          <button onclick="deleteTask('${tid}')" class="px-1.5 py-1 text-xs text-slate-600 hover:text-rose-600 rounded hover:bg-rose-100" title="Xóa Task">🗑️</button>
+          <button onclick="editTask('${_escHtml(tid)}')" class="px-1.5 py-1 text-xs text-slate-600 hover:text-indigo-600 rounded hover:bg-slate-200" title="Sửa Task trong Modal Lab">✏️</button>
+          <button onclick="deleteTask('${_escHtml(tid)}')" class="px-1.5 py-1 text-xs text-slate-600 hover:text-rose-600 rounded hover:bg-rose-100" title="Xóa Task">🗑️</button>
         </div>
       </div>`;
     })
@@ -775,7 +1505,7 @@ function populateOverrunSelect() {
 // ============================================================================
 
 async function solveSchedule() {
-  const algorithm = document.getElementById("solverSelect")?.value || "GREEDY_EDF_FIRST_FIT";
+  const algorithm = document.getElementById("solverSelect")?.value || "SCORED_GREEDY";
   try {
     const res = await fetch("/api/plan", {
       method: "POST",
@@ -791,12 +1521,18 @@ async function solveSchedule() {
     const schedule = await res.json();
     state.currentSchedule = schedule;
 
+    updateTemporalContextUI();
     renderKpiCards(schedule);
     renderOverloadBox(schedule);
     renderTaskQueue();
+    populateOverrunSelect();
     renderMainGrid();
     renderPlacedBlocksTable(schedule);
     renderStudentViews();
+
+    if (!state.activeScenario) {
+      savePersistedStudentState();
+    }
 
     if (state.workbenchMode === "COMPARE") {
       await runDualComparison();
@@ -809,33 +1545,77 @@ async function solveSchedule() {
 function renderKpiCards(schedule) {
   if (!schedule || !schedule.summary) return;
   const s = schedule.summary;
+  const m = schedule.metrics || {};
 
   const hardEl = document.getElementById("kpiHardViolations");
-  hardEl.textContent = String(s.hard_constraint_violations);
-  hardEl.className =
-    s.hard_constraint_violations === 0
-      ? "text-2xl font-bold mono text-emerald-600"
-      : "text-2xl font-bold mono text-rose-600";
+  if (hardEl) {
+    hardEl.textContent = String(s.hard_constraint_violations);
+    hardEl.className =
+      s.hard_constraint_violations === 0
+        ? "text-xl font-bold mono text-emerald-600"
+        : "text-xl font-bold mono text-rose-600";
+  }
 
   const dlEl = document.getElementById("kpiDeadlineRate");
-  dlEl.textContent = `${s.deadline_satisfaction_rate.toFixed(1)}%`;
-  dlEl.className =
-    s.deadline_satisfaction_rate >= 100
-      ? "text-2xl font-bold mono text-indigo-600"
-      : "text-2xl font-bold mono text-amber-600";
+  if (dlEl) {
+    dlEl.textContent = `${s.deadline_satisfaction_rate.toFixed(1)}%`;
+    dlEl.className =
+      s.deadline_satisfaction_rate >= 100
+        ? "text-xl font-bold mono text-indigo-600"
+        : "text-xl font-bold mono text-amber-600";
+  }
 
-  document.getElementById("kpiPlacedCount").textContent =
-    `${s.tasks_placed} / ${s.total_tasks_requested} tasks (${s.parts_placed}/${s.parts_total} phiên)`;
+  const placedEl = document.getElementById("kpiPlacedCount");
+  if (placedEl) {
+    placedEl.textContent = `${s.tasks_placed} / ${s.total_tasks_requested} tasks (${s.parts_placed}/${s.parts_total} phiên)`;
+  }
 
-  document.getElementById("kpiExecTime").textContent = schedule.execution_time_ms.toFixed(2);
-  document.getElementById("kpiFreeSlots").textContent = String(s.free_slots_remaining);
-  document.getElementById("kpiFragmentation").textContent =
-    `Phân mảnh: ${(s.fragmentation_index * 100).toFixed(1)}%`;
+  const deepPeak = m.deep_peak_match_pct ?? m.peak_match_rate_pct ?? 100.0;
+  const peakEl = document.getElementById("kpiPeakMatch");
+  if (peakEl) {
+    peakEl.textContent = `${Number(deepPeak).toFixed(1)}%`;
+    peakEl.className =
+      deepPeak >= 70
+        ? "text-xl font-bold mono text-emerald-600"
+        : deepPeak >= 40
+          ? "text-xl font-bold mono text-amber-600"
+          : "text-xl font-bold mono text-rose-600";
+  }
+  const peakNoteEl = document.getElementById("kpiPeakMatchNote");
+  if (peakNoteEl) {
+    peakNoteEl.textContent = `Chung: ${Number(m.peak_match_rate_pct ?? 100).toFixed(0)}% · Avg E=${Number(m.avg_energy_level ?? 0).toFixed(2)}`;
+  }
 
-  document.getElementById("kpiDeterminismHash").textContent =
-    (schedule.determinism_hash || "--------").slice(0, 12) + "…";
-  document.getElementById("kpiDeterminismHash").title = schedule.determinism_hash || "";
-  document.getElementById("kpiSolverLabel").textContent = schedule.solver_used || "";
+  const expRating = Number(s.experience_rating ?? 1.0);
+  const expEl = document.getElementById("kpiExperienceVal");
+  if (expEl) {
+    expEl.textContent = expRating.toFixed(2);
+    expEl.className =
+      expRating >= 4.0
+        ? "text-xl font-bold mono text-rose-600"
+        : expRating >= 3.0
+          ? "text-xl font-bold mono text-amber-600"
+          : "text-xl font-bold mono text-violet-700";
+  }
+  const ctxEl = document.getElementById("kpiContextSwitches");
+  if (ctxEl) {
+    ctxEl.textContent = `Đổi môn: ${m.context_switches ?? 0} · Gộp: ${m.batched_pairs ?? 0} · Nghỉ: ${s.rest_slots ?? 0}`;
+  }
+
+  const execEl = document.getElementById("kpiExecTime");
+  if (execEl) execEl.textContent = schedule.execution_time_ms.toFixed(2);
+  const freeEl = document.getElementById("kpiFreeSlots");
+  if (freeEl) freeEl.textContent = String(s.free_slots_remaining);
+  const fragEl = document.getElementById("kpiFragmentation");
+  if (fragEl) fragEl.textContent = `Phân mảnh: ${(s.fragmentation_index * 100).toFixed(1)}%`;
+
+  const hashEl = document.getElementById("kpiDeterminismHash");
+  if (hashEl) {
+    hashEl.textContent = (schedule.determinism_hash || "--------").slice(0, 12) + "…";
+    hashEl.title = schedule.determinism_hash || "";
+  }
+  const solverEl = document.getElementById("kpiSolverLabel");
+  if (solverEl) solverEl.textContent = schedule.solver_used || "";
 }
 
 function renderOverloadBox(schedule) {
@@ -885,10 +1665,64 @@ function renderOverloadBox(schedule) {
 // 672-SLOT INTERACTIVE GRID RENDERING
 // ============================================================================
 
+function energyLevelBadgeHtml(energyLevel) {
+  if (energyLevel === null || energyLevel === undefined || Number.isNaN(Number(energyLevel))) {
+    return `<span class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 mono text-[10px]">E=--</span>`;
+  }
+  const e = Number(energyLevel);
+  if (e >= 2.5) {
+    return `<span class="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold mono text-[10px]">⚡ E=${e.toFixed(1)} Peak</span>`;
+  }
+  if (e >= 1.5) {
+    return `<span class="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-semibold mono text-[10px]">⚖️ E=${e.toFixed(1)} Mid</span>`;
+  }
+  return `<span class="px-1.5 py-0.5 rounded bg-slate-200 text-slate-700 mono text-[10px]">Low E=${e.toFixed(1)}</span>`;
+}
+
+function formatBlockDateTimeText(b) {
+  const gDay = typeof b.start_slot === "number" ? Math.floor(b.start_slot / 96) : 0;
+  const dObj = getDayDate(gDay);
+  const viShort = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"][gDay % 7];
+  return `${viShort} · ${formatDateDDMMYYYY(dObj)} ${b.start_time}–${b.end_time}`;
+}
+
+function updateLabGridDateHeaders() {
+  const weekOff = state.viewWeekOffset || 0;
+  const activeNow = getActiveNowDate();
+  const shortDays = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"];
+
+  for (let d = 0; d < 7; d++) {
+    const colDate = getDayDate(weekOff * 7 + d);
+    const fullStr = formatDateDDMMYYYY(colDate);
+    const shortStr = formatDateShort(colDate);
+    const tState = getDayTemporalState(colDate, activeNow);
+
+    const badge =
+      tState === "TODAY"
+        ? `<span class="px-1 py-0.2 rounded bg-indigo-600 text-white text-[9px] font-bold">NAY</span>`
+        : tState === "PAST"
+          ? `<span class="px-1 py-0.2 rounded bg-slate-200 text-slate-600 text-[9px]">Qua</span>`
+          : `<span class="px-1 py-0.2 rounded bg-emerald-50 text-emerald-700 text-[9px]">Tới</span>`;
+
+    const labTh = document.getElementById(`labGridHeader_${d}`);
+    if (labTh) {
+      labTh.className = `py-1.5 px-1 text-center font-bold border-r border-slate-200 ${
+        tState === "TODAY" ? "bg-indigo-100 text-indigo-950" : tState === "PAST" ? "bg-slate-200/70 text-slate-500" : ""
+      }`;
+      labTh.innerHTML = `<div class="flex items-center justify-center gap-1">${DAYS_VI[d]} ${badge}</div><div class="text-[10px] font-semibold mono ${tState === "TODAY" ? "text-indigo-700" : "text-slate-500"}">${fullStr}</div>`;
+    }
+
+    document.querySelectorAll(`.compare-day-hdr-${d}`).forEach((el) => {
+      el.innerHTML = `<div>${shortDays[d]}</div><div class="text-[9px] font-normal mono">${shortStr}</div>`;
+    });
+  }
+}
+
 function renderMainGrid() {
   const tbody = document.getElementById("mainGridTbody");
   if (!tbody || !state.currentSchedule) return;
 
+  updateLabGridDateHeaders();
   const foldSleep = document.getElementById("chkFoldNightSleep")?.checked ?? true;
   const stepSlots = parseInt(document.getElementById("gridResolutionSelect")?.value || "1", 10);
 
@@ -897,6 +1731,7 @@ function renderMainGrid() {
     stepSlots,
     diffOtherSchedule: null,
   });
+  requestAnimationFrame(() => syncLabSliderFromScroll());
 }
 
 function buildScheduleRowsHTML(schedule, { foldSleep = true, stepSlots = 1, diffOtherSchedule = null } = {}) {
@@ -932,14 +1767,28 @@ function buildScheduleRowsHTML(schedule, { foldSleep = true, stepSlots = 1, diff
 
     for (const dIdx of dayIndices) {
       for (let off = sOff; off < eOff; off++) {
-        const slotIdx = dIdx * 96 + off;
-        fixedLabelBySlot[slotIdx] = ev.title;
-        fixedCatBySlot[slotIdx] = ev.category || "ACADEMIC_CLASS";
+        for (const wIdx of [0, 1]) {
+          const slotIdx = (wIdx * 7 + dIdx) * 96 + off;
+          fixedLabelBySlot[slotIdx] = ev.title;
+          fixedCatBySlot[slotIdx] = ev.category || "ACADEMIC_CLASS";
+        }
       }
     }
   }
 
   let html = "";
+  const weekOff = state.viewWeekOffset || 0;
+  const activeNow = getActiveNowDate();
+  const nowSlotOffset = Math.floor((activeNow.getHours() * 60 + activeNow.getMinutes()) / 15);
+  const colMeta = [];
+  let hasTodayCol = false;
+  for (let d = 0; d < 7; d++) {
+    const dDate = getDayDate(weekOff * 7 + d);
+    const tState = getDayTemporalState(dDate, activeNow);
+    if (tState === "TODAY") hasTodayCol = true;
+    colMeta.push({ dDate, dateStr: formatDateDDMMYYYY(dDate), tState });
+  }
+
   const sleepCfg = state.commitments?.sleep_schedule || {};
   const sleepStartStr = sleepCfg.daily_start_time || sleepCfg.start || "23:30";
   const sleepEndStr = sleepCfg.daily_end_time || sleepCfg.end || "06:30";
@@ -960,14 +1809,18 @@ function buildScheduleRowsHTML(schedule, { foldSleep = true, stepSlots = 1, diff
     const startTime = slotOffsetToTime(offset);
     const endTime = slotOffsetToTime(offset + stepSlots);
     const isFullHour = offset % 4 === 0;
+    const isNowRow = hasTodayCol && nowSlotOffset >= offset && nowSlotOffset < offset + stepSlots;
 
-    html += `<tr class="${isFullHour ? "border-t border-slate-300" : ""}">`;
-    html += `<td class="py-1 px-2 mono text-[11px] ${isFullHour ? "font-bold text-slate-800 bg-slate-100" : "text-slate-500 bg-slate-50"} border-r border-slate-300">${startTime}</td>`;
+    html += `<tr class="${isFullHour ? "border-t border-slate-300" : ""} ${isNowRow ? "border-t-2 border-t-rose-500" : ""}">`;
+    html += `<td class="py-1 px-2 mono text-[11px] ${isNowRow ? "bg-rose-50 text-rose-700 font-bold" : isFullHour ? "font-bold text-slate-800 bg-slate-100" : "text-slate-500 bg-slate-50"} border-r border-slate-300">${isNowRow ? `🔴 ${startTime}` : startTime}</td>`;
 
     for (let dayIdx = 0; dayIdx < 7; dayIdx++) {
-      const slotIdx = dayIdx * 96 + offset;
+      const slotIdx = (weekOff * 7 + dayIdx) * 96 + offset;
       const rawState = gridStates[slotIdx] || "FREE";
       const block = blockBySlot[slotIdx];
+      const meta = colMeta[dayIdx];
+      const isCellPast = meta.tState === "PAST" || (meta.tState === "TODAY" && offset + stepSlots <= nowSlotOffset);
+      const isCellNow = meta.tState === "TODAY" && isNowRow;
 
       let cellClass = "slot-free";
       let cellText = "";
@@ -1002,10 +1855,19 @@ function buildScheduleRowsHTML(schedule, { foldSleep = true, stepSlots = 1, diff
         dragAttrs += ` draggable="true" ondragstart="handleGridDragStart(event, '${block.block_id}')"`;
       }
 
+      if (isCellPast && !cellClass.includes("diff") && !cellClass.includes("moved")) {
+        cellClass += " opacity-75";
+      }
+      if (isCellNow) {
+        cellClass += " ring-2 ring-rose-500 ring-inset";
+      }
+
       const inspectData = encodeURIComponent(
         JSON.stringify({
           slotIdx,
           dayName: DAYS_VI[dayIdx],
+          dateStr: meta.dateStr,
+          dayTemporal: meta.tState,
           timeRange: `${startTime}–${endTime}`,
           rawState,
           fixedLabel: fixedLabelBySlot[slotIdx] || null,
@@ -1016,11 +1878,11 @@ function buildScheduleRowsHTML(schedule, { foldSleep = true, stepSlots = 1, diff
       html += `
         <td
           ${dragAttrs}
-          onmouseenter="inspectSlot('${inspectData}')"
-          onclick="inspectSlot('${inspectData}')"
+          onmouseenter="inspectSlot('${inspectData}', false)"
+          onclick="inspectSlot('${inspectData}', true)"
           class="grid-cell py-1 px-1.5 border-r border-slate-200 truncate cursor-pointer text-[11px] font-medium ${cellClass}"
-          title="Slot #${slotIdx} (${DAYS_VI[dayIdx]} ${startTime}-${endTime})">
-          ${cellText}
+          title="Slot #${slotIdx} (${DAYS_VI[dayIdx]} ${meta.dateStr} ${startTime}-${endTime})">
+          ${_escHtml(cellText)}
         </td>`;
     }
 
@@ -1030,28 +1892,68 @@ function buildScheduleRowsHTML(schedule, { foldSleep = true, stepSlots = 1, diff
   return html;
 }
 
-function inspectSlot(encoded) {
+function inspectSlot(encoded, pinPanel = false) {
   try {
     const info = JSON.parse(decodeURIComponent(encoded));
     const contentEl = document.getElementById("inspectorContent");
     const badgeEl = document.getElementById("inspectorSlotBadge");
-    if (badgeEl) badgeEl.textContent = `Slot #${info.slotIdx} (${info.dayName} ${info.timeRange})`;
+    const tLabel = info.dayTemporal === "TODAY" ? "HÔM NAY" : info.dayTemporal === "PAST" ? "Đã qua" : "Sắp tới";
+    if (badgeEl) {
+      badgeEl.textContent = `Slot #${info.slotIdx} (${info.dayName} · ${info.dateStr || ""} ${info.timeRange} · ${tLabel})`;
+    }
 
-    if (!contentEl) return;
-    if (info.block) {
-      const b = info.block;
-      contentEl.innerHTML = `
-        <span class="px-1.5 py-0.5 bg-emerald-600 text-white rounded font-bold mono text-[10px]">${b.block_id}</span>
-        <strong class="text-white">${b.title}</strong>
-        <span class="text-slate-300 mono">(${b.day} ${b.start_time}–${b.end_time}, ${b.duration_min}p, P${b.priority})</span>
-        <span class="text-amber-300 font-medium">→ ${b.reason}</span>
-      `;
-    } else if (info.rawState === "SLEEP") {
-      contentEl.innerHTML = `<span class="text-indigo-300 font-semibold">🌙 Slot Ngủ Bảo Vệ Cứng (SLEEP - H2):</span> <span>Hệ thống khóa cứng không cho phép xếp bài tập vào giờ ngủ.</span>`;
-    } else if (info.rawState.startsWith("OCCUPIED")) {
-      contentEl.innerHTML = `<span class="text-rose-400 font-semibold">🟥 Lịch Bận Cố Định (OCCUPIED - H1):</span> <span>${info.fixedLabel || info.rawState}</span>`;
-    } else {
-      contentEl.innerHTML = `<span class="text-emerald-400 font-semibold">⬜ Khe Thời Gian Trống (FREE):</span> <span>Sẵn sàng tiếp nhận công việc mới.</span>`;
+    if (contentEl) {
+      if (info.block) {
+        const b = info.block;
+        contentEl.innerHTML = `
+          <span class="px-1.5 py-0.5 bg-emerald-600 text-white rounded font-bold mono text-[10px]">${_escHtml(b.block_id)}</span>
+          <strong class="text-white">${_escHtml(b.title)}</strong>
+          <span class="text-slate-300 mono">(${_escHtml(info.dateStr || "")} ${b.start_time}–${b.end_time}, ${b.duration_min}p, P${b.priority})</span>
+          <span class="text-amber-300 font-medium">→ ${_escHtml(b.reason || "")}</span>
+        `;
+      } else if (info.rawState === "SLEEP") {
+        contentEl.innerHTML = `<span class="text-indigo-300 font-semibold">🌙 Slot Ngủ Bảo Vệ Cứng (SLEEP - H2):</span> <span>Hệ thống khóa cứng không cho phép xếp bài tập vào giờ ngủ.</span>`;
+      } else if (info.rawState.startsWith("OCCUPIED")) {
+        contentEl.innerHTML = `<span class="text-rose-400 font-semibold">🟥 Lịch Bận Cố Định (OCCUPIED - H1):</span> <span>${_escHtml(info.fixedLabel || info.rawState)}</span>`;
+      } else if (info.rawState === "REST") {
+        contentEl.innerHTML = `<span class="text-emerald-300 font-semibold">☕ Nghỉ Phục Hồi 15 Phút (REST - R3):</span> <span>Khoảng nghỉ tự động giữa các phiên học liên tục để tránh quá tải nhận thức.</span>`;
+      } else {
+        contentEl.innerHTML = `<span class="text-emerald-400 font-semibold">⬜ Khe Thời Gian Trống (FREE):</span> <span>Sẵn sàng tiếp nhận công việc mới (khu ${tLabel}).</span>`;
+      }
+    }
+
+    if (pinPanel) {
+      const panel = document.getElementById("labFixedInspectorPanel");
+      if (panel) {
+        panel.classList.remove("hidden");
+        if (info.block) {
+          const b = info.block;
+          const dl = resolveDeadlineDisplay(b, getActiveNowDate());
+          const codes = (b.reasons || [])
+            .map((r) => `<span class="px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-800 font-bold mono text-[10px]">${_escHtml(r.code || "RULE")}</span>`)
+            .join(" ");
+          panel.innerHTML = `
+            <div class="flex flex-wrap items-start justify-between gap-2">
+              <div class="space-y-1">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="font-bold text-indigo-950">🔬 Phân Tích Toán Học Slot #${info.slotIdx} · ${_escHtml(b.block_id)}</span>
+                  ${energyLevelBadgeHtml(b.energy_level)}
+                  <span class="px-1.5 py-0.5 rounded bg-slate-800 text-white mono text-[10px]">Load L${b.cognitive_load ?? 2}</span>
+                  <span class="px-1.5 py-0.5 rounded bg-white border border-slate-200 mono text-[10px]">P${b.priority}</span>
+                </div>
+                <div class="text-slate-800"><strong>${_escHtml(b.title)}</strong> · ${formatBlockDateTimeText(b)} (${b.duration_min}p) · Hạn: <span class="mono">${_escHtml(dl.dateText)}</span> ${dl.badgeHtml}</div>
+                <div class="flex flex-wrap items-center gap-1 pt-0.5">${codes} <span class="text-slate-700">${_escHtml(b.reason || "")}</span></div>
+              </div>
+              <button type="button" onclick="document.getElementById('labFixedInspectorPanel').classList.add('hidden')" class="px-2 py-0.5 rounded bg-white border border-slate-300 text-slate-600 hover:text-slate-900 font-bold">✕ Đóng</button>
+            </div>`;
+        } else {
+          panel.innerHTML = `
+            <div class="flex items-center justify-between gap-2">
+              <div><strong>Slot #${info.slotIdx}</strong> (${_escHtml(info.dayName)} · ${_escHtml(info.dateStr || "")} ${info.timeRange}) · Trạng thái: <strong class="mono">${_escHtml(info.rawState)}</strong> · ${_escHtml(info.fixedLabel || tLabel)}</div>
+              <button type="button" onclick="document.getElementById('labFixedInspectorPanel').classList.add('hidden')" class="px-2 py-0.5 rounded bg-white border border-slate-300 text-slate-600 hover:text-slate-900 font-bold">✕ Đóng</button>
+            </div>`;
+        }
+      }
     }
   } catch (e) {
     // ignore
@@ -1073,7 +1975,7 @@ function formatBlockDuration(b) {
 
 function bufferReasonText(b) {
   const r = findBufferReason(b);
-  return r ? `<div class="text-[10px] text-amber-800 font-semibold mt-0.5">⏳ ${r.text}</div>` : "";
+  return r ? `<div class="text-[10px] text-amber-800 font-semibold mt-0.5">⏳ ${_escHtml(r.text)}</div>` : "";
 }
 
 function renderPlacedBlocksTable(schedule) {
@@ -1086,54 +1988,175 @@ function renderPlacedBlocksTable(schedule) {
     return;
   }
 
+  const activeNow = getActiveNowDate();
   tbody.innerHTML = blocks
-    .map(
-      (b) => `
-      <tr class="hover:bg-slate-50">
-        <td class="py-1.5 px-2.5 font-bold mono text-indigo-700">${b.block_id}</td>
-        <td class="py-1.5 px-2.5 font-semibold text-slate-800">${b.title}</td>
+    .map((b) => {
+      const gDay = typeof b.start_slot === "number" ? Math.floor(b.start_slot / 96) : 0;
+      const dObj = getDayDate(gDay);
+      const bTemp = getBlockTemporalState(dObj, b.start_time, b.end_time, activeNow);
+      const tBadge =
+        bTemp.status === "ACTIVE"
+          ? `<span class="px-1 py-0.2 rounded bg-emerald-600 text-white text-[9px] font-bold">▶ LIVE</span>`
+          : bTemp.status === "PAST"
+            ? `<span class="px-1 py-0.2 rounded bg-slate-200 text-slate-600 text-[9px]">Qua</span>`
+            : "";
+      const dlInfo = resolveDeadlineDisplay(b, activeNow);
+      const reasonTags = (b.reasons || [])
+        .filter((r) => r && r.code && r.code !== "ESTIMATE_BUFFER")
+        .map((r) => `<span class="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 mono text-[9px] font-bold">${_escHtml(r.code)}</span>`)
+        .join(" ");
+
+      return `
+      <tr class="hover:bg-slate-50 ${bTemp.status === "PAST" ? "opacity-75" : ""}">
+        <td class="py-1.5 px-2.5 font-bold mono text-indigo-700">${_escHtml(b.block_id)}</td>
+        <td class="py-1.5 px-2.5 font-semibold text-slate-800">${_escHtml(b.title)}</td>
         <td class="py-1.5 px-2.5 mono text-slate-600">${b.chunk_index}/${b.total_chunks}</td>
-        <td class="py-1.5 px-2.5 font-semibold text-emerald-700 mono">${b.day} ${b.start_time}–${b.end_time}</td>
-        <td class="py-1.5 px-2.5 mono text-slate-500">[${b.start_slot}..${b.end_slot})</td>
+        <td class="py-1.5 px-2.5 font-semibold text-emerald-700 mono whitespace-nowrap">${_escHtml(formatBlockDateTimeText(b))} ${tBadge}</td>
+        <td class="py-1.5 px-2.5 whitespace-nowrap">${energyLevelBadgeHtml(b.energy_level)}</td>
         <td class="py-1.5 px-2.5 mono">${formatBlockDuration(b)}</td>
-        <td class="py-1.5 px-2.5 mono text-slate-600">${b.deadline_str}</td>
-        <td class="py-1.5 px-2.5 text-slate-600">${b.reason}${bufferReasonText(b)}</td>
-      </tr>`
-    )
+        <td class="py-1.5 px-2.5 mono text-slate-600 whitespace-nowrap">${_escHtml(dlInfo.dateText)} ${dlInfo.badgeHtml}</td>
+        <td class="py-1.5 px-2.5 text-slate-600"><div class="flex flex-wrap gap-1 mb-0.5">${reasonTags}</div>${_escHtml(b.reason || "")}${bufferReasonText(b)}</td>
+      </tr>`;
+    })
     .join("");
 }
 
 // ============================================================================
-// DUAL-ALGORITHM COMPARATIVE VIEW (SINGLE vs COMPARE)
+// LAB ANALYTICAL WORKSPACES: SINGLE / COMPARE A-B / RESILIENCE & DETERMINISM
 // ============================================================================
 
 async function switchWorkbenchMode(mode) {
   state.workbenchMode = mode;
-  const btnSingle = document.getElementById("btnModeSingle");
-  const btnCompare = document.getElementById("btnModeCompare");
-  const singlePanel = document.getElementById("singleGridPanel");
-  const comparePanel = document.getElementById("compareGridPanel");
+  const tabMap = {
+    SINGLE: { btn: "btnLabTabSingle", panel: "singleGridPanel" },
+    COMPARE: { btn: "btnLabTabCompare", panel: "compareGridPanel" },
+    RESILIENCE: { btn: "btnLabTabResilience", panel: "labPanelResilience" },
+  };
+  for (const [k, cfg] of Object.entries(tabMap)) {
+    const btn = document.getElementById(cfg.btn);
+    const panel = document.getElementById(cfg.panel);
+    const active = k === mode;
+    if (btn) {
+      btn.className = active
+        ? "px-3.5 py-1.5 text-xs font-bold rounded-md bg-white text-indigo-700 shadow-sm transition flex items-center gap-1.5"
+        : "px-3.5 py-1.5 text-xs font-semibold rounded-md text-slate-600 hover:text-slate-900 transition flex items-center gap-1.5";
+    }
+    panel?.classList.toggle("hidden", !active);
+  }
 
   if (mode === "COMPARE") {
-    btnCompare.className = "px-2.5 py-1 text-xs font-semibold rounded bg-emerald-600 text-white transition";
-    btnSingle.className = "px-2.5 py-1 text-xs font-semibold rounded text-slate-300 hover:text-white transition";
-    singlePanel.classList.add("hidden");
-    comparePanel.classList.remove("hidden");
     await runDualComparison();
+  } else if (mode === "RESILIENCE") {
+    populateOverrunSelect();
   } else {
-    btnSingle.className = "px-2.5 py-1 text-xs font-semibold rounded bg-emerald-600 text-white transition";
-    btnCompare.className = "px-2.5 py-1 text-xs font-semibold rounded text-slate-300 hover:text-white transition";
-    comparePanel.classList.add("hidden");
-    singlePanel.classList.remove("hidden");
     renderMainGrid();
   }
 }
 
+async function runComparisonPreset(leftAlgo, rightAlgo) {
+  const selL = document.getElementById("compareAlgoLeft");
+  const selR = document.getElementById("compareAlgoRight");
+  if (selL) selL.value = leftAlgo;
+  if (selR) selR.value = rightAlgo;
+  if (state.workbenchMode !== "COMPARE") {
+    await switchWorkbenchMode("COMPARE");
+  } else {
+    await runDualComparison();
+  }
+}
+
+function _formatDeltaChip(diff, unit = "", higherIsBetter = true, decimals = 1) {
+  const num = Number(diff || 0);
+  if (Math.abs(num) < 0.05) {
+    return `<span class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 mono text-[10px]">0${unit} (Hòa)</span>`;
+  }
+  const good = higherIsBetter ? num > 0 : num < 0;
+  const sign = num > 0 ? "+" : "";
+  const cls = good ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800";
+  return `<span class="px-1.5 py-0.5 rounded ${cls} font-bold mono text-[10px]">${sign}${num.toFixed(decimals)}${unit} ${good ? "✓ Tốt hơn" : ""}</span>`;
+}
+
+function _formatDiffPlacementCell(slot, timeRange, energy, slotDateFallback = null) {
+  if (slot === null || slot === undefined || timeRange === "UNPLACED") {
+    return `<span class="px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 font-bold mono text-[10px]">UNPLACED</span>`;
+  }
+  const gDay = Math.floor(Number(slot) / 96);
+  const viShort = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"][gDay % 7];
+  const dObj = getDayDate(gDay);
+  return `
+    <div class="font-semibold text-slate-800 mono">${viShort} · ${formatDateDDMMYYYY(dObj)}</div>
+    <div class="flex items-center gap-1.5 mt-0.5">
+      <span class="text-[11px] text-slate-600 mono">${_escHtml(timeRange)}</span>
+      ${energyLevelBadgeHtml(energy)}
+    </div>`;
+}
+
+function renderLastComparisonDiffTable() {
+  const tbody = document.getElementById("compareDiffTableBody");
+  if (!tbody) return;
+  const c = state.lastComparison?.comparison;
+  const diffs = c?.block_diffs || [];
+  const onlyChanged = document.getElementById("chkOnlyChangedDiff")?.checked ?? true;
+  const filtered = onlyChanged ? diffs.filter((d) => d.changed) : diffs;
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="5" class="py-5 text-center text-slate-500 italic">${
+      diffs.length === 0
+        ? "Chưa có dữ liệu so sánh."
+        : "Không có phiên nào khác vị trí giữa 2 thuật toán (bỏ chọn bộ lọc ở trên để xem toàn bộ)."
+    }</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = filtered
+    .map((d) => {
+      const chunkSuffix = d.total_chunks > 1 ? ` (${d.chunk_index}/${d.total_chunks})` : "";
+      const eDelta =
+        d.right_energy !== null && d.left_energy !== null && d.right_energy !== undefined && d.left_energy !== undefined
+          ? Number(d.right_energy) - Number(d.left_energy)
+          : null;
+      let deltaHtml = `<span class="text-slate-400 text-[11px]">Giữ nguyên</span>`;
+      if (d.changed) {
+        const slotDiffH = d.delta_slots !== null && d.delta_slots !== undefined ? (d.delta_slots * 15) / 60 : null;
+        const moveText =
+          slotDiffH === null
+            ? "Trạng thái xếp khác"
+            : slotDiffH === 0
+              ? "Đổi độ dài"
+              : slotDiffH < 0
+                ? `Sớm hơn ${Math.abs(slotDiffH).toFixed(1)}h`
+                : `Chuyển tới +${slotDiffH.toFixed(1)}h`;
+        const eBadge =
+          eDelta !== null && Math.abs(eDelta) >= 0.1
+            ? `<div class="mt-0.5 text-[10px] font-bold mono ${eDelta > 0 ? "text-emerald-700" : "text-amber-700"}">${eDelta > 0 ? "↑" : "↓"} E ${eDelta > 0 ? "+" : ""}${eDelta.toFixed(1)}</div>`
+            : "";
+        deltaHtml = `<span class="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-800 font-semibold text-[10px] inline-block">${moveText}</span>${eBadge}`;
+      }
+      const rCodes = (d.right_reasons || [])
+        .map((code) => `<span class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200 mono text-[9px] font-bold">${_escHtml(code)}</span>`)
+        .join(" ");
+
+      return `
+        <tr class="hover:bg-slate-50 ${d.changed ? "bg-indigo-50/20" : ""}">
+          <td class="py-2 px-3">
+            <div class="font-bold text-slate-900">${_escHtml(d.title)}${chunkSuffix}</div>
+            <div class="text-[10px] text-slate-500 mono">${_escHtml(d.task_id)} · Load L${d.cognitive_load ?? 2} · P${d.priority ?? 3}</div>
+          </td>
+          <td class="py-2 px-3">${_formatDiffPlacementCell(d.left_slot, d.left_time, d.left_energy)}</td>
+          <td class="py-2 px-3">${_formatDiffPlacementCell(d.right_slot, d.right_time, d.right_energy)}</td>
+          <td class="py-2 px-3">${deltaHtml}</td>
+          <td class="py-2 px-3"><div class="flex flex-wrap gap-1">${rCodes || `<span class="text-slate-400">--</span>`}</div></td>
+        </tr>`;
+    })
+    .join("");
+}
+
 async function runDualComparison() {
   const algoLeft = document.getElementById("compareAlgoLeft")?.value || "GREEDY_EDF_FIRST_FIT";
-  const algoRight = document.getElementById("compareAlgoRight")?.value || "GREEDY_LST_BEST_FIT";
+  const algoRight = document.getElementById("compareAlgoRight")?.value || "SCORED_GREEDY";
 
   try {
+    updateLabGridDateHeaders();
     const res = await fetch("/api/compare", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1146,24 +2169,87 @@ async function runDualComparison() {
     });
     if (!res.ok) throw new Error(await res.text());
     const data = await res.json();
+    state.lastComparison = data;
+
     const left = data.left;
     const right = data.right;
     const c = data.comparison;
+    const lm = left.metrics || {};
+    const rm = right.metrics || {};
 
     document.getElementById("compareLeftHeader").textContent =
-      `Trái: ${left.solver_used} (${left.execution_time_ms.toFixed(2)} ms | Phân mảnh: ${(left.summary.fragmentation_index * 100).toFixed(1)}%)`;
+      `Trái (A): ${left.solver_used} (${left.execution_time_ms.toFixed(2)} ms | Phân mảnh: ${(left.summary.fragmentation_index * 100).toFixed(1)}%)`;
     document.getElementById("compareRightHeader").textContent =
-      `Phải: ${right.solver_used} (${right.execution_time_ms.toFixed(2)} ms | Phân mảnh: ${(right.summary.fragmentation_index * 100).toFixed(1)}%)`;
+      `Phải (B): ${right.solver_used} (${right.execution_time_ms.toFixed(2)} ms | Phân mảnh: ${(right.summary.fragmentation_index * 100).toFixed(1)}%)`;
+
+    // Layer 1: Executive Verdict Card
+    const verdictEl = document.getElementById("compareVerdictBanner");
+    if (verdictEl) {
+      const winner = c.verdict_winner || "TIE";
+      const winnerBadge =
+        winner === "RIGHT"
+          ? `<span class="px-2.5 py-1 rounded-full bg-emerald-600 text-white font-bold mono text-[11px]">🏆 KHUYẾN NGHỊ: ${_escHtml(c.algo_right)} (B)</span>`
+          : winner === "LEFT"
+            ? `<span class="px-2.5 py-1 rounded-full bg-indigo-600 text-white font-bold mono text-[11px]">🏆 KHUYẾN NGHỊ: ${_escHtml(c.algo_left)} (A)</span>`
+            : `<span class="px-2.5 py-1 rounded-full bg-slate-700 text-white font-bold mono text-[11px]">🤝 TƯƠNG ĐƯƠNG TRÊN BỘ DỮ LIỆU NÀY</span>`;
+
+      const highlightsHtml = (c.verdict_highlights || [])
+        .map((h) => `<li class="text-slate-700">• ${_escHtml(h)}</li>`)
+        .join("");
+
+      verdictEl.innerHTML = `
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+          <div class="font-bold text-slate-900 text-xs uppercase tracking-wide">📌 Đúc Kết Thực Nghiệm (Executive Verdict)</div>
+          <div class="flex items-center gap-2">
+            <span class="px-2 py-0.5 rounded bg-white border border-slate-200 mono text-[11px] text-slate-700">${c.different_block_placements}/${c.total_chunks_compared} phiên đổi vị trí</span>
+            ${winnerBadge}
+          </div>
+        </div>
+        <ul class="space-y-1 text-xs">${highlightsHtml}</ul>`;
+    }
+
+    // Layer 2: 9-Metric Scorecard Table
+    const rowsSpec = [
+      ["Vi phạm cứng H1–H5", `${c.left_hard_violations ?? left.summary.hard_constraint_violations}`, `${c.right_hard_violations ?? right.summary.hard_constraint_violations}`, _formatDeltaChip((c.right_hard_violations ?? 0) - (c.left_hard_violations ?? 0), "", false, 0)],
+      ["Tỷ lệ đạt Deadline", `${Number(c.left_deadline_rate).toFixed(1)}%`, `${Number(c.right_deadline_rate).toFixed(1)}%`, _formatDeltaChip(c.right_deadline_rate - c.left_deadline_rate, "%", true, 1)],
+      ["Task đã xếp hoàn chỉnh", `${c.left_placed_tasks ?? left.summary.tasks_placed}/${c.total_tasks ?? left.summary.total_tasks_requested}`, `${c.right_placed_tasks ?? right.summary.tasks_placed}/${c.total_tasks ?? right.summary.total_tasks_requested}`, _formatDeltaChip((c.right_placed_tasks ?? 0) - (c.left_placed_tasks ?? 0), " task", true, 0)],
+      ["Khớp Peak Circadian (Load≥2)", `${Number(c.left_deep_peak_match_pct ?? lm.deep_peak_match_pct ?? 100).toFixed(1)}%`, `${Number(c.right_deep_peak_match_pct ?? rm.deep_peak_match_pct ?? 100).toFixed(1)}%`, _formatDeltaChip((c.right_deep_peak_match_pct ?? 100) - (c.left_deep_peak_match_pct ?? 100), "%", true, 1)],
+      ["Khớp Peak Chung (Tất cả block)", `${Number(c.left_peak_match_pct ?? 100).toFixed(1)}%`, `${Number(c.right_peak_match_pct ?? 100).toFixed(1)}%`, _formatDeltaChip((c.right_peak_match_pct ?? 100) - (c.left_peak_match_pct ?? 100), "%", true, 1)],
+      ["Trung bình Mức Năng Lượng", `${Number(c.left_avg_energy ?? 0).toFixed(2)}`, `${Number(c.right_avg_energy ?? 0).toFixed(2)}`, _formatDeltaChip((c.right_avg_energy ?? 0) - (c.left_avg_energy ?? 0), "", true, 2)],
+      ["Experience Rating (1=Thoải mái→5)", `${Number(c.left_experience_rating ?? left.summary.experience_rating).toFixed(2)}`, `${Number(c.right_experience_rating ?? right.summary.experience_rating).toFixed(2)}`, _formatDeltaChip((c.right_experience_rating ?? 1) - (c.left_experience_rating ?? 1), "", false, 2)],
+      ["Chuyển ngữ cảnh (Ít hơn = đỡ mệt)", `${c.left_context_switches ?? 0} lần (${c.left_batched_pairs ?? 0} gộp)`, `${c.right_context_switches ?? 0} lần (${c.right_batched_pairs ?? 0} gộp)`, _formatDeltaChip((c.right_context_switches ?? 0) - (c.left_context_switches ?? 0), " lần", false, 0)],
+      ["Độ phân mảnh & Thời gian giải", `${(c.left_fragmentation * 100).toFixed(1)}% · ${c.left_exec_ms.toFixed(2)}ms`, `${(c.right_fragmentation * 100).toFixed(1)}% · ${c.right_exec_ms.toFixed(2)}ms`, _formatDeltaChip((c.right_fragmentation - c.left_fragmentation) * 100, "% mảnh", false, 1)],
+    ];
 
     document.getElementById("compareMetricsBox").innerHTML = `
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
-        <div><span class="text-slate-500">Số phiên đặt khác vị trí:</span> <strong class="mono text-indigo-700">${c.different_block_placements} / ${c.total_chunks_compared} phiên</strong></div>
-        <div><span class="text-slate-500">Đạt Deadline (Trái vs Phải):</span> <strong class="mono">${c.left_deadline_rate}% vs ${c.right_deadline_rate}%</strong></div>
-        <div><span class="text-slate-500">Độ phân mảnh (Trái vs Phải):</span> <strong class="mono">${(c.left_fragmentation * 100).toFixed(1)}% vs ${(c.right_fragmentation * 100).toFixed(1)}%</strong></div>
-        <div><span class="text-slate-500">Thời gian giải (Trái vs Phải):</span> <strong class="mono">${c.left_exec_ms.toFixed(2)}ms vs ${c.right_exec_ms.toFixed(2)}ms</strong></div>
-      </div>
-    `;
+      <table class="w-full text-left text-xs">
+        <thead class="bg-slate-50 text-slate-600 border-b border-slate-200">
+          <tr>
+            <th class="py-2 px-3">Chỉ Số Đánh Giá Khoa Học</th>
+            <th class="py-2 px-3">Trái (A): ${_escHtml(left.solver_used)}</th>
+            <th class="py-2 px-3 text-indigo-900">Phải (B): ${_escHtml(right.solver_used)}</th>
+            <th class="py-2 px-3">Chênh Lệch (B − A)</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          ${rowsSpec
+            .map(
+              ([lbl, lv, rv, delta]) => `
+            <tr class="hover:bg-slate-50">
+              <td class="py-1.5 px-3 font-semibold text-slate-700">${lbl}</td>
+              <td class="py-1.5 px-3 mono text-slate-600">${lv}</td>
+              <td class="py-1.5 px-3 mono font-bold text-indigo-900">${rv}</td>
+              <td class="py-1.5 px-3">${delta}</td>
+            </tr>`
+            )
+            .join("")}
+        </tbody>
+      </table>`;
 
+    // Layer 3: Task-by-Task Placement Diff Table
+    renderLastComparisonDiffTable();
+
+    // Layer 4: Full Grids inside collapsible section
     document.getElementById("compareLeftTbody").innerHTML = buildScheduleRowsHTML(left, {
       foldSleep: true,
       stepSlots: 2,
@@ -1180,14 +2266,15 @@ async function runDualComparison() {
 }
 
 // ============================================================================
-// TAB 3: DISRUPTION REPAIR (T04) & TASK OVERRUN SIMULATOR (T05)
+// LAB TAB 3: RESILIENCE LAB (T04/T05) & 3X DETERMINISM LEDGER
 // ============================================================================
 
 async function runDisruptionRepair(mode) {
-  const title = document.getElementById("inpDisruptTitle").value.trim() || "Sự kiện đột xuất";
-  const day = document.getElementById("inpDisruptDay").value || "Monday";
-  const start = document.getElementById("inpDisruptStart").value || "07:30";
-  const end = document.getElementById("inpDisruptEnd").value || "09:30";
+  const title = document.getElementById("inpDisruptTitle")?.value.trim() || "Sự kiện đột xuất";
+  const day = document.getElementById("inpDisruptDay")?.value || "Monday";
+  const start = document.getElementById("inpDisruptStart")?.value || "07:30";
+  const end = document.getElementById("inpDisruptEnd")?.value || "09:30";
+  const algorithm = document.getElementById("solverSelect")?.value || "SCORED_GREEDY";
 
   try {
     const res = await fetch("/api/repair", {
@@ -1196,6 +2283,7 @@ async function runDisruptionRepair(mode) {
       body: JSON.stringify({
         commitments: state.commitments,
         tasks: state.tasks,
+        algorithm,
         schedule: state.currentSchedule,
         mode,
         disruption: {
@@ -1215,7 +2303,6 @@ async function runDisruptionRepair(mode) {
       (rep.changes || []).filter((ch) => ch.status === "MOVED").map((ch) => ch.block_id)
     );
 
-    // Also add disruption to fixed events for visual display
     state.commitments.fixed_events.push({
       event_id: "DISRUPTION",
       title: `⚡ ${title}`,
@@ -1230,37 +2317,44 @@ async function runDisruptionRepair(mode) {
     renderOverloadBox(state.currentSchedule);
     renderMainGrid();
     renderPlacedBlocksTable(state.currentSchedule);
+    renderStudentViews();
 
     const logBox = document.getElementById("repairLogPanel");
-    logBox.classList.remove("hidden");
-    logBox.innerHTML = `
-      <div class="font-bold text-indigo-800">🛠️ Kết Quả Tái Lập Lịch (${rep.repair_mode})</div>
-      <div class="grid grid-cols-2 gap-2 text-[11px] bg-slate-50 p-2 rounded border border-slate-200">
-        <div>Độ ổn định ($S_{\\text{stability}}$): <strong class="mono text-emerald-700">${rep.stability_score.toFixed(1)}%</strong></div>
-        <div>Số phiên bị dời chỗ: <strong class="mono text-indigo-700">${rep.moved_blocks_count} phiên</strong></div>
-        <div>Số phiên bị đè trực tiếp: <strong class="mono">${rep.directly_hit_blocks}</strong></div>
-        <div>Thời gian xử lý: <strong class="mono">${rep.execution_time_ms.toFixed(2)} ms</strong></div>
-      </div>
-      <div class="space-y-1 text-[11px]">
-        ${(rep.changes || [])
-          .filter((c) => c.status !== "UNCHANGED")
-          .map(
-            (c) =>
-              `<div class="text-slate-700">• <strong>${c.block_id}</strong>: ${c.old_day} ${c.old_start_time}–${c.old_end_time} ➔ <strong class="text-blue-700">${c.new_day || "UNPLACED"} ${c.new_start_time || ""}–${c.new_end_time || ""}</strong></div>`
-          )
-          .join("")}
-      </div>
-    `;
+    if (logBox) {
+      logBox.classList.remove("hidden");
+      const movedRows = (rep.changes || [])
+        .filter((c) => c.status !== "UNCHANGED")
+        .map(
+          (c) =>
+            `<div class="text-slate-700 py-0.5">• <strong class="mono">${_escHtml(c.block_id)}</strong>: ${_escHtml(c.old_day)} ${c.old_start_time}–${c.old_end_time} ➔ <strong class="text-blue-700">${_escHtml(c.new_day || "UNPLACED")} ${c.new_start_time || ""}–${c.new_end_time || ""}</strong></div>`
+        )
+        .join("");
+
+      logBox.innerHTML = `
+        <div class="flex items-center justify-between">
+          <div class="font-bold text-indigo-900">🛠️ Kết Quả Tái Lập Lịch (${_escHtml(rep.repair_mode)})</div>
+          <span class="px-2 py-0.5 rounded font-bold mono ${rep.stability_score >= 90 ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900"}">Độ ổn định: ${rep.stability_score.toFixed(1)}%</span>
+        </div>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs bg-slate-50 p-2.5 rounded-lg border border-slate-200">
+          <div>S_stability: <strong class="mono text-emerald-700">${rep.stability_score.toFixed(1)}%</strong></div>
+          <div>Phiên dời chỗ: <strong class="mono text-indigo-700">${rep.moved_blocks_count} phiên</strong></div>
+          <div>Đè trực tiếp: <strong class="mono">${rep.directly_hit_blocks}</strong></div>
+          <div>Xử lý: <strong class="mono">${rep.execution_time_ms.toFixed(2)} ms</strong></div>
+        </div>
+        <div class="space-y-0.5 text-xs">${movedRows || `<div class="text-emerald-700 italic">Không có phiên học nào bị dời vị trí.</div>`}</div>
+      `;
+    }
   } catch (err) {
     console.error("Disruption repair error:", err);
   }
 }
 
 async function runDisruptionComparison() {
-  const title = document.getElementById("inpDisruptTitle").value.trim() || "Sự kiện đột xuất";
-  const day = document.getElementById("inpDisruptDay").value || "Monday";
-  const start = document.getElementById("inpDisruptStart").value || "07:30";
-  const end = document.getElementById("inpDisruptEnd").value || "09:30";
+  const title = document.getElementById("inpDisruptTitle")?.value.trim() || "Sự kiện đột xuất";
+  const day = document.getElementById("inpDisruptDay")?.value || "Monday";
+  const start = document.getElementById("inpDisruptStart")?.value || "07:30";
+  const end = document.getElementById("inpDisruptEnd")?.value || "09:30";
+  const algorithm = document.getElementById("solverSelect")?.value || "SCORED_GREEDY";
 
   try {
     const res = await fetch("/api/repair", {
@@ -1269,6 +2363,7 @@ async function runDisruptionComparison() {
       body: JSON.stringify({
         commitments: state.commitments,
         tasks: state.tasks,
+        algorithm,
         schedule: state.currentSchedule,
         mode: "COMPARE_BOTH",
         disruption: {
@@ -1283,33 +2378,38 @@ async function runDisruptionComparison() {
     if (!res.ok) throw new Error(await res.text());
     const data = await res.json();
     const cmp = data.comparison;
+    const savedBlocks = Math.max(0, (cmp.rebuild_moved_blocks || 0) - (cmp.local_moved_blocks || 0));
 
     const logBox = document.getElementById("repairLogPanel");
-    logBox.classList.remove("hidden");
-    logBox.innerHTML = `
-      <div class="font-bold text-indigo-900">⚖️ Đối Chứng T04: Local Repair (M4) vs Full Rebuild</div>
-      <table class="w-full text-[11px] border-collapse mt-1">
-        <thead>
-          <tr class="border-b border-slate-300 text-slate-600 text-left">
-            <th class="py-1">Phương pháp</th>
-            <th class="py-1">Độ ổn định ($S_{\\text{stability}}$)</th>
-            <th class="py-1">Số Block bị xáo trộn</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr class="border-b border-slate-100 text-emerald-800 font-semibold">
-            <td class="py-1">1. Local Insertion (M4)</td>
-            <td class="py-1 mono">${cmp.local_stability_pct.toFixed(1)}%</td>
-            <td class="py-1 mono">${cmp.local_moved_blocks} blocks (Chỉ dời đúng block bị đè)</td>
-          </tr>
-          <tr class="text-rose-800">
-            <td class="py-1">2. Full Greedy Rebuild</td>
-            <td class="py-1 mono">${cmp.rebuild_stability_pct.toFixed(1)}%</td>
-            <td class="py-1 mono">${cmp.rebuild_moved_blocks} blocks (Hiệu ứng Domino)</td>
-          </tr>
-        </tbody>
-      </table>
-    `;
+    if (logBox) {
+      logBox.classList.remove("hidden");
+      logBox.innerHTML = `
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div class="font-bold text-indigo-900">⚖️ Đối Chứng T04: Local Repair (M4) vs Full Rebuild — Sự cố "${_escHtml(title)}"</div>
+          <span class="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold text-[11px]">Local Repair giữ ổn định hơn +${(cmp.local_stability_pct - cmp.rebuild_stability_pct).toFixed(1)}% (bảo toàn ${savedBlocks} phiên)</span>
+        </div>
+        <div class="space-y-2.5 pt-1">
+          <div>
+            <div class="flex justify-between text-xs font-semibold text-emerald-800 mb-1">
+              <span>1. Local Insertion (M4) — Chỉ dời block bị đè</span>
+              <span class="mono">${cmp.local_stability_pct.toFixed(1)}% ổn định (${cmp.local_moved_blocks} block dời)</span>
+            </div>
+            <div class="w-full h-3 bg-slate-100 rounded-full overflow-hidden">
+              <div class="h-full bg-emerald-500 rounded-full" style="width: ${Math.min(100, Math.max(0, cmp.local_stability_pct))}%"></div>
+            </div>
+          </div>
+          <div>
+            <div class="flex justify-between text-xs font-semibold text-rose-800 mb-1">
+              <span>2. Full Greedy Rebuild — Xếp lại từ đầu (Domino Effect)</span>
+              <span class="mono">${cmp.rebuild_stability_pct.toFixed(1)}% ổn định (${cmp.rebuild_moved_blocks} block xáo trộn)</span>
+            </div>
+            <div class="w-full h-3 bg-slate-100 rounded-full overflow-hidden">
+              <div class="h-full bg-rose-500 rounded-full" style="width: ${Math.min(100, Math.max(0, cmp.rebuild_stability_pct))}%"></div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
   } catch (err) {
     console.error("Disruption comparison error:", err);
   }
@@ -1334,14 +2434,12 @@ async function runTaskOverrunSimulation() {
     if (!res.ok) throw new Error(await res.text());
     const data = await res.json();
 
-    // Update task duration in local state
     const tObj = state.tasks.find((t) => (t.task_id || t.id) === taskId);
     const oldEstimate = tObj ? tObj.duration_min || tObj.estimate_min : null;
-    // Feature 001: store the raw estimate, not the buffered planned value (avoids compounding the buffer).
     if (tObj) tObj.duration_min = data.new_estimate_min ?? data.new_duration_min;
     const estimateLine =
       data.new_estimate_min && data.new_estimate_min !== data.new_duration_min
-        ? `<div>• Ước lượng gốc: <span class="mono">${oldEstimate}p ➔ <strong>${data.new_estimate_min}p</strong></span> · bộ đệm áp dụng lại cho thời gian dự trù bên dưới</div>`
+        ? `<div>• Ước lượng gốc: <span class="mono">${oldEstimate}p ➔ <strong>${data.new_estimate_min}p</strong></span> · bộ đệm tự tính lại</div>`
         : "";
 
     state.currentSchedule = data.after_schedule;
@@ -1350,28 +2448,40 @@ async function runTaskOverrunSimulation() {
     renderOverloadBox(state.currentSchedule);
     renderMainGrid();
     renderPlacedBlocksTable(state.currentSchedule);
+    renderStudentViews();
 
     const logBox = document.getElementById("repairLogPanel");
-    logBox.classList.remove("hidden");
-    logBox.innerHTML = `
-      <div class="font-bold text-slate-800">⏱️ Kết Quả Mô Phỏng Lố Giờ (Kịch bản T05)</div>
-      <div class="text-[11px] text-slate-700 space-y-1">
-        ${estimateLine}
-        <div>• Task <strong>${data.task_id}</strong> tăng thời lượng: <span class="mono">${data.old_duration_min}p ➔ <strong>${data.new_duration_min}p</strong> (+${extraMin}p)</span></div>
-        <div>• Số phiên học phía sau bị trượt dây chuyền: <strong class="mono text-indigo-700">${data.shifted_blocks_count} phiên</strong></div>
-      </div>
-    `;
+    if (logBox) {
+      logBox.classList.remove("hidden");
+      logBox.innerHTML = `
+        <div class="font-bold text-slate-900">⏱️ Kết Quả Mô Phỏng Lố Giờ (T05 / UC9)</div>
+        <div class="text-xs text-slate-700 space-y-1 bg-slate-50 p-3 rounded-lg border border-slate-200">
+          ${estimateLine}
+          <div>• Task <strong class="mono">${_escHtml(data.task_id)}</strong> tăng thời lượng: <span class="mono">${data.old_duration_min}p ➔ <strong>${data.new_duration_min}p</strong> (+${extraMin}p)</span></div>
+          <div>• Hiệu ứng dây chuyền: <strong class="mono text-indigo-700">${data.shifted_blocks_count} phiên học phía sau bị dịch chuyển</strong></div>
+        </div>
+      `;
+    }
   } catch (err) {
     console.error("Overrun simulation error:", err);
   }
 }
 
-// ============================================================================
-// 3X DETERMINISM CHECK & EXPORT / IMPORT
-// ============================================================================
+function _buildDeterminismRowHtml(algo, data) {
+  const statusBadge = data.is_deterministic
+    ? `<span class="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full font-bold mono text-[10px]">✓ 3x IDENTICAL PASS</span>`
+    : `<span class="px-2 py-0.5 bg-rose-100 text-rose-800 rounded-full font-bold mono text-[10px]">✕ FAILED</span>`;
+  return `
+    <tr class="hover:bg-slate-50">
+      <td class="py-2 px-3 font-bold text-slate-800 mono">${_escHtml(algo)}</td>
+      <td class="py-2 px-3">${statusBadge}</td>
+      <td class="py-2 px-3 mono text-slate-600 text-[11px]">${_escHtml(data.unique_hash || "")}</td>
+      <td class="py-2 px-3 mono text-slate-700">[${(data.latencies_ms || []).map((x) => Number(x).toFixed(2) + "ms").join(", ")}]</td>
+    </tr>`;
+}
 
 async function runDeterminismCheck() {
-  const algorithm = document.getElementById("solverSelect")?.value || "GREEDY_EDF_FIRST_FIT";
+  const algorithm = document.getElementById("solverSelect")?.value || "SCORED_GREEDY";
   try {
     const res = await fetch("/api/determinism-check", {
       method: "POST",
@@ -1388,15 +2498,55 @@ async function runDeterminismCheck() {
 
     const banner = document.getElementById("determinismBanner");
     const textEl = document.getElementById("determinismBannerText");
-    banner.classList.remove("hidden");
-    textEl.innerHTML = `
-      <strong>🔒 KIỂM CHỨNG TẤT ĐỊNH 3 LẦN LIÊN TIẾP (${data.runs}x Runs):</strong>
-      Trạng thái = <span class="px-1.5 py-0.5 bg-emerald-600 text-white rounded font-bold mono">${data.is_deterministic ? "100% IDENTICAL PASS" : "FAILED"}</span> |
-      SHA-256 = <span class="mono text-amber-300">${data.unique_hash}</span> |
-      Thời gian 3 lần chạy = <span class="mono">[${data.latencies_ms.map((x) => x.toFixed(2) + "ms").join(", ")}]</span>
-    `;
+    if (banner && textEl) {
+      banner.classList.remove("hidden");
+      textEl.innerHTML = `
+        <strong>🔒 ${_escHtml(algorithm)} (${data.runs}x Runs):</strong>
+        <span class="px-1.5 py-0.5 bg-emerald-600 text-white rounded font-bold mono">${data.is_deterministic ? "100% IDENTICAL PASS" : "FAILED"}</span> |
+        SHA-256 = <span class="mono text-amber-300">${_escHtml(data.unique_hash)}</span>
+      `;
+    }
+    const ledgerBody = document.getElementById("determinismLedgerBody");
+    if (ledgerBody) {
+      ledgerBody.innerHTML = _buildDeterminismRowHtml(algorithm, data);
+    }
   } catch (err) {
     console.error("Determinism check error:", err);
+  }
+}
+
+async function runAllSolversDeterminismLedger() {
+  const ledgerBody = document.getElementById("determinismLedgerBody");
+  if (!ledgerBody) return;
+  const algos = [
+    "GREEDY_EDF_FIRST_FIT",
+    "GREEDY_LST_BEST_FIT",
+    "GREEDY_WSPT_SMITH_RULE",
+    "BACKTRACKING_BRANCH_AND_BOUND",
+    "SCORED_GREEDY",
+  ];
+  ledgerBody.innerHTML = `<tr><td colspan="4" class="py-4 text-center text-indigo-700 font-semibold">⏳ Đang chạy kiểm chứng SHA-256 (3x runs × 5 solvers)...</td></tr>`;
+
+  try {
+    const rows = [];
+    for (const algo of algos) {
+      const res = await fetch("/api/determinism-check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          commitments: state.commitments,
+          tasks: state.tasks,
+          algorithm: algo,
+          runs: 3,
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      rows.push(_buildDeterminismRowHtml(algo, data));
+    }
+    ledgerBody.innerHTML = rows.join("");
+  } catch (err) {
+    ledgerBody.innerHTML = `<tr><td colspan="4" class="py-4 text-center text-rose-600 font-semibold">Lỗi kiểm chứng: ${_escHtml(err.message)}</td></tr>`;
   }
 }
 
@@ -1453,8 +2603,22 @@ async function importJsonFile(event) {
 // STUDENT APP MODE CONTROLLER (CLEAN, MINIMALIST, USER-FACING)
 // ============================================================================
 
+function syncTaskModalModeVisibility() {
+  const isStudent = state.appMode === "STUDENT";
+  document.body.classList.toggle("app-mode-student", isStudent);
+  const advDet = document.getElementById("stTaskAdvDetails");
+  if (advDet) {
+    if (!isStudent) {
+      advDet.open = true;
+    } else if (!state.editingTaskId) {
+      advDet.open = false;
+    }
+  }
+}
+
 function switchAppMode(mode) {
   state.appMode = mode;
+  document.body.classList.toggle("app-mode-student", mode === "STUDENT");
   const btnStudent = document.getElementById("btnAppModeStudent");
   const btnLab = document.getElementById("btnAppModeLab");
   const studentLayout = document.getElementById("studentAppLayout");
@@ -1464,8 +2628,8 @@ function switchAppMode(mode) {
   const modeBadge = document.getElementById("headerModeBadge");
 
   if (mode === "STUDENT") {
-    if (btnStudent) btnStudent.className = "px-3.5 py-1.5 text-xs font-bold rounded-lg bg-indigo-600 text-white shadow transition flex items-center gap-1.5";
-    if (btnLab) btnLab.className = "px-3.5 py-1.5 text-xs font-semibold rounded-lg text-slate-300 hover:text-white transition flex items-center gap-1.5";
+    if (btnStudent) btnStudent.className = "px-3 py-1 text-xs font-bold rounded-lg bg-indigo-600 text-white shadow transition flex items-center gap-1";
+    if (btnLab) btnLab.className = "px-3 py-1 text-xs font-semibold rounded-lg text-slate-300 hover:text-white transition flex items-center gap-1";
     studentLayout?.classList.remove("hidden");
     labLayout?.classList.add("hidden");
     studentActions?.classList.remove("hidden");
@@ -1474,10 +2638,13 @@ function switchAppMode(mode) {
       modeBadge.textContent = "STUDENT APP";
       modeBadge.className = "px-2 py-0.5 text-[10px] font-bold bg-indigo-500/30 text-indigo-300 border border-indigo-400/30 rounded-full mono uppercase";
     }
+    syncTaskModalModeVisibility();
+    updateTemporalContextUI();
     renderStudentViews();
+    requestAnimationFrame(() => updateObservedViewportRange());
   } else {
-    if (btnLab) btnLab.className = "px-3.5 py-1.5 text-xs font-bold rounded-lg bg-emerald-600 text-white shadow transition flex items-center gap-1.5";
-    if (btnStudent) btnStudent.className = "px-3.5 py-1.5 text-xs font-semibold rounded-lg text-slate-300 hover:text-white transition flex items-center gap-1.5";
+    if (btnLab) btnLab.className = "px-3 py-1 text-xs font-bold rounded-lg bg-emerald-600 text-white shadow transition flex items-center gap-1";
+    if (btnStudent) btnStudent.className = "px-3 py-1 text-xs font-semibold rounded-lg text-slate-300 hover:text-white transition flex items-center gap-1";
     labLayout?.classList.remove("hidden");
     studentLayout?.classList.add("hidden");
     labActions?.classList.remove("hidden");
@@ -1486,6 +2653,10 @@ function switchAppMode(mode) {
       modeBadge.textContent = "LAB BENCHMARK";
       modeBadge.className = "px-2 py-0.5 text-[10px] font-bold bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 rounded-full mono uppercase";
     }
+    syncTaskModalModeVisibility();
+    syncLabParamsUI();
+    populateOverrunSelect();
+    updateTemporalContextUI();
     renderMainGrid();
   }
 }
@@ -1511,9 +2682,13 @@ function switchStudentView(view) {
   }
 
   renderStudentViews();
+  if (view === "WEEK") {
+    requestAnimationFrame(() => updateObservedViewportRange());
+  }
 }
 
 function renderStudentViews() {
+  updateTemporalContextUI();
   renderStudentSummary();
   renderStudentOverloadBanner();
   if (state.studentView === "WEEK") {
@@ -1522,28 +2697,140 @@ function renderStudentViews() {
     renderStudentTodayView();
   } else if (state.studentView === "TASKS") {
     renderStudentTaskQueue();
+    renderStudentMainHabits();
   }
 }
 
-function updateDynamicWeekDates() {
-  const startIso = state.commitments?.planning_week_start;
-  let baseDate = new Date("2026-11-02T00:00:00");
-  if (startIso) {
-    const parsed = new Date(startIso);
-    if (!Number.isNaN(parsed.getTime())) baseDate = parsed;
+async function shiftStudentCalendarWeek(delta) {
+  const nextOffset = Math.max(0, Math.min(1, (state.viewWeekOffset || 0) + delta));
+  if (nextOffset === 1 && Number(state.commitments?.horizon_days || 7) < 14) {
+    state.commitments.horizon_days = 14;
+    state.viewWeekOffset = 1;
+    savePersistedStudentState();
+    await solveSchedule();
+    requestAnimationFrame(() => scrollToCalendarDay(7));
+    return;
   }
-  const endDate = new Date(baseDate.getTime() + 6 * 86400000);
-  const fmt = (d) => `${d.getDate()} Thg ${d.getMonth() + 1}`;
+  state.viewWeekOffset = nextOffset;
+  savePersistedStudentState();
+  updateTemporalContextUI();
+  renderStudentViews();
+  renderMainGrid();
+  requestAnimationFrame(() => scrollToCalendarDay(nextOffset * 7));
+}
+
+async function changeStudentHorizonDays(val) {
+  const days = parseInt(val, 10) >= 14 ? 14 : 7;
+  state.commitments.horizon_days = days;
+  if (days < 14 && state.viewWeekOffset > 0) {
+    state.viewWeekOffset = 0;
+  }
+  savePersistedStudentState();
+  await solveSchedule();
+}
+
+async function jumpToCurrentWeek() {
+  state.commitments.planning_week_start = getCurrentMondayIso();
+  state.commitments.now = getCurrentLocalIso();
+  state.useRealTimeNow = true;
+  state.viewWeekOffset = 0;
+  const activeNow = getActiveNowDate();
+  const jsDay = activeNow.getDay();
+  state.todayDay = DAYS_EN[jsDay === 0 ? 6 : jsDay - 1];
+  savePersistedStudentState();
+  syncAllLeftPanels();
+  await solveSchedule();
+  requestAnimationFrame(() => scrollToTodayColumn());
+}
+
+function _dayColWrapperClass(tState) {
+  const base = "flex-shrink-0 w-[265px] sm:w-[280px] rounded-2xl shadow-sm overflow-hidden flex flex-col ";
+  if (tState === "TODAY") {
+    return base + "bg-white border-2 border-indigo-500 ring-2 ring-indigo-100";
+  }
+  if (tState === "PAST") {
+    return base + "bg-slate-50/70 border border-slate-200 opacity-85";
+  }
+  return base + "bg-white border border-slate-200";
+}
+
+function _ensureWeek2DayColumns(showWeek2) {
+  const holder = document.getElementById("stExtraWeek2Columns");
+  if (!holder) return;
+  if (!showWeek2) {
+    if (holder.childElementCount > 0) holder.innerHTML = "";
+    return;
+  }
+  if (holder.childElementCount === 7) return;
+  const sleepCfg = state.commitments?.sleep_schedule || {};
+  const sStart = sleepCfg.daily_start_time || sleepCfg.start || "23:30";
+  const sEnd = sleepCfg.daily_end_time || sleepCfg.end || "06:30";
+  let html = "";
+  for (let i = 7; i < 14; i++) {
+    html += `
+      <div id="stDayColWrapper_${i}" class="${_dayColWrapperClass("FUTURE")}">
+        <div class="p-3 bg-indigo-50/40 border-b border-slate-200 flex items-center justify-between gap-1">
+          <div>
+            <div class="flex items-center gap-1.5">
+              <span class="text-xs font-bold text-slate-900">${DAYS_VI[i % 7]}</span>
+              <span class="px-1 py-0.2 rounded bg-indigo-100 text-indigo-800 text-[9px] font-bold">T2</span>
+              <span id="stDayTemporal_${i}" class="px-1.5 py-0.5 rounded text-[9px] font-bold"></span>
+            </div>
+            <div id="stDayDate_${i}" class="text-[11px] font-semibold text-slate-600 mono">--/--/----</div>
+          </div>
+          <span id="stDayHours_${i}" class="text-[11px] font-semibold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full whitespace-nowrap">0h</span>
+        </div>
+        <div class="bg-slate-800 text-slate-300 text-[10px] px-2.5 py-1 border-b border-slate-700 flex items-center justify-between">
+          <span class="st-sleep-window-label">🌙 ${sStart} – ${sEnd} (Ngủ)</span>
+          <span class="text-indigo-300 font-medium">Ngủ</span>
+        </div>
+        <div id="stDayCards_${i}" class="p-2 space-y-2 flex-1 min-h-[360px] bg-slate-50/30"></div>
+      </div>`;
+  }
+  holder.innerHTML = html;
+}
+
+function updateDynamicWeekDates() {
+  const weekOffset = state.viewWeekOffset || 0;
+  const horizonDays = Number(state.commitments?.horizon_days || 7) >= 14 ? 14 : 7;
+  _ensureWeek2DayColumns(horizonDays >= 14);
+
+  const horizonStartDate = getDayDate(0);
+  const horizonEndDate = getDayDate(horizonDays - 1);
+  const activeNow = getActiveNowDate();
 
   const titleEl = document.getElementById("stWeekHeaderTitle");
   if (titleEl) {
-    titleEl.textContent = `Tuần Học Tập: ${fmt(baseDate)} – ${fmt(endDate)}, ${endDate.getFullYear()}`;
+    titleEl.textContent = `Chuỗi Lịch (${horizonDays} ngày): ${formatDateDDMMYYYY(horizonStartDate)} – ${formatDateDDMMYYYY(horizonEndDate)}`;
   }
-  for (let i = 0; i < 7; i++) {
+  const weekLblEl = document.getElementById("stWeekViewLabel");
+  if (weekLblEl) weekLblEl.textContent = weekOffset === 1 ? "Tuần 2" : "Tuần 1";
+  const horizonSel = document.getElementById("stHorizonDaysSelect");
+  if (horizonSel) horizonSel.value = String(horizonDays);
+
+  for (let i = 0; i < horizonDays; i++) {
+    const cur = getDayDate(i);
+    const tState = getDayTemporalState(cur, activeNow);
     const dEl = document.getElementById(`stDayDate_${i}`);
-    if (dEl) {
-      const cur = new Date(baseDate.getTime() + i * 86400000);
-      dEl.textContent = fmt(cur);
+    if (dEl) dEl.textContent = formatDateDDMMYYYY(cur);
+
+    const tagEl = document.getElementById(`stDayTemporal_${i}`);
+    if (tagEl) {
+      if (tState === "TODAY") {
+        tagEl.textContent = "HÔM NAY";
+        tagEl.className = "px-1.5 py-0.5 rounded bg-indigo-600 text-white text-[9px] font-bold";
+      } else if (tState === "PAST") {
+        tagEl.textContent = "Đã qua";
+        tagEl.className = "px-1.5 py-0.5 rounded bg-slate-200 text-slate-600 text-[9px] font-semibold";
+      } else {
+        tagEl.textContent = "Sắp tới";
+        tagEl.className = "px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 text-[9px] font-semibold";
+      }
+    }
+
+    const wrapEl = document.getElementById(`stDayColWrapper_${i}`);
+    if (wrapEl) {
+      wrapEl.className = _dayColWrapperClass(tState);
     }
   }
 }
@@ -1677,16 +2964,33 @@ function renderStudentOverloadBanner() {
     </div>`;
 }
 
+function _buildNowDividerHtml(timeStr) {
+  return `
+    <div class="flex items-center gap-1.5 my-1">
+      <span class="h-0.5 flex-1 bg-rose-500"></span>
+      <span class="px-1.5 py-0.5 rounded-full bg-rose-600 text-white text-[9px] font-bold mono shadow-sm">🔴 BÂY GIỜ (${timeStr})</span>
+      <span class="h-0.5 flex-1 bg-rose-500"></span>
+    </div>`;
+}
+
 function renderStudentWeekCalendar() {
   if (!state.currentSchedule) return;
+  const horizonDays = Number(state.commitments?.horizon_days || 7) >= 14 ? 14 : 7;
+  const activeNow = getActiveNowDate();
+  const nowSlotExact = (activeNow.getHours() * 60 + activeNow.getMinutes()) / 15;
 
-  for (let d = 0; d < 7; d++) {
+  for (let globalDayIdx = 0; globalDayIdx < horizonDays; globalDayIdx++) {
+    const d = globalDayIdx % 7;
+    const isWeek2 = globalDayIdx >= 7;
     const dayName = DAYS_EN[d];
-    const container = document.getElementById(`stDayCards_${d}`);
-    const hoursEl = document.getElementById(`stDayHours_${d}`);
+    const targetDayLabel = isWeek2 ? `Next ${dayName}` : dayName;
+    const colDate = getDayDate(globalDayIdx);
+    const dayTemporal = getDayTemporalState(colDate, activeNow);
+    const container = document.getElementById(`stDayCards_${globalDayIdx}`);
+    const hoursEl = document.getElementById(`stDayHours_${globalDayIdx}`);
     if (!container) continue;
 
-    // 1. Collect fixed events
+    // 1. Collect fixed events (fixed commitments recur weekly)
     const dayFixed = [];
     for (const ev of state.commitments?.fixed_events || []) {
       const days = Array.isArray(ev.day_of_week) ? ev.day_of_week : String(ev.day_of_week).split(",").map((s) => s.trim());
@@ -1698,16 +3002,17 @@ function renderStudentWeekCalendar() {
           title: ev.title,
           start_time: ev.start_time,
           end_time: ev.end_time,
-          start_slot: d * 96 + Math.floor((parseInt(ev.start_time.split(":")[0]) * 60 + parseInt(ev.start_time.split(":")[1])) / 15),
+          start_slot: globalDayIdx * 96 + Math.floor((parseInt(ev.start_time.split(":")[0]) * 60 + parseInt(ev.start_time.split(":")[1])) / 15),
         });
       }
     }
 
-    // 2. Collect scheduled blocks
+    // 2. Collect scheduled blocks for this specific day (Days 0..13)
     const dayBlocks = [];
     let dayStudyMin = 0;
     for (const b of state.currentSchedule.blocks || []) {
-      if (b.day === dayName) {
+      const bDayIdx = typeof b.start_slot === "number" ? Math.floor(b.start_slot / 96) : -1;
+      if (b.day === targetDayLabel || bDayIdx === globalDayIdx) {
         dayBlocks.push({
           type: "BLOCK",
           block: b,
@@ -1724,14 +3029,22 @@ function renderStudentWeekCalendar() {
       hoursEl.textContent = `${(dayStudyMin / 60).toFixed(1)}h học`;
     }
 
-    // Combine and sort chronologically
-    const allEvents = [...dayFixed, ...dayBlocks].sort((a, b) => a.start_slot - b.start_slot);
+    // Combine chronologically and inject NOW divider if TODAY
+    const allEvents = [...dayFixed, ...dayBlocks];
+    if (dayTemporal === "TODAY") {
+      allEvents.push({
+        type: "NOW_MARKER",
+        start_slot: globalDayIdx * 96 + nowSlotExact,
+        timeStr: formatTimeHHMM(activeNow),
+      });
+    }
+    allEvents.sort((a, b) => a.start_slot - b.start_slot);
 
     if (allEvents.length === 0) {
       container.innerHTML = `
         <div class="h-full flex flex-col items-center justify-center py-10 text-center text-slate-400">
           <span class="text-2xl mb-1">🌿</span>
-          <span class="text-[11px] font-medium">Trống lịch cả ngày</span>
+          <span class="text-[11px] font-medium">Trống lịch ngày ${formatDateShort(colDate)}</span>
           <span class="text-[10px] text-slate-400">Nghỉ ngơi hoặc tự ôn tập</span>
         </div>`;
       continue;
@@ -1739,59 +3052,83 @@ function renderStudentWeekCalendar() {
 
     let html = "";
     for (const ev of allEvents) {
+      if (ev.type === "NOW_MARKER") {
+        html += _buildNowDividerHtml(ev.timeStr);
+        continue;
+      }
+
+      const bTemp = getBlockTemporalState(colDate, ev.start_time, ev.end_time, activeNow);
+      const isEvPast = dayTemporal === "PAST" || (dayTemporal === "TODAY" && bTemp.status === "PAST");
+      const isEvActive = dayTemporal === "TODAY" && bTemp.status === "ACTIVE";
+
       if (ev.type === "FIXED") {
+        const pastOp = isEvPast ? "opacity-65" : "";
+        const activeRing = isEvActive ? "ring-2 ring-emerald-500" : "";
         if (ev.category === "MEAL") {
           html += `
-            <div class="p-2 rounded-xl bg-amber-50 border border-amber-200/70 text-amber-900 shadow-sm transition hover:shadow">
+            <div class="p-2 rounded-xl bg-amber-50 border border-amber-200/70 text-amber-900 shadow-sm transition hover:shadow ${pastOp} ${activeRing}">
               <div class="flex items-center justify-between text-[10px] text-amber-700 font-semibold mb-0.5">
-                <span>🍽️ ĂN & NGHỈ</span>
+                <span>${isEvActive ? "▶ ĐANG DIỄN RA" : "🍽️ ĂN & NGHỈ"}</span>
                 <span class="mono">${ev.start_time} - ${ev.end_time}</span>
               </div>
-              <div class="font-bold text-xs text-amber-950">${ev.title}</div>
+              <div class="font-bold text-xs text-amber-950">${_escHtml(ev.title)}</div>
             </div>`;
         } else {
           html += `
-            <div class="p-2.5 rounded-xl bg-slate-100 border border-slate-200 text-slate-800 shadow-sm transition hover:shadow">
+            <div class="p-2.5 rounded-xl bg-slate-100 border border-slate-200 text-slate-800 shadow-sm transition hover:shadow ${pastOp} ${activeRing}">
               <div class="flex items-center justify-between text-[10px] text-slate-500 font-semibold mb-1">
-                <span class="flex items-center gap-1">🔒 LỚP HỌC / CỐ ĐỊNH</span>
+                <span class="flex items-center gap-1">${isEvActive ? "▶ ĐANG DIỄN RA" : isEvPast ? "✓ Đã qua" : "🔒 CỐ ĐỊNH"}</span>
                 <span class="mono font-bold text-slate-700">${ev.start_time} - ${ev.end_time}</span>
               </div>
-              <div class="font-bold text-xs text-slate-900">${ev.title}</div>
+              <div class="font-bold text-xs text-slate-900">${_escHtml(ev.title)}</div>
             </div>`;
         }
       } else {
         const b = ev.block;
         const isPinned = state.pinnedBlocks.has(b.block_id);
         const isDone = state.doneBlocks.has(b.block_id);
+        const dlInfo = resolveDeadlineDisplay(b, activeNow);
 
         let cardClass = "bg-indigo-50/90 border border-indigo-200/90 text-indigo-950";
-        if (isPinned) cardClass = "bg-amber-50 border-2 border-amber-400 text-amber-950";
+        if (isEvActive && !isDone) cardClass = "bg-emerald-50 border-2 border-emerald-500 ring-2 ring-emerald-100 text-emerald-950";
+        else if (isPinned) cardClass = "bg-amber-50 border-2 border-amber-400 text-amber-950";
         if (isDone) cardClass = "bg-slate-50 border border-slate-200 text-slate-400 line-through opacity-60";
+        else if (isEvPast) cardClass += " opacity-75";
+
+        const statusBadge = isEvActive && !isDone
+          ? `<span class="px-1.5 py-0.2 rounded bg-emerald-600 text-white text-[9px] font-bold">▶ LIVE</span>`
+          : isEvPast && !isDone
+            ? `<span class="px-1 py-0.2 rounded bg-slate-200 text-slate-600 text-[9px]">Qua</span>`
+            : "";
 
         html += `
           <div class="p-2.5 rounded-xl ${cardClass} shadow-sm transition hover:shadow-md flex flex-col justify-between group">
             <div>
-              <div class="flex items-center justify-between text-[10px] font-semibold mb-1">
-                <span class="mono px-1.5 py-0.5 bg-white/70 rounded text-indigo-800 font-bold">${b.start_time} - ${b.end_time} (${b.duration_min}p)</span>
-                <span class="px-1.5 py-0.5 rounded font-bold ${b.priority >= 4 ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-700'}">P${b.priority}</span>
+              <div class="flex items-center justify-between text-[10px] font-semibold mb-1 gap-1">
+                <span class="mono px-1.5 py-0.5 bg-white/80 rounded text-indigo-800 font-bold">${b.start_time}–${b.end_time} (${b.duration_min}p)</span>
+                <div class="flex items-center gap-1">
+                  ${statusBadge}
+                  <span class="px-1.5 py-0.5 rounded font-bold ${b.priority >= 4 ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-700'}">P${b.priority}</span>
+                </div>
               </div>
               <div class="font-bold text-xs leading-snug mb-1 text-slate-900">
-                ${isPinned ? '📌 ' : ''}${isDone ? '✓ ' : ''}${b.title}
+                ${isPinned ? '📌 ' : ''}${isDone ? '✓ ' : ''}${_escHtml(b.title)}
                 ${b.total_chunks > 1 ? `<span class="text-[10px] text-indigo-600 font-normal">(${b.chunk_index}/${b.total_chunks})</span>` : ''}
               </div>
-              ${b.deadline_str ? `<div class="text-[10px] text-slate-500 mb-1.5 flex items-center gap-1"><span>🎯 Hạn:</span> <span class="font-medium">${b.deadline_str}</span></div>` : ''}
+              <div class="text-[10px] text-slate-500 mb-1.5 flex flex-wrap items-center gap-1">
+                <span>🎯 ${_escHtml(dlInfo.dateText)}</span>
+              </div>
             </div>
 
-            <!-- Action Buttons on card -->
             <div class="flex items-center justify-between pt-1 border-t border-slate-200/50 text-[10px] gap-1">
               <button onclick="togglePinBlock('${b.block_id}')" class="px-1.5 py-0.5 rounded ${isPinned ? 'bg-amber-500 text-white font-bold' : 'bg-white hover:bg-amber-100 text-amber-800 border border-amber-200'} transition flex items-center gap-0.5" title="${isPinned ? 'Bỏ ghim' : 'Ghim cố định không cho dời'}">
-                <span>📌</span> ${isPinned ? 'Đã ghim' : 'Ghim'}
+                <span>📌</span> ${isPinned ? 'Ghim' : 'Ghim'}
               </button>
               <button onclick="toggleDoneBlock('${b.block_id}')" class="px-1.5 py-0.5 rounded ${isDone ? 'bg-emerald-600 text-white font-bold' : 'bg-white hover:bg-emerald-100 text-emerald-800 border border-emerald-200'} transition flex items-center gap-0.5" title="${isDone ? 'Đánh dấu chưa xong' : 'Đánh dấu đã xong'}">
-                <span>✓</span> ${isDone ? 'Xong' : 'Làm xong'}
+                <span>✓</span> ${isDone ? 'Xong' : 'Xong'}
               </button>
               <button onclick="openWhyHereModal('${b.block_id}')" class="px-1.5 py-0.5 rounded bg-white hover:bg-indigo-100 text-indigo-800 border border-indigo-200 transition font-medium" title="Xem lý do thuật toán chọn khung giờ này">
-                💡 Tại sao?
+                💡 Lý do
               </button>
             </div>
           </div>`;
@@ -1800,6 +3137,8 @@ function renderStudentWeekCalendar() {
 
     container.innerHTML = html;
   }
+
+  requestAnimationFrame(() => updateObservedViewportRange());
 }
 
 function renderStudentTodayView() {
@@ -1808,20 +3147,40 @@ function renderStudentTodayView() {
   const pillsContainer = document.getElementById("stTodayDayPills");
   if (!container || !state.currentSchedule) return;
 
-  // Render Day Pills
+  const weekOff = state.viewWeekOffset || 0;
+  const activeNow = getActiveNowDate();
+  const nowSlotExact = (activeNow.getHours() * 60 + activeNow.getMinutes()) / 15;
+  const dayIndex = Math.max(0, DAYS_EN.indexOf(state.todayDay));
+  const globalDayIdx = weekOff * 7 + dayIndex;
+  const selectedDate = getDayDate(globalDayIdx);
+  const selectedDayTemporal = getDayTemporalState(selectedDate, activeNow);
+  const targetDayLabel = weekOff === 1 ? `Next ${state.todayDay}` : state.todayDay;
+
+  const titleEl = document.getElementById("stTodayActiveDateTitle");
+  if (titleEl) {
+    const tLabel = selectedDayTemporal === "TODAY" ? "HÔM NAY" : selectedDayTemporal === "PAST" ? "Đã qua" : "Sắp tới";
+    titleEl.textContent = `${DAYS_VI[dayIndex]} · ${formatDateDDMMYYYY(selectedDate)} (${tLabel})`;
+  }
+  const nowBadgeEl = document.getElementById("stTodayNowBadge");
+  if (nowBadgeEl) {
+    nowBadgeEl.textContent = `Mốc hiện tại: ${formatDateDDMMYYYY(activeNow)} ${formatTimeHHMM(activeNow)}`;
+  }
+
+  // Render Day Pills with DD/MM and Today indicator
   if (pillsContainer) {
     pillsContainer.innerHTML = DAYS_EN.map((day, idx) => {
+      const dDate = getDayDate(weekOff * 7 + idx);
+      const tState = getDayTemporalState(dDate, activeNow);
       const isAct = day === state.todayDay;
+      const dot = tState === "TODAY" ? `<span class="inline-block w-1.5 h-1.5 rounded-full bg-rose-400 mr-1"></span>` : "";
       return `
-        <button onclick="setTodayDay('${day}')" class="px-3 py-1 text-xs font-bold rounded-lg transition ${
-        isAct ? 'bg-indigo-600 text-white shadow' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-      }">
-          ${DAYS_VI[idx]} (${day.slice(0, 3)})
+        <button onclick="setTodayDay('${day}')" class="px-2.5 py-1 text-xs font-bold rounded-lg transition ${
+          isAct ? 'bg-indigo-600 text-white shadow' : tState === 'TODAY' ? 'bg-indigo-50 text-indigo-800 border border-indigo-300' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+        }">
+          ${dot}${DAYS_VI[idx]} (${formatDateShort(dDate)})
         </button>`;
     }).join("");
   }
-
-  const dayIndex = DAYS_EN.indexOf(state.todayDay);
 
   // Collect today fixed events
   const todayFixed = [];
@@ -1835,14 +3194,15 @@ function renderStudentTodayView() {
         title: ev.title,
         start_time: ev.start_time,
         end_time: ev.end_time,
-        start_slot: dayIndex * 96 + Math.floor((parseInt(ev.start_time.split(":")[0]) * 60 + parseInt(ev.start_time.split(":")[1])) / 15),
+        start_slot: globalDayIdx * 96 + Math.floor((parseInt(ev.start_time.split(":")[0]) * 60 + parseInt(ev.start_time.split(":")[1])) / 15),
       });
     }
   }
 
   const todayBlocks = [];
   for (const b of state.currentSchedule.blocks || []) {
-    if (b.day === state.todayDay) {
+    const bDayIdx = typeof b.start_slot === "number" ? Math.floor(b.start_slot / 96) : -1;
+    if (b.day === targetDayLabel || bDayIdx === globalDayIdx) {
       todayBlocks.push({
         type: "BLOCK",
         block: b,
@@ -1854,36 +3214,62 @@ function renderStudentTodayView() {
     }
   }
 
-  const allEvents = [...todayFixed, ...todayBlocks].sort((a, b) => a.start_slot - b.start_slot);
+  const allEvents = [...todayFixed, ...todayBlocks];
+  if (selectedDayTemporal === "TODAY") {
+    allEvents.push({
+      type: "NOW_MARKER",
+      start_slot: globalDayIdx * 96 + nowSlotExact,
+      timeStr: formatTimeHHMM(activeNow),
+    });
+  }
+  allEvents.sort((a, b) => a.start_slot - b.start_slot);
 
-  // Find next pending study block for hero card
-  const nextStudy = todayBlocks.find((x) => !state.doneBlocks.has(x.block.block_id)) || todayBlocks[0];
+  // Pick next active/upcoming pending study block for Hero card
+  const nextStudy =
+    todayBlocks.find((x) => !state.doneBlocks.has(x.block.block_id) && getBlockTemporalState(selectedDate, x.start_time, x.end_time, activeNow).status === "ACTIVE") ||
+    todayBlocks.find((x) => !state.doneBlocks.has(x.block.block_id) && getBlockTemporalState(selectedDate, x.start_time, x.end_time, activeNow).status === "FUTURE") ||
+    todayBlocks.find((x) => !state.doneBlocks.has(x.block.block_id)) ||
+    todayBlocks[0];
 
   if (heroContainer) {
     if (nextStudy) {
       const b = nextStudy.block;
       const isDone = state.doneBlocks.has(b.block_id);
       const isPinned = state.pinnedBlocks.has(b.block_id);
+      const bTemp = getBlockTemporalState(selectedDate, b.start_time, b.end_time, activeNow);
+      const dlInfo = resolveDeadlineDisplay(b, activeNow);
+      const heroBadge = bTemp.status === "ACTIVE"
+        ? `▶ ĐANG DIỄN RA (còn ${bTemp.deltaMin}p)`
+        : selectedDayTemporal === "PAST" || bTemp.status === "PAST"
+          ? "✓ ĐÃ QUA THEO MỐC THỜI GIAN"
+          : "🎯 VIỆC CẦN TẬP TRUNG TIẾP THEO";
 
       heroContainer.innerHTML = `
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <div class="flex items-center gap-2 mb-2">
-              <span class="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-xs font-bold uppercase tracking-wider">🎯 VIỆC CẦN TẬP TRUNG TIẾP THEO</span>
-              <span class="text-xs text-indigo-200 mono font-semibold">${state.todayDay} Lúc ${b.start_time} – ${b.end_time} (${b.duration_min} phút)</span>
+            <div class="flex flex-wrap items-center gap-2 mb-2">
+              <span class="px-2.5 py-0.5 rounded-full ${bTemp.status === "ACTIVE" ? "bg-emerald-500 text-slate-950" : "bg-emerald-500/20 text-emerald-300 border border-emerald-400/30"} text-xs font-bold uppercase tracking-wider">${heroBadge}</span>
+              <span class="text-xs text-indigo-200 mono font-semibold">${DAYS_VI[dayIndex]} · ${formatDateDDMMYYYY(selectedDate)} (${b.start_time} – ${b.end_time} · ${b.duration_min} phút)</span>
             </div>
             <h2 class="text-xl sm:text-2xl font-bold text-white tracking-tight mb-1.5 flex items-center gap-2">
-              ${isPinned ? '📌 ' : ''}${isDone ? '✓ ' : ''}${b.title}
+              ${isPinned ? '📌 ' : ''}${isDone ? '✓ ' : ''}${_escHtml(b.title)}
               ${b.total_chunks > 1 ? `<span class="text-sm font-normal text-indigo-300">(Phiên ${b.chunk_index}/${b.total_chunks})</span>` : ''}
             </h2>
             <p class="text-xs text-indigo-200 max-w-2xl leading-relaxed">
-              ${b.deadline_str ? `Hạn chót: <strong>${b.deadline_str}</strong> · ` : ''}Ưu tiên P${b.priority} · ${b.reason || 'Được xếp tự động vào khoảng thời gian trống khả dụng sớm nhất.'}
+              Hạn: <strong>${_escHtml(dlInfo.dateText)}</strong> · Ưu tiên P${b.priority} · ${_escHtml(b.reason || 'Được xếp tự động vào khung giờ tối ưu.')}
             </p>
+            <div class="mt-3 flex flex-wrap items-center gap-2 text-xs">
+              <span class="text-indigo-200">Check-in thực tế (M7):</span>
+              <input id="stHeroActualMin" type="number" min="15" max="480" step="15" value="${state.actualDurations.get(b.block_id) || b.duration_min}" class="w-20 px-2 py-1 rounded-lg bg-slate-900/70 border border-indigo-400/50 text-white mono text-center" />
+              <span class="text-indigo-300">phút</span>
+              <button type="button" onclick="submitBlockCheckIn('${b.block_id}', 'stHeroActualMin')" class="px-3 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold transition">Lưu kết quả</button>
+              <span id="stHeroCheckInFeedback" class="hidden text-emerald-300 font-semibold"></span>
+            </div>
           </div>
 
           <div class="flex flex-wrap items-center gap-2">
             <button onclick="toggleDoneBlock('${b.block_id}')" class="px-4 py-2 rounded-xl ${isDone ? 'bg-slate-700 text-slate-300' : 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold'} shadow-md transition flex items-center gap-1.5 text-xs">
-              <span>✓</span> ${isDone ? 'Đánh dấu chưa xong' : 'Hoàn Thành Phiên Này'}
+              <span>✓</span> ${isDone ? 'Đánh dấu chưa xong' : 'Hoàn Thành Phiên'}
             </button>
             <button onclick="togglePinBlock('${b.block_id}')" class="px-3.5 py-2 rounded-xl ${isPinned ? 'bg-amber-500 text-white font-bold' : 'bg-indigo-700/80 hover:bg-indigo-600 text-white'} border border-indigo-500/50 transition flex items-center gap-1.5 text-xs">
               <span>📌</span> ${isPinned ? 'Đã Ghim' : 'Ghim Lịch'}
@@ -1896,53 +3282,67 @@ function renderStudentTodayView() {
     } else {
       heroContainer.innerHTML = `
         <div class="py-2 text-center text-indigo-200">
-          <h2 class="text-lg font-bold text-white mb-1">🎉 Bạn Đã Hoàn Thành Toàn Bộ Phiên Học Hôm Nay!</h2>
-          <p class="text-xs text-indigo-300">Không còn bài tập nào chưa làm trong ngày ${state.todayDay}. Hãy nghỉ ngơi hoặc xem trước bài cho ngày mai.</p>
+          <h2 class="text-lg font-bold text-white mb-1">🎉 Không còn bài tập nào trong ngày ${DAYS_VI[dayIndex]} (${formatDateDDMMYYYY(selectedDate)})!</h2>
+          <p class="text-xs text-indigo-300">Hãy nghỉ ngơi hoặc chuyển sang ngày khác bằng các nút ở trên.</p>
         </div>`;
     }
   }
 
   // Render vertical timeline
   if (allEvents.length === 0) {
-    container.innerHTML = `<div class="py-8 text-center text-slate-400 text-xs">Không có lịch trình nào được xếp trong ngày ${state.todayDay}.</div>`;
+    container.innerHTML = `<div class="py-8 text-center text-slate-400 text-xs">Không có lịch trình nào trong ngày ${DAYS_VI[dayIndex]} (${formatDateDDMMYYYY(selectedDate)}).</div>`;
     return;
   }
 
   container.innerHTML = allEvents.map((ev) => {
+    if (ev.type === "NOW_MARKER") {
+      return _buildNowDividerHtml(ev.timeStr);
+    }
+    const bTemp = getBlockTemporalState(selectedDate, ev.start_time, ev.end_time, activeNow);
+    const isPast = selectedDayTemporal === "PAST" || (selectedDayTemporal === "TODAY" && bTemp.status === "PAST");
+    const isActive = selectedDayTemporal === "TODAY" && bTemp.status === "ACTIVE";
+    const statusChip = isActive
+      ? `<span class="px-2 py-0.5 rounded bg-emerald-600 text-white font-bold text-[10px]">▶ ĐANG DIỄN RA</span>`
+      : isPast
+        ? `<span class="px-2 py-0.5 rounded bg-slate-200 text-slate-600 text-[10px]">Đã qua</span>`
+        : `<span class="px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 text-[10px]">Sắp tới</span>`;
+
     if (ev.type === "FIXED") {
       const isMeal = ev.category === "MEAL";
       return `
-        <div class="flex items-start gap-3 p-3 rounded-xl ${isMeal ? 'bg-amber-50/70 border border-amber-200' : 'bg-slate-50 border border-slate-200'}">
+        <div class="flex items-start gap-3 p-3 rounded-xl ${isMeal ? 'bg-amber-50/70 border border-amber-200' : 'bg-slate-50 border border-slate-200'} ${isPast ? 'opacity-65' : ''} ${isActive ? 'ring-2 ring-emerald-500' : ''}">
           <div class="w-16 text-xs font-bold ${isMeal ? 'text-amber-800' : 'text-slate-600'} mono pt-0.5">${ev.start_time}</div>
           <div class="flex-1">
-            <span class="text-[10px] font-bold uppercase tracking-wider ${isMeal ? 'text-amber-700' : 'text-slate-500'}">${isMeal ? '🍽️ Nghỉ & Ăn Trưa/Tối' : '🎓 Lịch Học Cố Định Trên Trường'}</span>
-            <div class="text-xs font-bold text-slate-900">${ev.title} (${ev.start_time} – ${ev.end_time})</div>
+            <span class="text-[10px] font-bold uppercase tracking-wider ${isMeal ? 'text-amber-700' : 'text-slate-500'}">${isMeal ? '🍽️ Nghỉ & Ăn' : '🎓 Lịch Cố Định'}</span>
+            <div class="text-xs font-bold text-slate-900">${_escHtml(ev.title)} (${ev.start_time} – ${ev.end_time})</div>
           </div>
-          <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-white text-slate-600 border border-slate-200">KHÓA CỨNG</span>
+          ${statusChip}
         </div>`;
     } else {
       const b = ev.block;
       const isDone = state.doneBlocks.has(b.block_id);
       const isPinned = state.pinnedBlocks.has(b.block_id);
+      const dlInfo = resolveDeadlineDisplay(b, activeNow);
 
       return `
         <div class="flex items-start gap-3 p-3.5 rounded-xl border transition ${
-          isDone ? 'bg-slate-50 border-slate-200 opacity-60' : isPinned ? 'bg-amber-50/70 border-amber-300' : 'bg-indigo-50/60 border-indigo-200'
-        }">
+          isDone ? 'bg-slate-50 border-slate-200 opacity-60' : isActive ? 'bg-emerald-50 border-2 border-emerald-500' : isPinned ? 'bg-amber-50/70 border-amber-300' : 'bg-indigo-50/60 border-indigo-200'
+        } ${isPast && !isDone ? 'opacity-75' : ''}">
           <div class="w-16 text-xs font-bold text-indigo-900 mono pt-0.5">${b.start_time}</div>
           <input type="checkbox" ${isDone ? 'checked' : ''} onchange="toggleDoneBlock('${b.block_id}')" class="mt-1 w-4 h-4 text-indigo-600 rounded cursor-pointer" />
           <div class="flex-1">
-            <div class="flex items-center gap-2 mb-0.5">
-              <span class="text-xs font-bold text-slate-900 ${isDone ? 'line-through text-slate-500' : ''}">${b.title}</span>
+            <div class="flex flex-wrap items-center gap-2 mb-0.5">
+              <span class="text-xs font-bold text-slate-900 ${isDone ? 'line-through text-slate-500' : ''}">${_escHtml(b.title)}</span>
               ${b.total_chunks > 1 ? `<span class="text-[10px] font-medium text-indigo-600">(Phiên ${b.chunk_index}/${b.total_chunks})</span>` : ''}
               ${isPinned ? '<span class="text-[10px] px-1.5 py-0.2 bg-amber-200 text-amber-900 rounded font-bold">📌 ĐÃ GHIM</span>' : ''}
+              ${statusChip}
             </div>
             <div class="text-[11px] text-slate-500 flex flex-wrap items-center gap-2">
               <span>⏱️ ${b.duration_min} phút</span>
               <span>·</span>
-              <span>🎯 ${b.deadline_str ? `Hạn: ${b.deadline_str}` : 'Habit'}</span>
-              <span>·</span>
-              <span class="text-indigo-700 font-medium">Ưu tiên P${b.priority}</span>
+              <span>🎯 ${_escHtml(dlInfo.dateText)}</span>
+              ${dlInfo.badgeHtml}
+              <span class="text-indigo-700 font-medium">P${b.priority}</span>
             </div>
           </div>
           <div class="flex items-center gap-1">
@@ -1959,6 +3359,82 @@ function setTodayDay(day) {
   renderStudentTodayView();
 }
 
+function switchStudentTasksSubtab(subtab) {
+  state.studentTasksSubtab = subtab;
+  const btnT = document.getElementById("btnStSubTasks");
+  const btnH = document.getElementById("btnStSubHabits");
+  const paneT = document.getElementById("stSubTasksPane");
+  const paneH = document.getElementById("stSubHabitsPane");
+  const isHabits = subtab === "HABITS";
+  if (btnT) {
+    btnT.className = !isHabits
+      ? "px-3 py-1.5 rounded-lg bg-white text-indigo-700 font-bold shadow-sm transition"
+      : "px-3 py-1.5 rounded-lg text-slate-600 font-semibold hover:text-slate-900 transition";
+  }
+  if (btnH) {
+    btnH.className = isHabits
+      ? "px-3 py-1.5 rounded-lg bg-white text-indigo-700 font-bold shadow-sm transition"
+      : "px-3 py-1.5 rounded-lg text-slate-600 font-semibold hover:text-slate-900 transition";
+  }
+  paneT?.classList.toggle("hidden", isHabits);
+  paneH?.classList.toggle("hidden", !isHabits);
+  if (isHabits) renderStudentMainHabits();
+  else renderStudentTaskQueue();
+}
+
+function _renderHabitCardsInto(containerEl, autoSolveOnDelete = false) {
+  if (!containerEl) return;
+  const habits = Array.isArray(state.commitments?.personal_habits) ? state.commitments.personal_habits : [];
+  if (habits.length === 0) {
+    containerEl.innerHTML = `<div class="text-xs text-slate-400 italic py-2">Chưa có thói quen cố định theo tuần nào.</div>`;
+    return;
+  }
+  const winLabels = { MORNING: "Sáng (06–12h)", AFTERNOON: "Chiều (12–18h)", EVENING: "Tối (18–23h)", ANYTIME: "Linh hoạt" };
+  containerEl.innerHTML = habits
+    .map((h, idx) => `
+      <div class="flex items-center justify-between bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs">
+        <div class="font-medium text-slate-800">
+          🏃 <strong>${_escHtml(h.name)}</strong> · ${winLabels[h.preferred_window] || h.preferred_window} · <span class="mono">${h.frequency_per_week}x/tuần × ${h.duration_min}p</span>
+        </div>
+        <button type="button" onclick="removeStudentPersonalHabit(${idx}, ${autoSolveOnDelete ? "true" : "false"})" class="text-slate-400 hover:text-rose-600 font-bold px-2 py-0.5 rounded hover:bg-rose-50" title="Xóa thói quen">✕ Xóa</button>
+      </div>
+    `)
+    .join("");
+}
+
+function renderStudentMainHabits() {
+  _renderHabitCardsInto(document.getElementById("stMainHabitsList"), true);
+}
+
+function _addHabitFromInputs(prefix) {
+  const nameEl = document.getElementById(`${prefix}Name`);
+  const name = nameEl?.value.trim();
+  if (!name) return false;
+  const win = document.getElementById(`${prefix}Window`)?.value || "EVENING";
+  const freq = Math.max(1, Math.min(7, parseInt(document.getElementById(`${prefix}Freq`)?.value || "3", 10)));
+  const dur = Math.max(15, Math.min(240, parseInt(document.getElementById(`${prefix}Dur`)?.value || "60", 10)));
+  state.commitments.personal_habits = state.commitments.personal_habits || [];
+  state.commitments.personal_habits.push({
+    habit_id: `HABIT_${Date.now().toString().slice(-4)}`,
+    name,
+    preferred_window: win,
+    frequency_per_week: freq,
+    duration_min: dur,
+    category: "HABIT",
+    cognitive_load: 1,
+  });
+  if (nameEl) nameEl.value = "";
+  renderStudentSettingsHabits();
+  savePersistedStudentState();
+  return true;
+}
+
+async function addStudentHabitFromMainTab() {
+  if (_addHabitFromInputs("stMainHabitNew")) {
+    await solveSchedule();
+  }
+}
+
 function renderStudentTaskQueue() {
   const tbody = document.getElementById("stTasksTableBody");
   if (!tbody) return;
@@ -1968,22 +3444,33 @@ function renderStudentTaskQueue() {
     return;
   }
 
+  const activeNow = getActiveNowDate();
   const placedIds = new Set((state.currentSchedule?.blocks || []).map((b) => b.task_id));
 
   tbody.innerHTML = state.tasks.map((t) => {
     const tid = t.task_id || t.id;
     const isPlaced = placedIds.has(tid);
     const bufferInfo = state.taskBufferMap.get(tid);
+    const dlInfo = resolveDeadlineDisplay(t, activeNow);
+    const rhythmBadge = t.work_rhythm === "DEEP_FLOW" ? "🔥 Sâu" : t.work_rhythm === "LIGHT_PACE" ? "🐢 Nhẹ" : "";
 
     return `
       <tr class="hover:bg-slate-50 transition">
-        <td class="py-2.5 px-3 font-semibold text-slate-900 mono">${tid}</td>
-        <td class="py-2.5 px-3 font-bold text-slate-900">${t.title}</td>
+        <td class="py-2.5 px-3 font-semibold text-slate-900 mono">${_escHtml(tid)}</td>
+        <td class="py-2.5 px-3 font-bold text-slate-900">
+          ${_escHtml(t.title)}
+          ${rhythmBadge ? `<span class="ml-1 text-[10px] font-semibold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded">${rhythmBadge}</span>` : ""}
+        </td>
         <td class="py-2.5 px-3">
           <span class="font-semibold mono">${t.duration_min}p</span>
-          ${bufferInfo ? `<span class="ml-1 text-[10px] text-indigo-600 font-semibold bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200">🛡️ +20%</span>` : ''}
+          ${bufferInfo ? `<span class="ml-1 text-[10px] text-indigo-600 font-semibold bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200">🛡️ +Buffer</span>` : ''}
         </td>
-        <td class="py-2.5 px-3 text-slate-600">${t.deadline_day ? `${t.deadline_day} ${t.deadline_time || ''}` : 'Không hạn chót'}</td>
+        <td class="py-2.5 px-3 text-slate-700 mono">
+          <div class="flex flex-wrap items-center gap-1.5">
+            <span>${_escHtml(dlInfo.dateText)}</span>
+            ${dlInfo.badgeHtml}
+          </div>
+        </td>
         <td class="py-2.5 px-3"><span class="px-2 py-0.5 rounded text-[10px] font-bold ${t.priority >= 4 ? 'bg-indigo-100 text-indigo-800' : 'bg-slate-100 text-slate-700'}">P${t.priority}</span></td>
         <td class="py-2.5 px-3">
           ${isPlaced
@@ -1991,8 +3478,9 @@ function renderStudentTaskQueue() {
             : `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800">⚠️ CHƯA XẾP ĐƯỢC</span>`
           }
         </td>
-        <td class="py-2.5 px-3 text-right">
-          <button onclick="deleteStudentTask('${tid}')" class="text-slate-400 hover:text-rose-600 px-2 py-1 font-bold text-xs" title="Xóa task">✕ Xóa</button>
+        <td class="py-2.5 px-3 text-right whitespace-nowrap space-x-1">
+          <button onclick="editStudentTask('${_escHtml(tid)}')" class="text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 px-2 py-1 rounded font-bold text-xs" title="Sửa công việc">✏️ Sửa</button>
+          <button onclick="deleteStudentTask('${_escHtml(tid)}')" class="text-slate-400 hover:text-rose-600 hover:bg-rose-50 px-2 py-1 rounded font-bold text-xs" title="Xóa task">✕ Xóa</button>
         </td>
       </tr>`;
   }).join("");
@@ -2137,8 +3625,26 @@ function setStNlPacing(pacing) {
 
   const customWrap = document.getElementById("stNlCustomWrap");
   if (customWrap) customWrap.classList.toggle("hidden", state.nlPacing !== "CUSTOM");
+  const rhythmSel = document.getElementById("stInpWorkRhythm");
+  if (rhythmSel && rhythmSel.value !== state.nlPacing) rhythmSel.value = state.nlPacing;
   if (state.nlSession === "single") setStNlSession("splittable");
   _refreshStNlChunkUI();
+}
+
+function syncWorkRhythmFromAdv(rhythm) {
+  setStNlPacing(rhythm || "BALANCED");
+  saveStudentModalDraft();
+}
+
+function syncPriorityFromCore(val) {
+  if (val === "auto" || val === "" || val === null || val === undefined) {
+    setStNlUrgency(null);
+    const priSel = document.getElementById("stInpPriority");
+    if (priSel) priSel.value = "3";
+  } else {
+    setStNlUrgency(Number(val));
+  }
+  saveStudentModalDraft();
 }
 
 function _mapUserUrgencyToSolver(urg) {
@@ -2181,6 +3687,10 @@ function setStNlUrgency(urgency) {
   const priSel = document.getElementById("stInpPriority");
   if (priSel && state.nlUrgency !== null) {
     priSel.value = String(_mapUserUrgencyToSolver(state.nlUrgency));
+  }
+  const coreSel = document.getElementById("stInpPriorityCore");
+  if (coreSel) {
+    coreSel.value = state.nlUrgency === null ? "auto" : String(state.nlUrgency);
   }
   _refreshStNlChunkUI();
   // Keep live diagnostic urgency badge synchronized immediately if already analyzed
@@ -2699,6 +4209,8 @@ function saveStudentModalDraft() {
   const splittable = document.getElementById("stInpSplittable")?.checked ?? true;
   const buffer = document.getElementById("stInpBuffer")?.checked ?? true;
   const dependsOn = document.getElementById("stInpDependsOn")?.value || "";
+  const startAfter = document.getElementById("stInpStartAfter")?.value || "";
+  const workRhythm = document.getElementById("stInpWorkRhythm")?.value || "BALANCED";
   const customMin = document.getElementById("stNlCustomMin")?.value || "20";
   const customMax = document.getElementById("stNlCustomMax")?.value || "45";
 
@@ -2713,6 +4225,7 @@ function saveStudentModalDraft() {
     category !== "ASSIGNMENT" ||
     priority !== "5" ||
     dependsOn.trim() ||
+    startAfter.trim() ||
     (state.nlAttachments && state.nlAttachments.length > 0) ||
     state.lastAnalyzedHybrid
   );
@@ -2743,6 +4256,8 @@ function saveStudentModalDraft() {
     splittable,
     buffer,
     dependsOn,
+    startAfter,
+    workRhythm,
     customMin,
     customMax,
     nlEngineMode: state.nlEngineMode,
@@ -2794,6 +4309,12 @@ function restoreStudentModalDraft() {
   if (document.getElementById("stInpDuration")) document.getElementById("stInpDuration").value = draftData.duration || "60";
   if (document.getElementById("stInpDeadlineDay")) document.getElementById("stInpDeadlineDay").value = draftData.deadlineDay ?? "Wednesday";
   if (document.getElementById("stInpDeadlineTime")) document.getElementById("stInpDeadlineTime").value = draftData.deadlineTime || "23:59";
+  if (document.getElementById("stInpStartAfter")) document.getElementById("stInpStartAfter").value = draftData.startAfter || "";
+  if (document.getElementById("stInpWorkRhythm")) document.getElementById("stInpWorkRhythm").value = draftData.workRhythm || "BALANCED";
+  if (document.getElementById("stInpPriorityCore")) {
+    document.getElementById("stInpPriorityCore").value =
+      draftData.nlUrgency === null || draftData.nlUrgency === undefined ? "auto" : String(draftData.nlUrgency);
+  }
   if (document.getElementById("stInpCategory")) document.getElementById("stInpCategory").value = draftData.category || "ASSIGNMENT";
   if (document.getElementById("stInpCognitiveLoad")) document.getElementById("stInpCognitiveLoad").value = String(draftData.cognitiveLoad || 2);
   if (document.getElementById("stInpPriority")) document.getElementById("stInpPriority").value = String(draftData.priority || 5);
@@ -2869,6 +4390,9 @@ function clearStudentModalDraft(confirmFirst = false) {
   if (document.getElementById("stInpSplittable")) document.getElementById("stInpSplittable").checked = true;
   if (document.getElementById("stInpBuffer")) document.getElementById("stInpBuffer").checked = true;
   if (document.getElementById("stInpDependsOn")) document.getElementById("stInpDependsOn").value = "";
+  if (document.getElementById("stInpStartAfter")) document.getElementById("stInpStartAfter").value = "";
+  if (document.getElementById("stInpWorkRhythm")) document.getElementById("stInpWorkRhythm").value = "BALANCED";
+  if (document.getElementById("stInpPriorityCore")) document.getElementById("stInpPriorityCore").value = "auto";
 
   setStNlSession("splittable");
   setStNlPacing("BALANCED");
@@ -2959,14 +4483,18 @@ function toggleStDependsOnId(tid) {
 }
 
 function openStudentTaskModal() {
+  state.editingTaskId = null;
+  const btnSave = document.getElementById("btnSaveStTask");
+  if (btnSave) btnSave.innerHTML = `<span>➕</span> Thêm & Lên Lịch Ngay`;
   const restored = restoreStudentModalDraft();
   if (!restored) {
-    resetStudentNlFeedback();
+    clearStudentModalDraft(false);
   }
   const tidInp = document.getElementById("stInpTaskId");
   if (tidInp) {
     tidInp.placeholder = `VD: TASK-${state.tasks.length + 1} (tự tạo)`;
   }
+  syncTaskModalModeVisibility();
   renderStDependsOnCandidates();
   document.getElementById("stTaskModal")?.classList.remove("hidden");
   const targetFocus = (document.getElementById("stNlPrompt")?.value)
@@ -2974,6 +4502,45 @@ function openStudentTaskModal() {
     : (document.getElementById("stNlPrompt") || document.getElementById("stInpTitle"));
   targetFocus?.focus();
   updateStBufferPreview();
+}
+
+function editStudentTask(tid) {
+  const t = state.tasks.find((x) => (x.task_id || x.id) === tid);
+  if (!t) return;
+  clearStudentModalDraft(false);
+  state.editingTaskId = tid;
+  const btnSave = document.getElementById("btnSaveStTask");
+  if (btnSave) btnSave.innerHTML = `<span>💾</span> Lưu Cập Nhật`;
+
+  if (document.getElementById("stInpTaskId")) document.getElementById("stInpTaskId").value = t.task_id || t.id || "";
+  if (document.getElementById("stInpTitle")) document.getElementById("stInpTitle").value = t.title || "";
+  if (document.getElementById("stInpDuration")) document.getElementById("stInpDuration").value = String(t.duration_min || t.estimate_min || 60);
+  if (document.getElementById("stInpDeadlineDay")) document.getElementById("stInpDeadlineDay").value = t.deadline_day || "";
+  if (document.getElementById("stInpDeadlineTime")) document.getElementById("stInpDeadlineTime").value = t.deadline_time || "23:59";
+  if (document.getElementById("stInpCategory")) document.getElementById("stInpCategory").value = t.category || (t.deadline_day ? "ASSIGNMENT" : "HABIT");
+  if (document.getElementById("stInpCognitiveLoad")) document.getElementById("stInpCognitiveLoad").value = String(t.cognitive_load || 2);
+  if (document.getElementById("stInpPriority")) document.getElementById("stInpPriority").value = String(t.priority || 3);
+  if (document.getElementById("stInpStartAfter")) document.getElementById("stInpStartAfter").value = t.start_after || "";
+  if (document.getElementById("stInpDependsOn")) document.getElementById("stInpDependsOn").value = (t.depends_on || t.after || []).join(", ");
+  if (document.getElementById("stInpBuffer")) document.getElementById("stInpBuffer").checked = t.buffer_mode !== "NONE";
+
+  const userUrg = _mapSolverToUserUrgency(t.priority || 3);
+  setStNlUrgency(userUrg);
+  setStNlPacing(t.work_rhythm || "BALANCED");
+  setStNlSession(t.is_splittable === false ? "single" : "splittable");
+  if (document.getElementById("stInpWorkRhythm")) {
+    document.getElementById("stInpWorkRhythm").value = t.work_rhythm || "BALANCED";
+  }
+
+  syncTaskModalModeVisibility();
+  const advDet = document.getElementById("stTaskAdvDetails");
+  if (advDet && (t.start_after || (t.depends_on && t.depends_on.length > 0))) {
+    advDet.open = true;
+  }
+  renderStDependsOnCandidates();
+  document.getElementById("stTaskModal")?.classList.remove("hidden");
+  updateStBufferPreview();
+  document.getElementById("stInpTitle")?.focus();
 }
 
 function closeStudentTaskModal() {
@@ -3153,7 +4720,13 @@ async function analyzeStudentNlPrompt() {
     if (document.getElementById("stInpDeadlineDay")) document.getElementById("stInpDeadlineDay").value = d.deadline_day || "";
     if (document.getElementById("stInpDeadlineTime")) document.getElementById("stInpDeadlineTime").value = d.deadline_time || "23:59";
     if (document.getElementById("stInpPriority")) document.getElementById("stInpPriority").value = String(d.priority || 3);
-    _renderUrgencyPills(d.user_priority || _mapSolverToUserUrgency(d.priority || 3));
+    const derivedUrg = d.user_priority || _mapSolverToUserUrgency(d.priority || 3);
+    _renderUrgencyPills(derivedUrg);
+    if (document.getElementById("stInpPriorityCore")) document.getElementById("stInpPriorityCore").value = String(derivedUrg);
+    if (document.getElementById("stInpStartAfter") && d.start_after) document.getElementById("stInpStartAfter").value = d.start_after;
+    if (d.work_rhythm) {
+      setStNlPacing(d.work_rhythm);
+    }
 
     const catEl = document.getElementById("stInpCategory");
     if (catEl) {
@@ -3215,9 +4788,16 @@ async function saveStudentTask() {
   const cognitiveLoad = parseInt(document.getElementById("stInpCognitiveLoad")?.value || "2", 10);
   const isSplittable = document.getElementById("stInpSplittable")?.checked ?? true;
   const dependsOnStr = document.getElementById("stInpDependsOn")?.value.trim() || "";
+  const startAfter = document.getElementById("stInpStartAfter")?.value.trim() || null;
+  const workRhythm = document.getElementById("stInpWorkRhythm")?.value || state.nlPacing || "BALANCED";
 
-  let tid = rawTid || `TASK_${state.tasks.length + 1}`;
-  const existingIds = new Set(state.tasks.map((t) => String(t.task_id || t.id || "").toUpperCase()));
+  const isEditing = Boolean(state.editingTaskId);
+  let tid = rawTid || (isEditing ? state.editingTaskId : `TASK_${state.tasks.length + 1}`);
+  const existingIds = new Set(
+    state.tasks
+      .filter((t) => !isEditing || (t.task_id || t.id) !== state.editingTaskId)
+      .map((t) => String(t.task_id || t.id || "").toUpperCase())
+  );
   if (existingIds.has(tid.toUpperCase())) {
     tid = `${tid}_${Date.now().toString().slice(-3)}`;
   }
@@ -3226,7 +4806,7 @@ async function saveStudentTask() {
   const effMaxChunk = isSplittable ? Math.max(effMinChunk, parseInt(state.nlMaxChunk || 60, 10)) : rawDur;
 
   // Send raw duration_min cleanly — backend applies Planning Fallacy buffer ONCE (zero double-buffering)
-  const newTask = {
+  const taskPayload = {
     task_id: tid,
     title,
     duration_min: rawDur,
@@ -3236,26 +4816,37 @@ async function saveStudentTask() {
     is_splittable: isSplittable,
     min_chunk_min: effMinChunk,
     max_chunk_min: effMaxChunk,
+    work_rhythm: workRhythm,
+    start_after: startAfter,
     depends_on: dependsOn,
     category: deadlineDay ? category : "HABIT",
     cognitive_load: cognitiveLoad,
   };
   if (!isBuffer) {
-    newTask.buffer_mode = "NONE";
-    newTask.buffer_multiplier = 1.0;
+    taskPayload.buffer_mode = "NONE";
+    taskPayload.buffer_multiplier = 1.0;
   }
 
-  state.tasks.push(newTask);
+  if (isEditing) {
+    const idx = state.tasks.findIndex((t) => (t.task_id || t.id) === state.editingTaskId);
+    if (idx >= 0) state.tasks[idx] = taskPayload;
+    else state.tasks.push(taskPayload);
+  } else {
+    state.tasks.push(taskPayload);
+  }
+  state.editingTaskId = null;
   clearStudentModalDraft(false);
   document.getElementById("stTaskModal")?.classList.add("hidden");
 
   syncAllLeftPanels();
+  savePersistedStudentState();
   await solveSchedule();
 }
 
 async function deleteStudentTask(tid) {
   state.tasks = state.tasks.filter((t) => (t.task_id || t.id) !== tid);
   state.taskBufferMap.delete(tid);
+  savePersistedStudentState();
   syncAllLeftPanels();
   await solveSchedule();
 }
@@ -3284,16 +4875,16 @@ function toggleDoneBlock(blockId) {
   renderStudentViews();
 }
 
-async function submitBlockCheckIn(blockId) {
+async function submitBlockCheckIn(blockId, inputId = "stActualMinInput") {
   const block = (state.currentSchedule?.blocks || []).find((b) => b.block_id === blockId);
   if (!block) return;
-  const actInp = document.getElementById("stActualMinInput");
-  const feedbackEl = document.getElementById("stCheckInFeedback");
+  const actInp = document.getElementById(inputId) || document.getElementById("stActualMinInput");
   const actualMin = Math.max(15, parseInt(actInp?.value || String(block.duration_min), 10));
   state.actualDurations.set(blockId, actualMin);
   state.doneBlocks.add(blockId);
   savePersistedStudentState();
 
+  let msg = "";
   try {
     const res = await fetch("/api/tasks/complete", {
       method: "POST",
@@ -3306,12 +4897,19 @@ async function submitBlockCheckIn(blockId) {
       }),
     });
     const data = await res.json();
-    if (feedbackEl) {
-      feedbackEl.classList.remove("hidden");
-      feedbackEl.textContent = `✓ Đã ghi nhận ${actualMin}p (tỷ lệ ×${data.overrun_ratio}). Gợi ý hệ số cá nhân tiếp theo: ${data.recommended_estimate_habit} (α≈${data.recommended_alpha}).`;
-    }
+    msg = `✓ Đã ghi nhận ${actualMin}p (tỷ lệ ×${data.overrun_ratio}). Gợi ý hệ số cá nhân tiếp theo: ${data.recommended_estimate_habit} (α≈${data.recommended_alpha}).`;
   } catch (_) {}
+
   renderStudentViews();
+  if (msg) {
+    for (const fid of ["stCheckInFeedback", "stHeroCheckInFeedback"]) {
+      const fEl = document.getElementById(fid);
+      if (fEl) {
+        fEl.classList.remove("hidden");
+        fEl.textContent = msg;
+      }
+    }
+  }
 }
 
 function openWhyHereModal(blockId) {
@@ -3388,9 +4986,28 @@ function closeWhyHereModal() {
 // ============================================================================
 
 function toggleAlphaInputsInSettings() {
-  const mode = document.getElementById("stSetBufferMode")?.value || "HABIT";
+  const mode = document.getElementById("stSetBufferMode")?.value || "COGNITIVE_LOAD";
   document.getElementById("stSetHabitRow")?.classList.toggle("hidden", mode === "COGNITIVE_LOAD");
   document.getElementById("stSetAlphaRow")?.classList.toggle("hidden", mode !== "COGNITIVE_LOAD");
+}
+
+function renderStudentSettingsHabits() {
+  _renderHabitCardsInto(document.getElementById("stSetHabitsList"), false);
+  renderStudentMainHabits();
+}
+
+function addStudentPersonalHabit() {
+  _addHabitFromInputs("stHabitNew");
+}
+
+async function removeStudentPersonalHabit(idx, autoSolve = false) {
+  const habits = state.commitments?.personal_habits || [];
+  habits.splice(idx, 1);
+  renderStudentSettingsHabits();
+  savePersistedStudentState();
+  if (autoSolve) {
+    await solveSchedule();
+  }
 }
 
 function openStudentSettingsModal() {
@@ -3398,12 +5015,19 @@ function openStudentSettingsModal() {
   document.getElementById("stSetSleepStart").value = sleep.daily_start_time || "23:30";
   document.getElementById("stSetSleepEnd").value = sleep.daily_end_time || "06:30";
   document.getElementById("stSetFocusPref").value = state.commitments?.focus_preference || "BALANCED";
-  document.getElementById("stSetBufferMode").value = state.commitments?.buffer_mode || "HABIT";
+  document.getElementById("stSetBufferMode").value = state.commitments?.buffer_mode || (state.appMode === "STUDENT" ? "COGNITIVE_LOAD" : "HABIT");
   document.getElementById("stSetEstimateHabit").value = state.commitments?.estimate_habit || "";
   document.getElementById("stSetAlphaLight").value = String(state.commitments?.alpha_light ?? 1.2);
   document.getElementById("stSetAlphaHeavy").value = String(state.commitments?.alpha_heavy ?? 1.35);
-  document.getElementById("stSetSolver").value = document.getElementById("solverSelect")?.value || "GREEDY_EDF_FIRST_FIT";
+  document.getElementById("stSetSolver").value = document.getElementById("solverSelect")?.value || "SCORED_GREEDY";
+  if (document.getElementById("stSetHorizonDays")) {
+    document.getElementById("stSetHorizonDays").value = String(Number(state.commitments?.horizon_days || 7) >= 14 ? 14 : 7);
+  }
+  if (document.getElementById("stSetNowMode")) {
+    document.getElementById("stSetNowMode").value = state.useRealTimeNow ? "REALTIME" : "KEEP";
+  }
   document.getElementById("stSetSleepWarning")?.classList.add("hidden");
+  renderStudentSettingsHabits();
   toggleAlphaInputsInSettings();
   document.getElementById("stSettingsModal")?.classList.remove("hidden");
 }
@@ -3435,12 +5059,26 @@ async function saveStudentSettings() {
     is_hard_lock: true,
   };
   state.commitments.focus_preference = document.getElementById("stSetFocusPref")?.value || "BALANCED";
-  state.commitments.buffer_mode = document.getElementById("stSetBufferMode")?.value || "HABIT";
+  state.commitments.buffer_mode = document.getElementById("stSetBufferMode")?.value || "COGNITIVE_LOAD";
   const habitVal = document.getElementById("stSetEstimateHabit")?.value || "";
   if (habitVal) state.commitments.estimate_habit = habitVal;
   else delete state.commitments.estimate_habit;
   state.commitments.alpha_light = parseFloat(document.getElementById("stSetAlphaLight")?.value || "1.2");
   state.commitments.alpha_heavy = parseFloat(document.getElementById("stSetAlphaHeavy")?.value || "1.35");
+
+  const horizonDays = parseInt(document.getElementById("stSetHorizonDays")?.value || "7", 10) >= 14 ? 14 : 7;
+  state.commitments.horizon_days = horizonDays;
+  if (horizonDays < 14 && state.viewWeekOffset > 0) state.viewWeekOffset = 0;
+
+  const nowMode = document.getElementById("stSetNowMode")?.value || "KEEP";
+  if (nowMode === "REALTIME") {
+    state.commitments.planning_week_start = getCurrentMondayIso();
+    state.commitments.now = getCurrentLocalIso();
+    state.useRealTimeNow = true;
+  } else if (nowMode === "WEEK_START") {
+    delete state.commitments.now;
+    state.useRealTimeNow = false;
+  }
 
   const solverEl = document.getElementById("solverSelect");
   const stSolver = document.getElementById("stSetSolver")?.value;
@@ -3473,7 +5111,7 @@ async function applyStudentDisruption() {
   const day = document.getElementById("stDisDay")?.value || "Monday";
   const start = document.getElementById("stDisStart")?.value || "08:00";
   const end = document.getElementById("stDisEnd")?.value || "10:00";
-  const algorithm = document.getElementById("solverSelect")?.value || "GREEDY_EDF_FIRST_FIT";
+  const algorithm = document.getElementById("solverSelect")?.value || "SCORED_GREEDY";
 
   const eventId = `DIS_${Date.now().toString().slice(-4)}`;
 
@@ -3521,7 +5159,7 @@ async function applyStudentDisruption() {
 }
 
 async function previewStudentOverloadOption(optionId, optionCode, targetTaskId) {
-  const algorithm = document.getElementById("solverSelect")?.value || "GREEDY_EDF_FIRST_FIT";
+  const algorithm = document.getElementById("solverSelect")?.value || "SCORED_GREEDY";
   try {
     const res = await fetch("/api/overload/preview", {
       method: "POST",
@@ -3601,7 +5239,7 @@ async function handleGridDrop(event, dayIdx, newTime) {
   if (!blockId || !state.currentSchedule) return;
 
   const newDay = DAYS_EN[dayIdx];
-  const algorithm = document.getElementById("solverSelect")?.value || "GREEDY_EDF_FIRST_FIT";
+  const algorithm = document.getElementById("solverSelect")?.value || "SCORED_GREEDY";
   try {
     const res = await fetch("/api/validate-move", {
       method: "POST",

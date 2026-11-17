@@ -7,6 +7,5 @@ python-dateutil>=2.8.2
 google-genai>=0.1.0
 python-dotenv>=1.0.0
 PyYAML>=6.0
-ctranslate2>=4.5.0
-sentencepiece>=0.2.0
-huggingface-hub>=0.25.0
+# Optional heavy NLLB-200 neural translation dependencies were moved to requirements-nllb.txt
+
