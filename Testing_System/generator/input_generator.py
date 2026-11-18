@@ -2,7 +2,7 @@
 Part 1: Reproducible Seeded Input Generator (`InputGenerator`).
 
 Generates schema-valid SmartSchedule test inputs across 6 controlled Regimes
-matching `Paper/Schedule_Evaluation_Plan.md`:
+matching `Testing_Plan/Testing_Plan.md`:
   - Strict acyclic `depends_on` DAG + `start_after`
   - Chronotypes (`MORNING`/`Lark`, `BALANCED`/`Finch`, `EVENING`/`Owl`)
   - Asymmetric vs uniform `ACADEMIC_CLASS`, 3 daily `MEAL` events, locked `SleepSchedule`
@@ -16,8 +16,8 @@ from dataclasses import dataclass, field
 import random
 from typing import Any, Dict, List, Optional, Tuple
 
-from schedule_testing_system.schemas import GeneratedTestMetadata, RegimeName
-from schedule_testing_system.sut_adapter import (
+from Testing_System.schemas import GeneratedTestMetadata, RegimeName
+from Testing_System.sut_adapter import (
     BaseScheduler,
     CommitmentsProfile,
     DisruptionEvent,

@@ -10,19 +10,19 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 
-from schedule_testing_system.evaluator.gates import evaluate_gates
-from schedule_testing_system.evaluator.pillars import (
+from Testing_System.evaluator.gates import evaluate_gates
+from Testing_System.evaluator.pillars import (
     evaluate_p1,
     evaluate_p2,
     evaluate_p3,
     evaluate_p4,
 )
-from schedule_testing_system.evaluator.verdict_and_icee import (
+from Testing_System.evaluator.verdict_and_icee import (
     build_auxiliary_diagnostics,
     evaluate_verdict_and_critiques,
     rank_cross_solver_reports,
 )
-from schedule_testing_system.schemas import (
+from Testing_System.schemas import (
     ContrastPairResult,
     CrossSolverEntry,
     EvaluationConfig,
@@ -30,7 +30,7 @@ from schedule_testing_system.schemas import (
     InvariantCheckResult,
     VerdictLabel,
 )
-from schedule_testing_system.sut_adapter import (
+from Testing_System.sut_adapter import (
     CommitmentsProfile,
     ScheduleBlock,
     ScheduleController,
@@ -259,12 +259,12 @@ def build_contrast_pairs(config: Optional[EvaluationConfig] = None) -> ContrastP
                 > (bad_rep.p2_cognitive_biology.heavy_recovery_rate_pct if bad_rep.p2_cognitive_biology.heavy_recovery_rate_pct is not None else 101.0)
                 and golden_rep.p2_cognitive_biology.forced_phase_advance_count
                 < bad_rep.p2_cognitive_biology.forced_phase_advance_count
-                and golden_rep.p3_sustainable_pacing.corne_reference_penalty
-                < bad_rep.p3_sustainable_pacing.corne_reference_penalty
+                and golden_rep.p3_sustainable_pacing.corne_lexicographic_vector
+                < bad_rep.p3_sustainable_pacing.corne_lexicographic_vector
             ),
             detail=(
-                f"Golden peak={golden_rep.p2_cognitive_biology.heavy_peak_match_pct} rec={golden_rep.p2_cognitive_biology.heavy_recovery_rate_pct} adv={golden_rep.p2_cognitive_biology.forced_phase_advance_count} corne={golden_rep.p3_sustainable_pacing.corne_reference_penalty}; "
-                f"Bad peak={bad_rep.p2_cognitive_biology.heavy_peak_match_pct} rec={bad_rep.p2_cognitive_biology.heavy_recovery_rate_pct} adv={bad_rep.p2_cognitive_biology.forced_phase_advance_count} corne={bad_rep.p3_sustainable_pacing.corne_reference_penalty}"
+                f"Golden peak={golden_rep.p2_cognitive_biology.heavy_peak_match_pct} rec={golden_rep.p2_cognitive_biology.heavy_recovery_rate_pct} adv={golden_rep.p2_cognitive_biology.forced_phase_advance_count} corne={golden_rep.p3_sustainable_pacing.corne_lexicographic_vector}; "
+                f"Bad peak={bad_rep.p2_cognitive_biology.heavy_peak_match_pct} rec={bad_rep.p2_cognitive_biology.heavy_recovery_rate_pct} adv={bad_rep.p2_cognitive_biology.forced_phase_advance_count} corne={bad_rep.p3_sustainable_pacing.corne_lexicographic_vector}"
             ),
         ),
         InvariantCheckResult(

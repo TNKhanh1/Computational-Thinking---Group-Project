@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from schedule_testing_system.evaluator import ScheduleEvaluator, build_contrast_pairs
-from schedule_testing_system.schemas import EvaluationConfig, VerdictLabel
-from schedule_testing_system.sut_adapter import (
+from Testing_System.evaluator import ScheduleEvaluator, build_contrast_pairs
+from Testing_System.schemas import EvaluationConfig, VerdictLabel
+from Testing_System.sut_adapter import (
     CommitmentsProfile,
     FixedEvent,
     ScheduleBlock,
@@ -88,39 +88,79 @@ def test_g1_supplementary_catches_start_after_before_now_and_pin_loss():
     assert rep.gates.g1_pin_integrity_violations == 1
 
 
-def test_p2_3_circular_sjl_handles_midnight_wrap_and_single_group_na():
-    # Sleep 02:00-08:00 (midpoint 05:00 = slot 20). Study sessions around midnight 23:30-00:30 wrap smoothly!
+def _out(blocks, name="MANUAL_TEST") -> ScheduleOutput:
+    return ScheduleOutput(
+        status="SUCCESS",
+        solver_used=name,
+        execution_time_ms=1.0,
+        summary=ScheduleSummary(total_tasks_requested=len(blocks), tasks_placed=len(blocks), tasks_unplaced=0),
+        blocks=blocks,
+    )
+
+
+def test_p2_3_circular_sjl_handles_midnight_wrap_sign_and_single_group_na():
+    # Smarr & Schirmer: SJL = circular median phase(class days) - phase(non-class days), clock time -> 2*pi.
+    # Class day Monday (calendar date): study 23:30-24:00 -> median 23:45.
+    # Non-class day Tuesday: study 00:00-00:30 -> median 00:15.
+    # A linear subtraction would give ~23.5h; the circular one gives 30 min, and class days are EARLIER (advance).
     profile = CommitmentsProfile(
         focus_preference="EVENING",
         sleep_schedule=SleepSchedule(daily_start_time="02:00", daily_end_time="08:00"),
         fixed_events=[
-            FixedEvent(event_id="C1", title="Evening Lecture", day_of_week="Monday", start_time="23:30", end_time="23:59", category="ACADEMIC_CLASS"),
+            FixedEvent(event_id="C1", title="Morning Lecture", day_of_week="Monday", start_time="10:00", end_time="11:00", category="ACADEMIC_CLASS"),
         ],
     )
     tasks = [
-        Task(task_id="NIGHT1", title="Midnight Study", duration_min=45, deadline_day="Wednesday", cognitive_load=3),
+        Task(task_id="NIGHT_A", title="Night Study A", duration_min=30, deadline_day="Wednesday", cognitive_load=2),
+        Task(task_id="NIGHT_B", title="Night Study B", duration_min=30, deadline_day="Wednesday", cognitive_load=2),
     ]
     prep = preprocess_tasks(profile, tasks)
-    # Place NIGHT1 on Tuesday 23:45 -> Wednesday 00:30 (across calendar midnight!)
-    s0 = day_time_to_slot("Tuesday", "23:45")
-    blk = _mk_blk(prep[0], s0, 45)
-    out = ScheduleOutput(
-        status="SUCCESS",
-        solver_used="MIDNIGHT_TEST",
-        execution_time_ms=1.0,
-        summary=ScheduleSummary(total_tasks_requested=1, tasks_placed=1, tasks_unplaced=0),
-        blocks=[blk],
+    out = _out(
+        [
+            _mk_blk(prep[0], day_time_to_slot("Monday", "23:30"), 30),
+            _mk_blk(prep[1], day_time_to_slot("Tuesday", "00:00"), 30),
+        ],
+        "MIDNIGHT_TEST",
     )
-    rep = ScheduleEvaluator.evaluate(profile, tasks, out)
-    # Class day Mon 23:45 (~23.75h -> unwrapped ~1125m past 05:00) vs Non-class Tue 23:45-00:30 (~15m later, NOT 1200m!)
-    assert rep.p2_cognitive_biology.sjl_minutes is not None
-    assert rep.p2_cognitive_biology.sjl_minutes <= 60.0
+    p2 = ScheduleEvaluator.evaluate(profile, tasks, out).p2_cognitive_biology
+    assert p2.class_days_count == 1 and p2.non_class_days_count == 1
+    assert p2.sjl_minutes == 30.0
+    assert p2.sjl_signed_minutes == -30.0
+    assert p2.sjl_direction == "PHASE_ADVANCE"
+    assert p2.sjl_exceeds_30m is False  # paper benchmark is strictly "> 30 min"
 
-    # Without any classes -> non_class only -> SJL must return None ("N/A")
+    # Without any classes -> only non-class days -> SJL must be N/A
     prof_no_class = profile.model_copy(update={"fixed_events": []})
-    rep_na = ScheduleEvaluator.evaluate(prof_no_class, tasks, out)
-    assert rep_na.p2_cognitive_biology.sjl_minutes is None
-    assert rep_na.p2_cognitive_biology.sjl_direction == "N/A"
+    p2_na = ScheduleEvaluator.evaluate(prof_no_class, tasks, out).p2_cognitive_biology
+    assert p2_na.sjl_minutes is None
+    assert p2_na.sjl_direction == "N/A"
+
+
+def test_p2_2_class_right_after_heavy_block_is_not_a_break_but_meal_is():
+    # Albulescu et al. (2022): recovery needs a non-work pause > 10 min after cognitive work.
+    profile = CommitmentsProfile(
+        buffer_mode="HABIT",
+        sleep_schedule=SleepSchedule(daily_start_time="23:00", daily_end_time="07:00"),
+        fixed_events=[
+            FixedEvent(event_id="CLS", title="Lecture", day_of_week="Monday", start_time="10:00", end_time="11:00", category="ACADEMIC_CLASS"),
+            FixedEvent(event_id="LUNCH", title="Lunch", day_of_week="ALL", start_time="12:00", end_time="12:45", category="MEAL"),
+        ],
+    )
+    tasks = [
+        Task(task_id="HV_CLS", title="Heavy before class", duration_min=60, deadline_day="Friday", cognitive_load=3),
+        Task(task_id="HV_MEAL", title="Heavy before lunch", duration_min=60, deadline_day="Friday", cognitive_load=3),
+    ]
+    prep = preprocess_tasks(profile, tasks)
+    out = _out(
+        [
+            _mk_blk(prep[0], day_time_to_slot("Monday", "09:00"), 60),   # ends 10:00 -> lecture starts
+            _mk_blk(prep[1], day_time_to_slot("Tuesday", "11:00"), 60),  # ends 12:00 -> lunch starts
+        ]
+    )
+    p2 = ScheduleEvaluator.evaluate(profile, tasks, out).p2_cognitive_biology
+    assert p2.heavy_sessions_total == 2
+    assert p2.heavy_sessions_with_gt10m_break == 1
+    assert p2.missing_break_block_ids == ["HV_CLS_P1"]
 
 
 def test_p4_1_shock_measures_raw_duration_buffer_absorption():

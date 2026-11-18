@@ -18,7 +18,7 @@ import math
 import statistics
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from schedule_testing_system.schemas import (
+from Testing_System.schemas import (
     EvaluationConfig,
     GateContextMetrics,
     Pillar1ValueTimeliness,
@@ -28,7 +28,7 @@ from schedule_testing_system.schemas import (
     PostRepairStabilityMetrics,
     ShockScenarioMetrics,
 )
-from schedule_testing_system.sut_adapter import (
+from Testing_System.sut_adapter import (
     BaseScheduler,
     CircadianEnergyProfile,
     CommitmentsProfile,
@@ -57,11 +57,6 @@ def _effective_load(block: ScheduleBlock, task_map: Dict[str, Task]) -> Optional
         return block.cognitive_load
     t = task_map.get(block.task_id)
     return t.cognitive_load if t else None
-
-
-def _effective_rhythm(block: ScheduleBlock, task_map: Dict[str, Task]) -> Optional[str]:
-    t = task_map.get(block.task_id)
-    return t.work_rhythm if t else None
 
 
 def _window_match_fraction(start_slot: int, length_slots: int, preferred_window: Optional[str]) -> float:
@@ -333,18 +328,40 @@ def evaluate_p1(
     )
 
 
-def _compute_sleep_midpoint_slot(profile: CommitmentsProfile) -> Tuple[int, int]:
-    """Return `(sleep_start_slot_in_day, sleep_midpoint_slot_in_day)` from sleep_schedule."""
-    sleep = profile.sleep_schedule
-    s_start = parse_time_to_slot_offset(sleep.daily_start_time, is_end_or_deadline=False)
-    s_end = parse_time_to_slot_offset(sleep.daily_end_time, is_end_or_deadline=True)
-    if s_start == s_end:
-        return s_start, (s_start + 12) % SLOTS_PER_DAY
-    if s_start > s_end:
-        mid = ((s_start + s_end + SLOTS_PER_DAY) // 2) % SLOTS_PER_DAY
-    else:
-        mid = ((s_start + s_end) // 2) % SLOTS_PER_DAY
-    return s_start, mid
+def _circ_dist_min(a: float, b: float) -> float:
+    d = abs(a - b) % 1440.0
+    return min(d, 1440.0 - d)
+
+
+def _signed_circular_diff_min(a: float, b: float) -> float:
+    """Signed shortest circular difference a - b in minutes, in (-720, 720]."""
+    d = (a - b) % 1440.0
+    return d - 1440.0 if d > 720.0 else d
+
+
+def _circular_median_minute(slot_hist: List[int]) -> float:
+    """
+    Circular median (minutes of day) of activity slots, each represented by its slot centre.
+    Median = point minimising the summed circular distance (definition used by CircStat circ_median,
+    the toolbox cited by Smarr & Schirmer). Ties are resolved by the circular mean of the tied points.
+    """
+    pts = [(tod * MINUTES_PER_SLOT + MINUTES_PER_SLOT / 2.0, cnt) for tod, cnt in enumerate(slot_hist) if cnt > 0]
+    if not pts:
+        return 0.0
+    # The summed circular distance is piecewise linear with breakpoints at the data points and their
+    # antipodes, so its minimum is always attained at one of these candidates.
+    candidates = sorted({m for m, _ in pts} | {(m + 720.0) % 1440.0 for m, _ in pts})
+    best_cost = None
+    best: List[float] = []
+    for cand in candidates:
+        cost = sum(cnt * _circ_dist_min(cand, m) for m, cnt in pts)
+        if best_cost is None or cost < best_cost - 1e-9:
+            best_cost, best = cost, [cand]
+        elif abs(cost - best_cost) <= 1e-9:
+            best.append(cand)
+    c = sum(math.cos(2.0 * math.pi * m / 1440.0) for m in best)
+    s = sum(math.sin(2.0 * math.pi * m / 1440.0) for m in best)
+    return (math.degrees(math.atan2(s, c)) / 360.0 * 1440.0) % 1440.0
 
 
 def evaluate_p2(
@@ -428,23 +445,39 @@ def evaluate_p2(
     heavy_peak_pct = round(100.0 * heavy_peak_slots / float(heavy_slots), 2) if heavy_slots > 0 else None
     pref_pct = round(100.0 * pref_matched_slots / float(pref_slots), 2) if pref_slots > 0 else None
 
-    # P2.2: Albulescu > 10 min (>= 1 slot) decoupling break after heavy/FLOW/>=90m sessions
+    # P2.2: Albulescu et al. (2022) — the null performance effect of <= 10 min breaks was found for
+    # COGNITIVE antecedent tasks only, so sessions are restricted to cognitive_load == 3 (no FLOW / >=90m
+    # triggers, which have no source in the paper). A break is >= 1 slot (15 min > 10 min) right after the
+    # block that carries no work: FREE/REST, MEAL or SLEEP. Classes, other fixed events or another study
+    # block do NOT count as recovery.
     occupied_study_slots: Set[int] = set()
     for b in blocks:
         for s in range(b.start_slot, b.end_slot):
             occupied_study_slots.add(s)
+    meal_slots: Set[int] = {
+        s
+        for ms, me, _ in _resolve_fixed_event_ranges(profile, horizon_slots, categories={"MEAL"})
+        for s in range(ms, me)
+    }
+
+    def _is_recovery_slot(s: int) -> bool:
+        if s >= horizon_slots:
+            return True
+        if s in occupied_study_slots:
+            return False
+        locked = base_grid._locked_mask[s]
+        if locked == TimeGridManager.STATE_SLEEP or s in meal_slots:
+            return True
+        return not locked.startswith(TimeGridManager.STATE_OCCUPIED)
 
     heavy_sessions_total = 0
     heavy_sessions_recovered = 0
     missing_break_block_ids: List[str] = []
     for b in blocks:
-        load = _effective_load(b, task_map)
-        rhythm = _effective_rhythm(b, task_map)
-        is_heavy_session = (load == 3) or (rhythm == "FLOW") or (b.duration_min >= 90)
-        if not is_heavy_session:
+        if _effective_load(b, task_map) != 3 or b.state == "DONE":
             continue
         heavy_sessions_total += 1
-        if b.end_slot >= horizon_slots or (b.end_slot not in occupied_study_slots):
+        if _is_recovery_slot(b.end_slot):
             heavy_sessions_recovered += 1
         else:
             missing_break_block_ids.append(b.block_id)
@@ -468,77 +501,52 @@ def evaluate_p2(
         else None
     )
 
-    # P2.3: Circular Social Jetlag with Biological Day boundary & Pre-Bedtime Heavy Count
-    sleep_start_tod, sleep_mid_slot = _compute_sleep_midpoint_slot(profile)
+    # P2.3: Social Jetlag exactly as Smarr & Schirmer (2018, Methods tr. 8):
+    #   * activity events = self-study blocks (analogue of LMS logins; fixed classes only define the day type)
+    #   * day type by CALENDAR date: class day = date with >= 1 ACADEMIC_CLASS instance
+    #   * clock time (24h) -> 2*pi radians, circular MEDIAN phase pooled per day type (avoids the 23:59/00:01 artifact)
+    #   * SJL = phase(class days) - phase(non-class days); negative = phase ADVANCE on class days
     class_instances = _resolve_fixed_event_ranges(profile, horizon_slots, categories=CLASS_CATEGORIES)
+    class_days: Set[int] = {cs // SLOTS_PER_DAY for cs, _, _ in class_instances}
 
-    bio_day_class_mins: Dict[int, List[int]] = {}
-    bio_day_all_mins: Dict[int, List[int]] = {}
-    bio_days_with_class: Set[int] = set()
-
-    for cs, ce, _ in class_instances:
-        for s in range(cs, ce):
-            d_bio = (s - sleep_mid_slot) // SLOTS_PER_DAY
-            m_unwrapped = (((s % SLOTS_PER_DAY) - sleep_mid_slot) % SLOTS_PER_DAY) * MINUTES_PER_SLOT
-            bio_day_class_mins.setdefault(d_bio, []).append(m_unwrapped)
-            bio_day_all_mins.setdefault(d_bio, []).append(m_unwrapped)
-            bio_days_with_class.add(d_bio)
-
+    class_hist = [0] * SLOTS_PER_DAY
+    non_class_hist = [0] * SLOTS_PER_DAY
+    per_day_hist: Dict[int, List[int]] = {}
     for b in blocks:
         for s in range(b.start_slot, b.end_slot):
-            d_bio = (s - sleep_mid_slot) // SLOTS_PER_DAY
-            m_unwrapped = (((s % SLOTS_PER_DAY) - sleep_mid_slot) % SLOTS_PER_DAY) * MINUTES_PER_SLOT
-            bio_day_all_mins.setdefault(d_bio, []).append(m_unwrapped)
+            day_idx, tod = divmod(s, SLOTS_PER_DAY)
+            (class_hist if day_idx in class_days else non_class_hist)[tod] += 1
+            per_day_hist.setdefault(day_idx, [0] * SLOTS_PER_DAY)[tod] += 1
 
-    class_day_medians: List[float] = []
-    non_class_day_medians: List[float] = []
-    all_day_medians: List[float] = []
-    class_day_solver_shifts: List[float] = []
-
-    for d_bio, mins in sorted(bio_day_all_mins.items()):
-        med_all = float(statistics.median(mins))
-        all_day_medians.append(med_all)
-        if d_bio in bio_days_with_class:
-            class_day_medians.append(med_all)
-            cls_mins = bio_day_class_mins.get(d_bio, [])
-            if cls_mins and len(mins) > len(cls_mins):
-                med_cls = float(statistics.median(cls_mins))
-                class_day_solver_shifts.append(abs(med_all - med_cls))
-        else:
-            non_class_day_medians.append(med_all)
+    days_with_activity = set(per_day_hist.keys())
+    class_days_active = days_with_activity & class_days
+    non_class_days_active = days_with_activity - class_days
 
     sjl_minutes: Optional[float] = None
+    sjl_signed: Optional[float] = None
     sjl_direction = "N/A"
     sjl_exceeds_30m: Optional[bool] = None
-    if class_day_medians and non_class_day_medians:
-        med_cls_group = float(statistics.median(class_day_medians))
-        med_non_group = float(statistics.median(non_class_day_medians))
-        phi_cls = 2.0 * math.pi * (med_cls_group / 1440.0)
-        phi_non = 2.0 * math.pi * (med_non_group / 1440.0)
-        delta_rad = math.atan2(math.sin(phi_non - phi_cls), math.cos(phi_non - phi_cls))
-        sjl_minutes = round(abs(delta_rad) / (2.0 * math.pi) * 1440.0, 2)
-        if abs(delta_rad) < 1e-9:
+    if class_days_active and non_class_days_active:
+        phi_cls = _circular_median_minute(class_hist)
+        phi_non = _circular_median_minute(non_class_hist)
+        sjl_signed = round(_signed_circular_diff_min(phi_cls, phi_non), 2)
+        sjl_minutes = abs(sjl_signed)
+        if sjl_minutes < 1e-9:
             sjl_direction = "ALIGNED"
-        elif delta_rad > 0:
-            sjl_direction = "PHASE_DELAY"
-        else:
+        elif sjl_signed < 0:
             sjl_direction = "PHASE_ADVANCE"
+        else:
+            sjl_direction = "PHASE_DELAY"
         sjl_exceeds_30m = sjl_minutes > 30.0
 
-    cross_day_std = round(statistics.pstdev(all_day_medians), 2) if len(all_day_medians) >= 2 else 0.0
-    solver_shift = (
-        round(sum(class_day_solver_shifts) / float(len(class_day_solver_shifts)), 2)
-        if class_day_solver_shifts
-        else None
-    )
-
-    pre_bedtime_heavy_block_ids: List[str] = []
-    for b in blocks:
-        if _effective_load(b, task_map) == 3:
-            end_tod = b.end_slot % SLOTS_PER_DAY
-            slots_before_sleep = (sleep_start_tod - end_tod) % SLOTS_PER_DAY
-            if 0 <= slots_before_sleep <= 4:  # <= 60 min before daily sleep start
-                pre_bedtime_heavy_block_ids.append(b.block_id)
+    # Diagnostic: circular standard deviation of daily median phases (minutes)
+    daily_phases = [_circular_median_minute(h) for _, h in sorted(per_day_hist.items())]
+    cross_day_std: Optional[float] = None
+    if len(daily_phases) >= 2:
+        c = sum(math.cos(2.0 * math.pi * p / 1440.0) for p in daily_phases) / len(daily_phases)
+        s_ = sum(math.sin(2.0 * math.pi * p / 1440.0) for p in daily_phases) / len(daily_phases)
+        r_len = min(1.0, max(1e-12, math.hypot(c, s_)))
+        cross_day_std = round(math.sqrt(-2.0 * math.log(r_len)) * 1440.0 / (2.0 * math.pi), 2)
 
     return Pillar2CognitiveBiology(
         has_heavy_tasks=(heavy_slots > 0),
@@ -555,16 +563,13 @@ def evaluate_p2(
         missing_break_block_ids=missing_break_block_ids,
         max_uninterrupted_work_min=max_streak_slots * MINUTES_PER_SLOT,
         crunch_tier_used=schedule.summary.crunch_tier_used,
-        sleep_midpoint_slot=sleep_mid_slot,
         sjl_minutes=sjl_minutes,
+        sjl_signed_minutes=sjl_signed,
         sjl_direction=sjl_direction,
         sjl_exceeds_30m=sjl_exceeds_30m,
-        class_days_count=len(class_day_medians),
-        non_class_days_count=len(non_class_day_medians),
-        solver_induced_class_day_shift_min=solver_shift,
+        class_days_count=len(class_days_active),
+        non_class_days_count=len(non_class_days_active),
         cross_day_phase_std_min=cross_day_std,
-        pre_bedtime_heavy_count=len(pre_bedtime_heavy_block_ids),
-        pre_bedtime_heavy_block_ids=pre_bedtime_heavy_block_ids,
     )
 
 
@@ -632,7 +637,11 @@ def evaluate_p3(
                 busy_slots += 1
     awake_util_pct = round(100.0 * busy_slots / float(max(1, awake_slots)), 2)
 
-    # P3.2: Corne et al. (1993) >2 heavy/day (10), adjacent heavy (3), meal-boundary (1), context switches
+    # P3.2: Corne et al. (1993) in Schaerf §4.2 tr. 25 — penalised "in descending order of weight":
+    #   (i) > 2 heavy sessions in the same day, (ii) heavy sessions in consecutive periods,
+    #   (iii) sessions just before AND just after a meal. Schaerf gives no numeric weights, so the three
+    #   counts are kept as a vector compared lexicographically. Context switches (Vieira: setups between
+    #   job classes) are reported separately.
     heavy_by_day: Dict[int, List[ScheduleBlock]] = {}
     for b in blocks:
         if _effective_load(b, task_map) == 3:
@@ -677,7 +686,7 @@ def evaluate_p3(
             else:
                 context_switches += 1
 
-    corne_penalty = 10 * heavy_overload_days + 3 * adjacent_heavy_pairs + 1 * meal_offenses
+    corne_vector = [heavy_overload_days, adjacent_heavy_pairs, meal_offenses]
 
     return Pillar3SustainablePacing(
         active_days_count=len(daily_load_mins),
@@ -690,7 +699,7 @@ def evaluate_p3(
         adjacent_heavy_pairs=adjacent_heavy_pairs,
         adjacent_heavy_block_ids=adjacent_heavy_block_ids,
         meal_boundary_offenses=meal_offenses,
-        corne_reference_penalty=corne_penalty,
+        corne_lexicographic_vector=corne_vector,
         context_switches=context_switches,
         batched_pairs=batched_pairs,
     )
@@ -725,6 +734,11 @@ def _simulate_shock_survival(
     factor = 1.0 + (shock_pct / 100.0)
 
     for b in blocks:
+        if b.state == "DONE":
+            # Already executed: no estimation uncertainty left to shock.
+            task_actual_ends[b.task_id] = max(task_actual_ends.get(b.task_id, 0), b.end_slot)
+            prev_actual_end = max(prev_actual_end, b.end_slot)
+            continue
         t_raw = raw_map.get(b.task_id)
         t_prep = prep_map.get(b.task_id)
         planned_slots = max(1, b.end_slot - b.start_slot)
@@ -848,14 +862,12 @@ def _evaluate_post_repair_stability(
     set1 = {_to_action(b) for b in pi1_blocks}
     sym_diff = len(set1 ^ set0)  # Fox Def. 2: |pi1 \ pi0| + |pi0 \ pi1|
 
-    # Near-term window: within configured horizon (24h = 96 slots), fallback to first 5 unexecuted blocks
+    # Fox §5.2 measures Orig/Diff on the plans' "initial actions". For a single-agent calendar these are
+    # mapped (project parameter, not a paper number) to the unexecuted blocks starting within
+    # `near_term_window_slots` after now. Empty window -> Orig/Diff = None (no ad-hoc fallback).
     win_end = now_slot_ref + config.near_term_window_slots
     near0_blocks = [b for b in pi0_blocks if b.start_slot < win_end]
     near1_blocks = [b for b in pi1_blocks if b.start_slot < win_end]
-    if len(near0_blocks) < 2 and len(pi0_blocks) > 0:
-        near0_blocks = pi0_blocks[:5]
-    if len(near1_blocks) < 2 and len(pi1_blocks) > 0:
-        near1_blocks = pi1_blocks[:5]
 
     near0_set = {_to_action(b) for b in near0_blocks}
     near1_set = {_to_action(b) for b in near1_blocks}
@@ -876,6 +888,7 @@ def _evaluate_post_repair_stability(
     map1 = {(b.task_id, b.chunk_index): b for b in pi1_blocks}
     common_keys = sorted(set(map0.keys()) & set(map1.keys()))
 
+    # Cowling & Johansson (2002) via Vieira tr. 46: average absolute change of start AND completion times
     shifts_min: List[float] = []
     moved_count = 0
     for k in common_keys:
@@ -883,6 +896,7 @@ def _evaluate_post_repair_stability(
         if (b0.start_slot, b0.end_slot) != (b1.start_slot, b1.end_slot):
             moved_count += 1
         shifts_min.append(abs(b1.start_slot - b0.start_slot) * float(MINUTES_PER_SLOT))
+        shifts_min.append(abs(b1.end_slot - b0.end_slot) * float(MINUTES_PER_SLOT))
 
     mean_shift = round(sum(shifts_min) / float(len(shifts_min)), 2) if shifts_min else 0.0
     unplaced_from_base = len(set(map0.keys()) - set(map1.keys()))
@@ -946,7 +960,7 @@ def evaluate_p4(
     completion_logs: Optional[List[Dict[str, Any]]] = None,
 ) -> Pillar4RobustnessStability:
     """Compute P4.1 Buffer Adequacy, Shock Survival (+25%/+50% on raw duration), Realized Deviation, & P4.2 Stability."""
-    from schedule_testing_system.sut_adapter import round_up_to_15
+    from Testing_System.sut_adapter import round_up_to_15
 
     raw_map: Dict[str, Task] = {t.task_id: t for t in raw_tasks}
     horizon_slots = gates.horizon_slots

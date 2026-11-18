@@ -11,14 +11,14 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from schedule_testing_system.evaluator import ScheduleEvaluator, build_contrast_pairs
-from schedule_testing_system.generator import GeneratedCaseBundle, InputGenerator
-from schedule_testing_system.runner.project_runner import (
+from Testing_System.evaluator import ScheduleEvaluator, build_contrast_pairs
+from Testing_System.generator import GeneratedCaseBundle, InputGenerator
+from Testing_System.runner.project_runner import (
     ProjectRunBundle,
     execute_project_direct,
     execute_project_http_e2e,
 )
-from schedule_testing_system.schemas import (
+from Testing_System.schemas import (
     CrossSolverEntry,
     EvaluationConfig,
     EvaluationReport,
@@ -27,7 +27,7 @@ from schedule_testing_system.schemas import (
     RegimeRunResult,
     VerdictLabel,
 )
-from schedule_testing_system.sut_adapter import FIVE_SOLVERS, preprocess_tasks
+from Testing_System.sut_adapter import FIVE_SOLVERS, preprocess_tasks
 
 
 def _check_regime_invariants(
@@ -36,7 +36,7 @@ def _check_regime_invariants(
     solver_reports: Dict[str, EvaluationReport],
     repair_reports: Dict[str, EvaluationReport],
 ) -> List[InvariantCheckResult]:
-    """Verify exact Regime PASS/FAIL invariants specified in `Paper/Schedule_Evaluation_Plan.md §4.3`."""
+    """Verify exact Regime PASS/FAIL invariants specified in `Testing_Plan/Testing_Plan.md §4.3`."""
     checks: List[InvariantCheckResult] = []
     regime = bundle.metadata.regime
 
@@ -95,23 +95,45 @@ def _check_regime_invariants(
             )
 
     elif regime == RegimeName.TIGHT_DEADLINE_CLUSTER:
-        if edf_rep and scored_rep:
-            # Verify Shock@+25% simulation produces meaningful non-degenerate sensitivity under tight zero-buffer packing
-            s25_vals = [
-                r.p4_robustness_stability.shock_results[0].survived_priority_pct
-                for r in solver_reports.values()
-                if r.p4_robustness_stability.shock_results
-            ]
-            # Verify priority-aware solvers preserve P1.1 priority value at least as well as pure EDF (when overload happens)
-            sc_val = scored_rep.p1_value_timeliness.deadline_value_rate_pct
-            bt_val = bt_rep.p1_value_timeliness.deadline_value_rate_pct if bt_rep else sc_val
-            checks.append(
-                InvariantCheckResult(
-                    name="Regime 2: Shock@+25% stress test & tight deadline P1.1 evaluated",
-                    passed=(len(s25_vals) == len(solver_reports) and max(sc_val, bt_val) > 0.0),
-                    detail=f"Shock@+25% range={min(s25_vals)}..{max(s25_vals)}%, SCORED={sc_val}%, BT={bt_val}%",
-                )
+        # (a) Schaerf §5.1: drops must be judged against input tightness. The generator certifies the input
+        #     as feasible (rho < 1, no capacity shortage), so G2 must NOT flag overload and every solver that
+        #     still drops deadline work must be labelled SUBOPTIMAL_ALGORITHM_FAILURE (never OVERLOAD_TRIAGE).
+        mislabelled = [
+            f"{n}(overloaded={r.gates.is_structurally_overloaded}, verdict={r.verdict.value})"
+            for n, r in solver_reports.items()
+            if r.gates.is_structurally_overloaded
+            or (r.p1_value_timeliness.unplaced_deadline_count > 0 and r.verdict != VerdictLabel.SUBOPTIMAL_ALGORITHM_FAILURE)
+        ]
+        drops = [
+            f"{n}={r.p1_value_timeliness.deadline_value_rate_pct}%"
+            for n, r in solver_reports.items()
+            if r.p1_value_timeliness.deadline_value_rate_pct < 100.0
+        ]
+        checks.append(
+            InvariantCheckResult(
+                name="Regime 2: Feasible tight input -> G2 not overloaded & any drop labelled SUBOPTIMAL_ALGORITHM_FAILURE",
+                passed=not mislabelled,
+                detail=(f"Mislabelled: {mislabelled}" if mislabelled else "OK")
+                + (f" | solver drops (finding, not harness failure): {drops}" if drops else " | no drops"),
             )
+        )
+        # (b) Daniels & Kouvelis worst-case view: survival must be monotone non-increasing in shock size
+        #     (P1.1 >= Shock@+25% >= Shock@+50%), otherwise the shock simulation itself is broken.
+        non_monotone = []
+        for n, r in solver_reports.items():
+            seq = [r.p1_value_timeliness.deadline_value_rate_pct] + [
+                sr.survived_priority_pct
+                for sr in sorted(r.p4_robustness_stability.shock_results, key=lambda x: x.shock_pct)
+            ]
+            if any(seq[i + 1] > seq[i] + 1e-9 for i in range(len(seq) - 1)):
+                non_monotone.append(f"{n}:{seq}")
+        checks.append(
+            InvariantCheckResult(
+                name="Regime 2: Shock survival monotone (P1.1 >= Shock@+25% >= Shock@+50%) for every solver",
+                passed=not non_monotone,
+                detail="OK" if not non_monotone else f"Non-monotone: {non_monotone}",
+            )
+        )
 
     elif regime == RegimeName.CIRCADIAN_SJL_AND_RECOVERY:
         if edf_rep and scored_rep:
@@ -152,6 +174,7 @@ def _check_regime_invariants(
                     passed=(
                         scored_rep.p1_value_timeliness.min_preparatory_margin_min is not None
                         and scored_rep.p1_value_timeliness.deadline_value_rate_pct == 100.0
+                        and scored_rep.p1_value_timeliness.unjustified_last_10h_crowding_pct == 0.0
                     ),
                     detail=(
                         f"unjustified_10h={scored_rep.p1_value_timeliness.unjustified_last_10h_crowding_pct}%, "
@@ -206,12 +229,25 @@ def _check_regime_invariants(
                 detail="OK" if not bad_rep_g1 else f"Failed repairs: {bad_rep_g1}",
             )
         )
-        loc_a = repair_reports.get("DISRUPTION_LVL_A::LOCAL_INSERTION")
-        reb_a = repair_reports.get("DISRUPTION_LVL_A::FULL_REBUILD")
-        if loc_a and reb_a and loc_a.p4_robustness_stability.post_repair_stability and reb_a.p4_robustness_stability.post_repair_stability:
-            s_loc = loc_a.p4_robustness_stability.post_repair_stability
-            s_reb = reb_a.p4_robustness_stability.post_repair_stability
-            d_smaller_or_eq = s_loc.symmetric_plan_difference <= s_reb.symmetric_plan_difference
+        # Fox et al. (2006): repair should give at least the stability of replanning on every variant
+        # (weak dominance per level). On the compound Level C (several disruptions, Fox §5.1 increasing
+        # perturbation), repair must be STRICTLY more stable in D(pi0, pi1).
+        for level in ("A", "C"):
+            loc = repair_reports.get(f"DISRUPTION_LVL_{level}::LOCAL_INSERTION")
+            reb = repair_reports.get(f"DISRUPTION_LVL_{level}::FULL_REBUILD")
+            if not (
+                loc and reb
+                and loc.p4_robustness_stability.post_repair_stability
+                and reb.p4_robustness_stability.post_repair_stability
+            ):
+                continue
+            s_loc = loc.p4_robustness_stability.post_repair_stability
+            s_reb = reb.p4_robustness_stability.post_repair_stability
+            d_ok = (
+                s_loc.symmetric_plan_difference < s_reb.symmetric_plan_difference
+                if level == "C"
+                else s_loc.symmetric_plan_difference <= s_reb.symmetric_plan_difference
+            )
             orig_better_or_eq = (s_loc.orig_pct if s_loc.orig_pct is not None else 100.0) >= (
                 s_reb.orig_pct if s_reb.orig_pct is not None else 0.0
             )
@@ -221,10 +257,11 @@ def _check_regime_invariants(
             eq1_preserved = (s_loc.eq_1st is True) or (s_reb.eq_1st is False)
             dt_lower_or_eq = s_loc.mean_abs_time_shift_min <= s_reb.mean_abs_time_shift_min + 1e-6
             inv_lower_or_eq = s_loc.sequence_inversions <= s_reb.sequence_inversions
+            strict_note = " (D strictly smaller required)" if level == "C" else ""
             checks.append(
                 InvariantCheckResult(
-                    name="Regime 6: LOCAL_INSERTION outperforms/matches FULL_REBUILD on Fox D(pi0,pi1), Orig%, Diff%, Eq1st, dt",
-                    passed=(d_smaller_or_eq and orig_better_or_eq and diff_lower_or_eq and eq1_preserved and dt_lower_or_eq and inv_lower_or_eq),
+                    name=f"Regime 6 Level {level}: LOCAL_INSERTION vs FULL_REBUILD on Fox D, Orig%, Diff%, Eq1st, Δt, inversions{strict_note}",
+                    passed=(d_ok and orig_better_or_eq and diff_lower_or_eq and eq1_preserved and dt_lower_or_eq and inv_lower_or_eq),
                     detail=(
                         f"LOCAL(D={s_loc.symmetric_plan_difference}, Eq1st={s_loc.eq_1st}, Orig={s_loc.orig_pct}%, Diff={s_loc.diff_pct}%, dt={s_loc.mean_abs_time_shift_min}m, inv={s_loc.sequence_inversions}) vs "
                         f"REBUILD(D={s_reb.symmetric_plan_difference}, Eq1st={s_reb.eq_1st}, Orig={s_reb.orig_pct}%, Diff={s_reb.diff_pct}%, dt={s_reb.mean_abs_time_shift_min}m, inv={s_reb.sequence_inversions})"
@@ -317,10 +354,11 @@ def format_vietnamese_summary(res: RegimeRunResult) -> str:
         pk = f"{row.p2_heavy_peak_pct:.1f}" if row.p2_heavy_peak_pct is not None else "N/A"
         rc = f"{row.p2_recovery_rate_pct:.1f}" if row.p2_recovery_rate_pct is not None else "N/A"
         sjl = f"{row.p2_sjl_minutes:.1f}" if row.p2_sjl_minutes is not None else "N/A"
+        corne = "/".join(str(x) for x in row.p3_corne_vector)
         lines.append(
             f"#{row.lexicographic_rank:<3} {row.solver_name:<14} {row.verdict.value:<29} {row.g1_violations:<3} "
             f"{row.p1_value_rate_pct:<7.1f} {row.p4_shock25_survived_pct:<9.1f} {pk:<7} {rc:<9} "
-            f"{row.p2_forced_phase_advance:<4} {sjl:<8} {row.p3_corne_penalty:<6} {row.p3_daily_load_std_min:<7.1f} {row.exec_ms:<6.2f}"
+            f"{row.p2_forced_phase_advance:<4} {sjl:<8} {corne:<6} {row.p3_daily_load_std_min:<7.1f} {row.exec_ms:<6.2f}"
         )
 
     if res.repair_evaluations:

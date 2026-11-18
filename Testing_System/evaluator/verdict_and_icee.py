@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional, Tuple
 
-from schedule_testing_system.schemas import (
+from Testing_System.schemas import (
     AuxiliaryDiagnostics,
     CrossSolverEntry,
     EvaluationConfig,
@@ -111,7 +111,7 @@ def evaluate_verdict_and_critiques(
                 summary_vi=f"Ép {p2.forced_phase_advance_count} block nhận thức nặng (load=3) của cú đêm (Owl) vào sáng 06:00–12:00.",
                 rationale_vi=(
                     "Khung sáng có energy_level=1 trong khi cùng cửa sổ hạn chót vẫn còn khung chiều/tối năng lượng cao hơn. "
-                    "Ép phase advance lên người chronotype muộn gây sụt giảm hiệu năng nặng nề nhất."
+                    "Smarr & Schirmer: sớm pha (advance) vào ngày học tương quan âm với GPA và nhóm Owl chịu bất lợi điểm số lớn nhất."
                 ),
                 suggested_action_vi="Dời các block nặng này sang khung PEAK chiều/tối của hồ sơ sinh học.",
                 paper_reference="Smarr & Schirmer (2018) tr. 5–6; Schaerf (1999) Junginger / De Werra",
@@ -147,7 +147,9 @@ def evaluate_verdict_and_critiques(
     # Pillar P2.2: Albulescu > 10 min break after cognitively demanding work
     if p2.heavy_recovery_rate_pct is not None and p2.heavy_recovery_rate_pct < 100.0:
         missing = p2.heavy_sessions_total - p2.heavy_sessions_with_gt10m_break
-        if p2.crunch_tier_used == 0 or p2.heavy_recovery_rate_pct < 50.0:
+        # Plan §4.3: missing breaks are critical unless the solver explicitly entered Crunch Tier 1
+        # (break cutting to rescue unplaced deadline work), which is reported as a warning.
+        if p2.crunch_tier_used == 0:
             critical_breaches.append(
                 f"P2.2: Thiếu khoảng nghỉ >10p sau {missing}/{p2.heavy_sessions_total} phiên nặng ({p2.heavy_recovery_rate_pct}%)"
             )
@@ -166,13 +168,14 @@ def evaluate_verdict_and_critiques(
                 impact_rank=rank,
                 task_ids=[],
                 block_ids=list(p2.missing_break_block_ids),
-                summary_vi=f"Có {missing}/{p2.heavy_sessions_total} phiên nặng không được nghỉ >10 phút (15p) ngay sau đó.",
+                summary_vi=f"Có {missing}/{p2.heavy_sessions_total} phiên nặng (load=3) không có khoảng nghỉ >10 phút (≥1 slot 15p) ngay sau đó.",
                 rationale_vi=(
-                    "Meta-analysis của Albulescu (N=2335) chứng minh với tác vụ nhận thức nặng, nghỉ <=10p không phục hồi "
-                    "được hiệu năng (d=-.09, p=.541), buộc phải có khoảng nghỉ tách rời >10 phút."
+                    "Meta-analysis của Albulescu et al. (N=2335, k=22): sau tác vụ nhận thức, micro-break <=10p không cải thiện "
+                    "hiệu năng (d=-.09, p=.541); thời lượng nghỉ dài hơn tăng hiệu năng (b=.07, p=.006), tác giả gợi ý cần nghỉ >10 phút. "
+                    "Ngay sau block này là block học/lớp/sự kiện khác nên không có khoảng nghỉ."
                 ),
-                suggested_action_vi="Chèn ít nhất 1 slot nghỉ 15p sau mỗi block load=3 / FLOW / >=90p.",
-                paper_reference="Albulescu et al. (2022) Table 4–5, tr. 1, 15, 17",
+                suggested_action_vi="Chèn ít nhất 1 slot trống 15p sau mỗi block load=3.",
+                paper_reference="Albulescu et al. (2022) Abstract tr. 1; Results tr. 15; Table 5",
             )
         )
 
@@ -187,9 +190,12 @@ def evaluate_verdict_and_critiques(
                 task_ids=[],
                 block_ids=list(p3.overload_heavy_block_ids),
                 summary_vi=f"Có {p3.heavy_day_overload_days} ngày phải gánh >2 phiên nhận thức nặng (load=3).",
-                rationale_vi="Nhồi quá 2 phiên nặng trong một ngày gây quá tải nhận thức và suy giảm năng suất cuối ngày.",
+                rationale_vi=(
+                    "Corne et al. phạt nặng nhất trường hợp người học phải làm >2 bài nặng trong cùng một ngày "
+                    "(xếp trên cả lỗi 2 bài liền kề và lỗi kẹp hai đầu bữa trưa)."
+                ),
                 suggested_action_vi="Tách bớt 1 phiên nặng sang ngày lân cận có tải nhẹ hơn.",
-                paper_reference="Corne et al. (1993) trong Schaerf (1999) §4.4.4, tr. 28",
+                paper_reference="Corne et al. (1993) trong Schaerf (1999) §4.2, tr. 25",
             )
         )
     elif p3.adjacent_heavy_pairs > 0 or p3.meal_boundary_offenses > 0:
@@ -206,9 +212,12 @@ def evaluate_verdict_and_critiques(
                 summary_vi=(
                     f"Phát hiện {p3.adjacent_heavy_pairs} cặp phiên nặng gần nhau và {p3.meal_boundary_offenses} lần kẹp 2 đầu bữa ăn."
                 ),
-                rationale_vi="Đặt phiên học sát hai đầu bữa ăn hoặc dồn cụm nặng giảm chất lượng hồi phục sinh học.",
+                rationale_vi=(
+                    "Corne et al. phạt 2 bài liền kề và 2 bài sát trước + sát sau bữa trưa; Carter et al. coi hai đầu bữa trưa "
+                    "là các kỳ 'liên tiếp'. Đây là 2 mức phạt thấp hơn lỗi >2 bài/ngày."
+                ),
                 suggested_action_vi="Chừa ít nhất 15p đệm trước/sau bữa ăn hoặc giãn khoảng cách giữa 2 phiên nặng.",
-                paper_reference="Corne et al. (1993) & Carter et al. (1994) / Laporte (1984) trong Schaerf §4.2, §4.4.4",
+                paper_reference="Corne et al. (1993), Carter et al. (1994) trong Schaerf (1999) §4.2, tr. 25",
             )
         )
 
@@ -241,7 +250,10 @@ def evaluate_verdict_and_critiques(
                 impact_rank=58,
                 task_ids=list(shock25_failed_ids[:5]),
                 summary_vi=f"Đệm phòng vệ còn mỏng (Buffer={p4.true_buffer_task_pct}%, Shock@+25%={shock25_pct}%).",
-                rationale_vi="Ước lượng thời gian thực tế thường bị thiếu (planning fallacy); thiếu buffer dễ gây tràn lịch.",
+                rationale_vi=(
+                    "Mehta & Uzsoy: chèn thời gian rảnh (inserted idle time) làm lịch dự đoán được hơn mà không giảm đáng kể "
+                    "hiệu năng; thiếu đệm làm phần tràn đâm vào block sau/lịch cứng/hạn chót."
+                ),
                 suggested_action_vi="Cân nhắc bật estimate buffer theo cognitive load để tăng độ an toàn thực thi.",
                 paper_reference="Mehta & Uzsoy (1998) trong Vieira tr. 53; Myers (2006) EMP tr. 6–7",
             )
@@ -283,10 +295,14 @@ def evaluate_verdict_and_critiques(
             )
         )
 
-    # Pillar P2.3: Social Jetlag > 30 min / pre-bedtime heavy load
-    if p2.sjl_exceeds_30m is True or p2.pre_bedtime_heavy_count > 0:
-        moderate_warnings.append(
-            f"P2.3: SJL={p2.sjl_minutes}p ({p2.sjl_direction}), học nặng sát ngủ={p2.pre_bedtime_heavy_count}"
+    # Pillar P2.3: Social Jetlag > 30 min (Smarr & Schirmer: 60% of students exceed 30 min; larger SJL
+    # correlates with lower GPA, advances on class days more strongly than delays)
+    if p2.sjl_exceeds_30m is True:
+        moderate_warnings.append(f"P2.3: SJL={p2.sjl_minutes}p ({p2.sjl_direction})")
+        advance_note = (
+            " Lệch theo hướng sớm pha (advance) vào ngày có lớp — hướng có tương quan âm mạnh nhất với GPA."
+            if p2.sjl_direction == "PHASE_ADVANCE"
+            else ""
         )
         critiques.append(
             ICEECritique(
@@ -294,15 +310,16 @@ def evaluate_verdict_and_critiques(
                 pillar="P2.3",
                 impact_rank=50,
                 task_ids=[],
-                block_ids=list(p2.pre_bedtime_heavy_block_ids),
+                block_ids=[],
                 summary_vi=(
-                    f"Độ lệch nhịp sinh học giữa ngày có lớp và ngày trống là {p2.sjl_minutes}p"
-                    if p2.sjl_exceeds_30m
-                    else f"Có {p2.pre_bedtime_heavy_count} phiên nặng kết thúc <=60p trước giờ ngủ."
+                    f"Pha tự học ngày có lớp lệch {p2.sjl_minutes}p so với ngày không có lớp ({p2.sjl_direction})."
                 ),
-                rationale_vi="Lệch pha >30p hoặc làm việc nặng ngay sát giờ ngủ gây mất ổn định pha sinh học / giảm phục hồi giấc ngủ.",
-                suggested_action_vi="Giữ khung giờ tự học ổn định giữa các ngày và dời việc load=3 khỏi sát giờ ngủ.",
-                paper_reference="Smarr & Schirmer (2018) tr. 4–8; Kroese trong Svartdal (2018) Study 2b",
+                rationale_vi=(
+                    "Smarr & Schirmer (N=14,894) đo SJL bằng hiệu trung vị pha tròn giữa ngày có lớp và ngày không lớp; "
+                    "60% sinh viên có SJL >30 phút và SJL càng lớn GPA càng giảm." + advance_note
+                ),
+                suggested_action_vi="Giữ khung giờ tự học của ngày có lớp gần với khung giờ của ngày không có lớp.",
+                paper_reference="Smarr & Schirmer (2018) tr. 4–6, Methods tr. 8",
             )
         )
 
@@ -376,7 +393,7 @@ def rank_cross_solver_reports(reports: Dict[str, EvaluationReport]) -> List[Cros
             -(peak if peak is not None else 100.0),
             rep.p1_value_timeliness.unjustified_last_10h_crowding_pct,
             sjl if sjl is not None else 0.0,
-            rep.p3_sustainable_pacing.corne_reference_penalty,
+            tuple(rep.p3_sustainable_pacing.corne_lexicographic_vector),
             rep.p3_sustainable_pacing.daily_load_std_min,
             rep.diagnostics.execution_time_ms,
         )
@@ -393,7 +410,7 @@ def rank_cross_solver_reports(reports: Dict[str, EvaluationReport]) -> List[Cros
             p2_forced_phase_advance=rep.p2_cognitive_biology.forced_phase_advance_count,
             p1_unjustified_last10h_pct=rep.p1_value_timeliness.unjustified_last_10h_crowding_pct,
             p2_sjl_minutes=sjl,
-            p3_corne_penalty=rep.p3_sustainable_pacing.corne_reference_penalty,
+            p3_corne_vector=list(rep.p3_sustainable_pacing.corne_lexicographic_vector),
             p3_daily_load_std_min=rep.p3_sustainable_pacing.daily_load_std_min,
             exec_ms=rep.diagnostics.execution_time_ms,
         )
@@ -415,7 +432,7 @@ def build_auxiliary_diagnostics(
     insights: Dict,
 ) -> AuxiliaryDiagnostics:
     """Populate D2 auxiliary technical diagnostics over full horizon_slots without 672 truncation."""
-    from schedule_testing_system.sut_adapter import calculate_fragmentation_index, round_up_to_15
+    from Testing_System.sut_adapter import calculate_fragmentation_index, round_up_to_15
 
     occ_grid = base_grid.clone()
     for b in blocks:

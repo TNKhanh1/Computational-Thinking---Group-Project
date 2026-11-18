@@ -1,5 +1,5 @@
 """
-Read-only adapter bridging `schedule_testing_system` to the untouched `group03-smartschedule-baseline` project.
+Read-only adapter bridging `Testing_System` to the untouched `group03-smartschedule-baseline` project.
 
 Supports:
   1. Preprocessing helpers (`expand_personal_habits`, `apply_estimate_buffer`) & grid reconstruction.
