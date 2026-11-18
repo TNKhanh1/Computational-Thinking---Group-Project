@@ -8,8 +8,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
-from schedule_testing_system.generator.input_generator import GeneratedCaseBundle
-from schedule_testing_system.sut_adapter import (
+from Testing_System.generator.input_generator import GeneratedCaseBundle
+from Testing_System.sut_adapter import (
     FIVE_SOLVERS,
     CommitmentsProfile,
     DisruptionEvent,

@@ -1,6 +1,6 @@
 """Schedule Testing & Productivity Evaluation System (standalone testing package)."""
 
-from schedule_testing_system.schemas import (
+from Testing_System.schemas import (
     EvaluationConfig,
     EvaluationReport,
     RegimeName,

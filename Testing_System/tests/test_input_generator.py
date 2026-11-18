@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from schedule_testing_system.generator import InputGenerator
-from schedule_testing_system.schemas import RegimeName
-from schedule_testing_system.sut_adapter import BaseScheduler, build_base_grid, preprocess_tasks, resolve_horizon_slots_safe
+from Testing_System.generator import InputGenerator
+from Testing_System.schemas import RegimeName
+from Testing_System.sut_adapter import BaseScheduler, build_base_grid, preprocess_tasks, resolve_horizon_slots_safe
 
 
 @pytest.mark.parametrize("regime", list(RegimeName))

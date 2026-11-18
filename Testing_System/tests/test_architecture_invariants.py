@@ -6,17 +6,17 @@ from concurrent.futures import ThreadPoolExecutor
 import subprocess
 import sys
 
-from schedule_testing_system.evaluator import ScheduleEvaluator
-from schedule_testing_system.generator import InputGenerator
-from schedule_testing_system.schemas import RegimeName
-from schedule_testing_system.sut_adapter import run_solver_direct
+from Testing_System.evaluator import ScheduleEvaluator
+from Testing_System.generator import InputGenerator
+from Testing_System.schemas import RegimeName
+from Testing_System.sut_adapter import run_solver_direct
 
 
 def test_inv1_domain_evaluator_has_no_web_imports():
     """Verify importing the domain evaluator never pulls FastAPI, Starlette, httpx, or web.api."""
     code = (
         "import sys; "
-        "from schedule_testing_system.evaluator import ScheduleEvaluator, build_contrast_pairs; "
+        "from Testing_System.evaluator import ScheduleEvaluator, build_contrast_pairs; "
         "bad = [m for m in sys.modules if any(k in m for k in ('fastapi', 'starlette', 'uvicorn', 'web.api'))]; "
         "assert not bad, f'Domain evaluator imported web modules: {bad}'"
     )

@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional, Tuple
 
-from schedule_testing_system.schemas import GateContextMetrics
-from schedule_testing_system.sut_adapter import (
+from Testing_System.schemas import GateContextMetrics
+from Testing_System.sut_adapter import (
     BaseScheduler,
     CommitmentsProfile,
     ScheduleBlock,
@@ -139,9 +139,12 @@ def evaluate_gates(
     pin_total_valid = 0
     pin_preserved = 0
     pinned_slots_by_task: Dict[str, int] = {}
+    # Grid with valid pins placed: used as the G2 capacity denominator so that pinned demand is removed
+    # from BOTH numerator and denominator of rho (otherwise pinned slots are counted as free capacity).
+    capacity_grid = base_grid.clone()
     if input_pinned_blocks:
         accepted_pins, pinned_slots_by_task, _, _ = BaseScheduler.prepare_pinned_blocks(
-            base_grid.clone(),
+            capacity_grid,
             prepared_tasks,
             input_pinned_blocks,
             now_slot,
@@ -189,7 +192,7 @@ def evaluate_gates(
         max(0, t.get_planned_slots() - pinned_slots_by_task.get(t.task_id, 0)) for t in deadline_tasks
     )
 
-    usable_free_horizon = base_grid.count_free_slots_in_range(start_from=now_slot, up_to=horizon_slots)
+    usable_free_horizon = capacity_grid.count_free_slots_in_range(start_from=now_slot, up_to=horizon_slots)
     deadline_caps = [
         min(horizon_slots, d_val)
         for t in deadline_tasks
@@ -197,10 +200,10 @@ def evaluate_gates(
         if d_val is not None
     ]
     max_d_slot = min(horizon_slots, max(deadline_caps)) if deadline_caps else horizon_slots
-    usable_free_deadlines = base_grid.count_free_slots_in_range(start_from=now_slot, up_to=max_d_slot)
+    usable_free_deadlines = capacity_grid.count_free_slots_in_range(start_from=now_slot, up_to=max_d_slot)
 
     eval_end_for_total = max_d_slot if (deadline_tasks and not habit_tasks) else horizon_slots
-    usable_free_eval = base_grid.count_free_slots_in_range(start_from=now_slot, up_to=eval_end_for_total)
+    usable_free_eval = capacity_grid.count_free_slots_in_range(start_from=now_slot, up_to=eval_end_for_total)
 
     rho_total = round(remaining_total_slots / float(max(1, usable_free_eval)), 4) if valid_tasks else 0.0
     rho_deadline = round(remaining_deadline_slots / float(max(1, usable_free_deadlines)), 4) if deadline_tasks else 0.0

@@ -2,9 +2,9 @@
 Command-Line Runner for the Schedule Testing System (`Gen Input -> Run Project -> Evaluate Output`).
 
 Examples (run from workspace root with baseline venv):
-  python -m schedule_testing_system.cli --mode contrast
-  python -m schedule_testing_system.cli --mode full --seeds 42 101 --out schedule_testing_system/reports/latest.json
-  python -m schedule_testing_system.cli --mode http --seeds 42
+  python -m Testing_System.cli --mode contrast
+  python -m Testing_System.cli --mode full --seeds 42 101 --out Testing_System/reports/latest.json
+  python -m Testing_System.cli --mode http --seeds 42
 """
 
 from __future__ import annotations
@@ -12,13 +12,13 @@ from __future__ import annotations
 import argparse
 import sys
 
-from schedule_testing_system.evaluator import build_contrast_pairs
-from schedule_testing_system.runner import (
+from Testing_System.evaluator import build_contrast_pairs
+from Testing_System.runner import (
     format_vietnamese_summary,
     run_full_benchmark_suite,
     run_single_regime_case,
 )
-from schedule_testing_system.schemas import RegimeName
+from Testing_System.schemas import RegimeName
 
 
 def main() -> int:
@@ -60,7 +60,7 @@ def main() -> int:
         print(f"  [{'PASS' if chk['passed'] else 'FAIL'}] {chk['name']}")
     print()
 
-    from schedule_testing_system.schemas import RegimeRunResult
+    from Testing_System.schemas import RegimeRunResult
 
     for raw_run in summary["regime_runs"]:
         rr = RegimeRunResult.model_validate(raw_run)

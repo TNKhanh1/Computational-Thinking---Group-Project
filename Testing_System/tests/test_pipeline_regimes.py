@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from schedule_testing_system.runner import run_single_regime_case
-from schedule_testing_system.schemas import RegimeName
+from Testing_System.runner import run_single_regime_case
+from Testing_System.schemas import RegimeName
 
 
 @pytest.mark.parametrize("regime", list(RegimeName))

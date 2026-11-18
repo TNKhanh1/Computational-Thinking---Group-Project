@@ -34,18 +34,23 @@ class EvaluationConfig(BaseModel):
     Configurable Project Policy Parameters (explicitly separated from fixed paper facts).
 
     Paper-derived boundaries used directly in evaluation logic:
-      - Albulescu et al. (2022): recovery break > 10 min for cognitively demanding tasks (15m >= 1 slot)
-      - Smarr & Schirmer (2018): empirical SJL benchmark > 30 min; circular 24h radians
-      - Svartdal et al. / Howell (2018): last-minute compression window < 10h (only when window > 10h)
-      - Corne et al. / Schaerf (1999): > 2 heavy sessions/day; reference clustering weights 10:3:1
+      - Albulescu et al. (2022): micro-breaks <= 10 min showed no performance effect after cognitive tasks
+        (d=-.09, p=.541); authors suggest > 10 min -> SmartSchedule grid: >= 1 free slot (15 min)
+      - Smarr & Schirmer (2018): SJL = circular median phase(class days) - phase(non-class days);
+        empirical benchmark "60% of students > 30 min"
+      - Svartdal et al. (2018) Table 2 / Howell (2006): most submissions < 10 h before deadline
+      - Corne et al. (1993) in Schaerf (1999) §4.2 tr. 25: penalties in DESCENDING order of weight
+        (>2 per day > consecutive > around lunch) -> compared lexicographically, no numeric weights
 
-    Fields below are project-tunable parameters (Daniels & Kouvelis shock levels, verdict policy tolerances,
-    and Myers Towel UI rescheduling effort boundaries).
+    Fields below are project-tunable parameters (shock levels, verdict policy tolerances, ICEE budget,
+    Fox "initial actions" window and Myers Towel UI effort bands) — none of these numbers come from a paper.
     """
 
     shock_levels_pct: List[float] = Field(default_factory=lambda: [25.0, 50.0])
     max_icee_critiques: int = Field(default=5, ge=1, le=10)
-    near_term_window_slots: int = Field(default=96, ge=4)  # 24h lookahead for Eq 1st / Orig% / Diff%
+    # Project mapping of Fox et al. (2006) §5.2 "initial actions" for a single-agent calendar:
+    # blocks of the unexecuted plan whose start falls within this many slots after now_slot (default 24h).
+    near_term_window_slots: int = Field(default=96, ge=4)
 
     # Configurable Verdict Policy tolerances (used only for flagging FEASIBLE_BUT_LOW_PRODUCTIVITY)
     critical_shock25_min_pct: float = Field(default=70.0)
@@ -140,17 +145,15 @@ class Pillar2CognitiveBiology(BaseModel):
     max_uninterrupted_work_min: int = 0
     crunch_tier_used: int = 0
 
-    # P2.3 Circular SJL & Phase Dispersion
-    sleep_midpoint_slot: int = 12
-    sjl_minutes: Optional[float] = None
-    sjl_direction: Optional[str] = None  # PHASE_ADVANCE | PHASE_DELAY | ALIGNED | N/A
+    # P2.3 Circular SJL (Smarr & Schirmer 2018) computed on study-block activity (LMS-login analogue)
+    sjl_minutes: Optional[float] = None          # |SJL|
+    sjl_signed_minutes: Optional[float] = None   # phase(class days) - phase(non-class days); < 0 = advance on class days
+    sjl_direction: Optional[str] = None  # PHASE_ADVANCE | PHASE_DELAY | ALIGNED | N/A (direction on class days)
     sjl_exceeds_30m: Optional[bool] = None
     class_days_count: int = 0
     non_class_days_count: int = 0
-    solver_induced_class_day_shift_min: Optional[float] = None
+    # Diagnostic only (Smarr & Schirmer discuss schedule instability -> internal desynchrony as a hypothesis)
     cross_day_phase_std_min: Optional[float] = None
-    pre_bedtime_heavy_count: int = 0
-    pre_bedtime_heavy_block_ids: List[str] = Field(default_factory=list)
 
 
 class Pillar3SustainablePacing(BaseModel):
@@ -169,7 +172,8 @@ class Pillar3SustainablePacing(BaseModel):
     adjacent_heavy_pairs: int = 0
     adjacent_heavy_block_ids: List[str] = Field(default_factory=list)
     meal_boundary_offenses: int = 0
-    corne_reference_penalty: int = 0  # 10*overload + 3*adjacent + 1*meal (Corne 10:3:1)
+    # Corne et al. (1993): [>2 heavy/day days, consecutive heavy pairs, around-meal offenses] compared lexicographically
+    corne_lexicographic_vector: List[int] = Field(default_factory=lambda: [0, 0, 0])
     context_switches: int = 0
     batched_pairs: int = 0
 
@@ -197,7 +201,7 @@ class PostRepairStabilityMetrics(BaseModel):
     eq_1st: Optional[bool] = None
     orig_pct: Optional[float] = None
     diff_pct: Optional[float] = None
-    mean_abs_time_shift_min: float = 0.0
+    mean_abs_time_shift_min: float = 0.0  # Cowling & Johansson: mean |Δstart| & |Δcompletion|
     sequence_inversions: int = 0
     moved_blocks_count: int = 0
     unplaced_from_baseline_count: int = 0
@@ -276,7 +280,7 @@ class CrossSolverEntry(BaseModel):
     p2_forced_phase_advance: int
     p1_unjustified_last10h_pct: float
     p2_sjl_minutes: Optional[float]
-    p3_corne_penalty: int
+    p3_corne_vector: List[int]
     p3_daily_load_std_min: float
     exec_ms: float
 
