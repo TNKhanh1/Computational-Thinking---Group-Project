@@ -66,6 +66,24 @@ class EvaluationConfig(BaseModel):
     effort_medium_min_diff_ratio: float = Field(default=0.10)
     effort_high_min_diff_ratio: float = Field(default=0.35)
 
+    # v2.1 Human-Centric Calibration Parameters (Pre-Deployment Verified)
+    max_exec_ms_sla: float = Field(default=1000.0)
+    moderate_multi_block_streak_min: int = Field(default=120)
+    critical_multi_block_streak_min: int = Field(default=180)
+    post_class_min_class_slots: int = Field(default=6)
+    critical_post_class_violations_min: int = Field(default=2)
+    moderate_max_daily_total_min: int = Field(default=540)
+    critical_max_daily_total_min: int = Field(default=600)
+    moderate_context_switches_max: int = Field(default=4)
+    habit_check_max_rho: float = Field(default=0.85)
+    critical_habit_rate_min_pct: float = Field(default=50.0)
+    moderate_habit_rate_min_pct: float = Field(default=80.0)
+    moderate_preferred_window_min_pct: float = Field(default=50.0)
+    moderate_sjl_advance_max_min: float = Field(default=60.0)
+    moderate_sjl_delay_max_min: float = Field(default=180.0)
+    total_daily_std_min_floor: float = Field(default=180.0)
+    total_daily_std_class_margin: float = Field(default=45.0)
+
 
 class GateContextMetrics(BaseModel):
     """Tier 0: G1 (Hard Feasibility & Pin Integrity) + G2 (Input Tightness Context)."""
@@ -155,6 +173,16 @@ class Pillar2CognitiveBiology(BaseModel):
     # Diagnostic only (Smarr & Schirmer discuss schedule instability -> internal desynchrony as a hypothesis)
     cross_day_phase_std_min: Optional[float] = None
 
+    # v2.1 Human-Centric P2 Extensions
+    achievable_heavy_peak_match_pct: Optional[float] = None
+    off_peak_heavy_mismatch_count: int = 0
+    off_peak_heavy_mismatch_blocks: List[str] = Field(default_factory=list)
+    off_peak_heavy_mismatch_task_ids: List[str] = Field(default_factory=list)
+    max_multi_block_streak_l2_min: int = 0
+    post_class_buffer_violations: int = 0
+    post_class_violation_block_ids: List[str] = Field(default_factory=list)
+    sjl_neutral_unpaired: bool = False
+
 
 class Pillar3SustainablePacing(BaseModel):
     """P3: Weekly Spreading, Utilization Adequacy, Clustering & Context Switching."""
@@ -176,6 +204,15 @@ class Pillar3SustainablePacing(BaseModel):
     corne_lexicographic_vector: List[int] = Field(default_factory=lambda: [0, 0, 0])
     context_switches: int = 0
     batched_pairs: int = 0
+
+    # v2.1 Human-Centric P3 Extensions
+    meal_boundary_offenses_l2: int = 0
+    total_daily_load_minutes: List[int] = Field(default_factory=list)
+    max_daily_total_min: int = 0
+    total_daily_load_std_min: float = 0.0
+    base_class_daily_std_min: float = 0.0
+    effective_daily_std_limit_min: float = 180.0
+    focus_context_switches: int = 0
 
 
 class ShockScenarioMetrics(BaseModel):
@@ -284,9 +321,23 @@ class CrossSolverEntry(BaseModel):
     p3_daily_load_std_min: float
     exec_ms: float
 
+    # v2.1 Human-Centric Cross-Solver Fields
+    v2_achievable_peak_pct: Optional[float] = None
+    v2_off_peak_mismatch: int = 0
+    v2_max_streak_l2_min: int = 0
+    v2_post_class_violations: int = 0
+    v2_max_daily_total_min: int = 0
+    v2_total_daily_std_min: float = 0.0
+    v2_meal_l2_offenses: int = 0
+    v2_context_switches: int = 0
+    v2_habit_rate_pct: Optional[float] = None
+    v2_preferred_window_pct: Optional[float] = None
+    v2_sjl_effective_min: Optional[float] = None
+    v2_sla_exceeded: bool = False
+
 
 class GeneratedTestMetadata(BaseModel):
-    """Reproducible metadata emitted by InputGenerator (Part 1)."""
+    """Reproducible metadata emitted by InputGenerator / FuzzGenerator (Part 1)."""
 
     seed: int
     regime: RegimeName
@@ -303,6 +354,10 @@ class GeneratedTestMetadata(BaseModel):
     habit_count: int
     pinned_count: int
     notes: str = ""
+    is_fuzz: bool = False
+    fuzz_tier: Optional[str] = None
+    persona_archetype: Optional[str] = None
+    witness_verified: bool = False
 
 
 class InvariantCheckResult(BaseModel):

@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from Testing_System.evaluator import ScheduleEvaluator, build_contrast_pairs
-from Testing_System.generator import GeneratedCaseBundle, InputGenerator
+from Testing_System.generator import FuzzGenerator, GeneratedCaseBundle, InputGenerator
 from Testing_System.runner.project_runner import (
     ProjectRunBundle,
     execute_project_direct,
@@ -27,7 +27,7 @@ from Testing_System.schemas import (
     RegimeRunResult,
     VerdictLabel,
 )
-from Testing_System.sut_adapter import FIVE_SOLVERS, preprocess_tasks
+from Testing_System.sut_adapter import FIVE_SOLVERS, ScheduleOutput, ScheduleSummary, preprocess_tasks
 
 
 def _check_regime_invariants(
@@ -302,7 +302,7 @@ def run_single_regime_case(
             input_pinned_blocks=bundle.pinned_blocks,
         )
 
-    ranking = ScheduleEvaluator.compare_solvers(solver_reports)
+    ranking = ScheduleEvaluator.compare_solvers(solver_reports, config=cfg)
 
     repair_reports: Dict[str, EvaluationReport] = {}
     for r_key, rec in run_bundle.repair_records.items():
@@ -339,26 +339,179 @@ def run_single_regime_case(
     )
 
 
+def _check_fuzz_invariants(
+    bundle: GeneratedCaseBundle,
+    solver_reports: Dict[str, EvaluationReport],
+    config: Optional[EvaluationConfig] = None,
+) -> List[InvariantCheckResult]:
+    checks: List[InvariantCheckResult] = []
+    if bundle.witness_blocks is not None:
+        w_blocks = sorted(bundle.witness_blocks, key=lambda b: (b.start_slot, b.end_slot))
+        w_sched = ScheduleOutput(
+            status="SUCCESS",
+            solver_used="WITNESS_ORACLE",
+            execution_time_ms=0.0,
+            blocks=w_blocks,
+            unplaced_tasks=[],
+            summary=ScheduleSummary(
+                total_tasks_requested=len(preprocess_tasks(bundle.profile, bundle.tasks)),
+                tasks_placed=len({b.task_id for b in w_blocks}),
+                tasks_unplaced=0,
+            ),
+        )
+        w_rep = ScheduleEvaluator.evaluate(
+            profile=bundle.profile,
+            tasks=bundle.tasks,
+            schedule=w_sched,
+            config=config,
+            input_pinned_blocks=bundle.pinned_blocks,
+        )
+        checks.append(
+            InvariantCheckResult(
+                name="Fuzz Witness: Planted solution proves G1 == 0, P1.1 == 100%, not overloaded",
+                passed=(
+                    w_rep.gates.g1_total_violations == 0
+                    and w_rep.p1_value_timeliness.deadline_value_rate_pct == 100.0
+                    and not w_rep.gates.is_structurally_overloaded
+                ),
+                detail=(
+                    f"G1={w_rep.gates.g1_total_violations}, "
+                    f"P1.1={w_rep.p1_value_timeliness.deadline_value_rate_pct}%, "
+                    f"witness_verdict={w_rep.verdict.value}"
+                ),
+            )
+        )
+
+    bad_g1 = [
+        f"{name} (g1={rep.gates.g1_total_violations}, pins={rep.gates.g1_pin_integrity_violations})"
+        for name, rep in solver_reports.items()
+        if rep.gates.g1_total_violations > 0
+    ]
+    checks.append(
+        InvariantCheckResult(
+            name="Universal: All solvers satisfy G1 == 0 & PINNED integrity",
+            passed=(len(bad_g1) == 0),
+            detail="OK" if not bad_g1 else f"Failed: {bad_g1}",
+        )
+    )
+
+    non_monotone = []
+    for n, r in solver_reports.items():
+        seq = [r.p1_value_timeliness.deadline_value_rate_pct] + [
+            sr.survived_priority_pct
+            for sr in sorted(r.p4_robustness_stability.shock_results, key=lambda x: x.shock_pct)
+        ]
+        if any(seq[i + 1] > seq[i] + 1e-9 for i in range(len(seq) - 1)):
+            non_monotone.append(f"{n}:{seq}")
+    checks.append(
+        InvariantCheckResult(
+            name="Fuzz: Shock survival monotone (P1.1 >= Shock@+25% >= Shock@+50%) for every solver",
+            passed=not non_monotone,
+            detail="OK" if not non_monotone else f"Non-monotone: {non_monotone}",
+        )
+    )
+
+    if bundle.metadata.fuzz_tier == "OVERLOAD":
+        ov_ok = all(
+            r.gates.is_structurally_overloaded and r.verdict == VerdictLabel.OVERLOAD_TRIAGE
+            for r in solver_reports.values()
+        )
+        checks.append(
+            InvariantCheckResult(
+                name="Fuzz Overload: G2 detects overload & assigns OVERLOAD_TRIAGE",
+                passed=ov_ok,
+                detail=", ".join(f"{n}={r.verdict.value}" for n, r in solver_reports.items()),
+            )
+        )
+    return checks
+
+
+def run_fuzz_case(
+    seed: int,
+    tier: Optional[str] = None,
+    config: Optional[EvaluationConfig] = None,
+    solvers: Optional[Tuple[str, ...]] = None,
+) -> RegimeRunResult:
+    """Execute Gen Random Fuzz Input -> Run 5 Solvers -> Evaluate v2.1 Output for one fuzz seed."""
+    cfg = config or EvaluationConfig()
+    bundle = FuzzGenerator.generate(seed=seed, tier=tier)
+    eff_solvers = solvers or FIVE_SOLVERS
+    run_bundle = execute_project_direct(bundle, solvers=eff_solvers)
+
+    solver_reports: Dict[str, EvaluationReport] = {
+        name: ScheduleEvaluator.evaluate(
+            profile=bundle.profile,
+            tasks=bundle.tasks,
+            schedule=out,
+            config=cfg,
+            input_pinned_blocks=bundle.pinned_blocks,
+        )
+        for name, out in run_bundle.solver_outputs.items()
+    }
+    ranking = ScheduleEvaluator.compare_solvers(solver_reports, config=cfg)
+    invariants = _check_fuzz_invariants(bundle, solver_reports, config=cfg)
+    return RegimeRunResult(
+        metadata=bundle.metadata,
+        execution_mode=run_bundle.execution_mode,
+        solver_reports=solver_reports,
+        cross_solver_ranking=ranking,
+        repair_evaluations={},
+        invariant_checks=invariants,
+        all_invariants_passed=all(c.passed for c in invariants),
+    )
+
+
+def run_fuzz_benchmark(
+    seeds: List[int],
+    tier: Optional[str] = None,
+    output_json_path: Optional[str] = None,
+    config: Optional[EvaluationConfig] = None,
+) -> Dict[str, Any]:
+    """Run procedural random fuzz suite over all supplied seeds and optionally export JSON."""
+    runs = [run_fuzz_case(seed=s, tier=tier, config=config) for s in seeds]
+    payload = {
+        "overall_passed": all(r.all_invariants_passed for r in runs),
+        "fuzz_runs": [r.model_dump(mode="json") for r in runs],
+    }
+    if output_json_path:
+        out_p = Path(output_json_path)
+        out_p.parent.mkdir(parents=True, exist_ok=True)
+        out_p.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    return payload
+
+
 def format_vietnamese_summary(res: RegimeRunResult) -> str:
-    """Format 4-block human-readable Vietnamese diagnostic report (Plan §4.3)."""
+    """Format 4-block human-readable Vietnamese v2.1 diagnostic report."""
     m = res.metadata
     rho_d_str = f" | ρ_deadline={m.tightness_rho_deadline}" if m.tightness_rho_deadline is not None else ""
+    kind_hdr = (
+        f"FUZZ[{m.fuzz_tier} | {m.persona_archetype}]"
+        if m.is_fuzz
+        else m.regime.value
+    )
     lines: List[str] = [
-        f"=== BÁO CÁO ĐÁNH GIÁ: {m.regime.value} (seed={m.seed}, mode={res.execution_mode}) ===",
+        f"=== BÁO CÁO ĐÁNH GIÁ (v2.1): {kind_hdr} (seed={m.seed}, mode={res.execution_mode}) ===",
         f"[1] Bối cảnh Input: Chronotype={m.chronotype} | Horizon={m.horizon_days} ngày | Buffer={m.buffer_mode} | Tải ρ={m.tightness_rho} ({m.planned_demand_slots}/{m.usable_free_slots} slots){rho_d_str}",
         "",
-        "[2 & 3] Bảng Đối Chiếu 4 Trụ Cột Đa Thuật Toán (Thứ tự Từ Điển D2):",
-        f"{'Rank':<4} {'Solver':<14} {'Verdict':<29} {'G1':<3} {'P1.1%':<7} {'Shock25%':<9} {'HPeak%':<7} {'Rec>10m%':<9} {'Adv':<4} {'SJL(m)':<8} {'Corne':<6} {'Std(m)':<7} {'ms':<6}",
+        "[2 & 3] Bảng Đối Chiếu v2.1 (Cổng 0 + Thứ tự Từ Điển 10 Cấp):",
+        f"{'Rank':<4} {'Solver':<14} {'Verdict':<29} {'G1':<3} {'P1.1%':<6} {'Shk25':<6} {'Rec/Stk/PCl':<12} {'OffP/APk%':<10} {'<10h':<6} {'Crn/MaxD':<11} {'Ctx':<4} {'Hab/Prf':<10} {'SJL/TStd':<11} {'ms':<6}",
     ]
     for row in res.cross_solver_ranking:
-        pk = f"{row.p2_heavy_peak_pct:.1f}" if row.p2_heavy_peak_pct is not None else "N/A"
-        rc = f"{row.p2_recovery_rate_pct:.1f}" if row.p2_recovery_rate_pct is not None else "N/A"
-        sjl = f"{row.p2_sjl_minutes:.1f}" if row.p2_sjl_minutes is not None else "N/A"
+        rc = f"{row.p2_recovery_rate_pct:.0f}" if row.p2_recovery_rate_pct is not None else "-"
+        rec_grp = f"{rc}/{row.v2_max_streak_l2_min}/{row.v2_post_class_violations}"
+        apk = f"{row.v2_achievable_peak_pct:.0f}" if row.v2_achievable_peak_pct is not None else "N/A"
+        bio_grp = f"{row.v2_off_peak_mismatch}/{apk}"
         corne = "/".join(str(x) for x in row.p3_corne_vector)
+        cap_grp = f"{corne}/{row.v2_max_daily_total_min}m"
+        hab_s = f"{row.v2_habit_rate_pct:.0f}" if row.v2_habit_rate_pct is not None else "-"
+        prf_s = f"{row.v2_preferred_window_pct:.0f}" if row.v2_preferred_window_pct is not None else "-"
+        pref_grp = f"{hab_s}/{prf_s}"
+        sjl_s = f"{row.v2_sjl_effective_min:.0f}" if row.v2_sjl_effective_min is not None else "-"
+        pace_grp = f"{sjl_s}/{row.v2_total_daily_std_min:.0f}"
         lines.append(
             f"#{row.lexicographic_rank:<3} {row.solver_name:<14} {row.verdict.value:<29} {row.g1_violations:<3} "
-            f"{row.p1_value_rate_pct:<7.1f} {row.p4_shock25_survived_pct:<9.1f} {pk:<7} {rc:<9} "
-            f"{row.p2_forced_phase_advance:<4} {sjl:<8} {corne:<6} {row.p3_daily_load_std_min:<7.1f} {row.exec_ms:<6.2f}"
+            f"{row.p1_value_rate_pct:<6.1f} {row.p4_shock25_survived_pct:<6.1f} {rec_grp:<12} {bio_grp:<10} "
+            f"{row.p1_unjustified_last10h_pct:<6.1f} {cap_grp:<11} {row.v2_context_switches:<4} {pref_grp:<10} {pace_grp:<11} {row.exec_ms:<6.1f}"
         )
 
     if res.repair_evaluations:

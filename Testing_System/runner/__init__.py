@@ -3,6 +3,8 @@
 from Testing_System.runner.pipeline_runner import (
     format_vietnamese_summary,
     run_full_benchmark_suite,
+    run_fuzz_benchmark,
+    run_fuzz_case,
     run_single_regime_case,
 )
 from Testing_System.runner.project_runner import (
@@ -15,6 +17,8 @@ __all__ = [
     "execute_project_http_e2e",
     "format_vietnamese_summary",
     "run_full_benchmark_suite",
+    "run_fuzz_benchmark",
+    "run_fuzz_case",
     "run_single_regime_case",
 ]
 
