@@ -528,6 +528,54 @@
 
       <div id="stTodayHeroContainer" class="bg-gradient-to-r from-indigo-900 via-indigo-800 to-slate-900 text-white rounded-2xl p-6 shadow-md border border-indigo-700"></div>
 
+      <!-- P3.3: Focus Timer (Pomodoro -> M7 Check-in) + EWMA Calibration Advisory + Web Notifications -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div id="stFocusTimerPanel" class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 flex flex-col justify-between gap-3">
+          <div class="flex items-center justify-between gap-2">
+            <div>
+              <h3 class="text-sm font-bold text-slate-800">⏱️ Bộ Đếm Tập Trung (Focus Timer → M7)</h3>
+              <p class="text-[11px] text-slate-500">Đo thời lượng học thực tế để tự hiệu chuẩn bộ đệm α</p>
+            </div>
+            <select id="stFocusPresetSelect" onchange="changeFocusTimerPreset()" class="text-xs border border-slate-200 rounded-lg px-2 py-1 bg-slate-50 font-semibold text-slate-700">
+              <option value="25">Pomodoro 25p</option>
+              <option value="45">Deep Work 45p</option>
+              <option value="90">Flow 90p</option>
+            </select>
+          </div>
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div id="stFocusTimerDisplay" class="text-3xl font-extrabold text-indigo-700 mono tracking-tight">25:00</div>
+              <div id="stFocusTimerStatus" class="text-[11px] text-slate-500">Sẵn sàng bắt đầu phiên tập trung</div>
+            </div>
+            <div class="flex flex-wrap items-center gap-1.5">
+              <button type="button" id="btnFocusStart" onclick="startFocusTimer()" class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition">▶ Bắt đầu</button>
+              <button type="button" id="btnFocusPause" onclick="pauseFocusTimer()" class="px-3 py-1.5 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-800 text-xs font-bold transition">⏸ Tạm dừng</button>
+              <button type="button" id="btnFocusReset" onclick="resetFocusTimer()" class="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition">↺</button>
+              <button type="button" id="btnFocusCompleteM7" onclick="completeFocusTimerToM7()" class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition">✔️ Lưu M7</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="stCalibrationAdvisoryCard" class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 flex flex-col justify-between gap-3">
+          <div class="flex items-center justify-between gap-2">
+            <div>
+              <h3 class="text-sm font-bold text-slate-800">📈 Tự Học Hệ Số Đệm α (EWMA M7)</h3>
+              <p id="stCalibrationNote" class="text-[11px] text-slate-500">Thu thập phiên check-in M7 để gợi ý α_light / α_heavy (LoA Level 4)</p>
+            </div>
+            <button type="button" id="btnStNotifyToggle" onclick="toggleScheduleNotifications()" class="px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-[11px] font-semibold text-slate-700 transition">
+              🔔 Nhắc giờ: Tắt
+            </button>
+          </div>
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div id="stCalibrationMetrics" class="text-xs text-slate-700 mono">Mẫu M7: 0/5 · Đề xuất: α 1.20 / 1.35</div>
+            <div class="flex items-center gap-1.5">
+              <button type="button" id="btnRefreshCalibration" onclick="refreshCalibrationAdvisory()" class="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition">🔄 Cập nhật</button>
+              <button type="button" id="btnApplyCalibrationAlpha" onclick="applyRecommendedCalibrationAlpha()" class="px-3 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold transition" disabled>✨ Áp dụng α</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
         <h3 class="text-sm font-bold text-slate-800 mb-4 flex items-center justify-between">
           <span>📋 Lịch Trình Trong Ngày (Phân tách Đã qua / Hiện tại / Sắp tới)</span>

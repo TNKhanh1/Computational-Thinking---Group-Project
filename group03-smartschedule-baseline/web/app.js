@@ -5456,3 +5456,221 @@ async function handleGridDrop(event, dayIdx, newTime) {
     console.error("Drag/drop validate error:", err);
   }
 }
+
+// ============================================================================
+// P3.3: Focus Timer (Pomodoro -> M7), EWMA Alpha Calibration & Notifications
+// ============================================================================
+
+const focusTimerState = {
+  targetSec: 25 * 60,
+  remainingSec: 25 * 60,
+  elapsedSec: 0,
+  intervalId: null,
+  running: false,
+  notifyEnabled: false,
+  notifyIntervalId: null,
+  notifiedBlockKeys: new Set(),
+  lastCalibration: null,
+};
+
+function _formatMmSs(totalSec) {
+  const safe = Math.max(0, Math.floor(totalSec));
+  const mm = String(Math.floor(safe / 60)).padStart(2, "0");
+  const ss = String(safe % 60).padStart(2, "0");
+  return `${mm}:${ss}`;
+}
+
+function _renderFocusTimerUI() {
+  const disp = document.getElementById("stFocusTimerDisplay");
+  const st = document.getElementById("stFocusTimerStatus");
+  if (disp) disp.textContent = _formatMmSs(focusTimerState.remainingSec);
+  if (st) {
+    const elapsedMin = Math.max(0, Math.round(focusTimerState.elapsedSec / 60));
+    if (focusTimerState.running) {
+      st.textContent = `Đang tập trung... (đã chạy ~${elapsedMin} phút)`;
+    } else if (focusTimerState.elapsedSec > 0) {
+      st.textContent = `Đã tạm dừng · Thời gian thực đo: ${elapsedMin} phút`;
+    } else {
+      st.textContent = "Sẵn sàng bắt đầu phiên tập trung";
+    }
+  }
+}
+
+function changeFocusTimerPreset() {
+  const sel = document.getElementById("stFocusPresetSelect");
+  const mins = Math.max(5, parseInt(sel ? sel.value : "25", 10) || 25);
+  pauseFocusTimer();
+  focusTimerState.targetSec = mins * 60;
+  focusTimerState.remainingSec = mins * 60;
+  focusTimerState.elapsedSec = 0;
+  _renderFocusTimerUI();
+}
+
+function startFocusTimer() {
+  if (focusTimerState.running) return;
+  focusTimerState.running = true;
+  _renderFocusTimerUI();
+  focusTimerState.intervalId = setInterval(() => {
+    focusTimerState.elapsedSec += 1;
+    if (focusTimerState.remainingSec > 0) {
+      focusTimerState.remainingSec -= 1;
+    }
+    _renderFocusTimerUI();
+    if (focusTimerState.remainingSec <= 0) {
+      pauseFocusTimer();
+      _sendDesktopNotification("SmartSchedule Focus Timer", "Hết phiên tập trung! Bấm 'Lưu M7' để ghi nhận thời lượng thực tế.");
+    }
+  }, 1000);
+}
+
+function pauseFocusTimer() {
+  focusTimerState.running = false;
+  if (focusTimerState.intervalId) {
+    clearInterval(focusTimerState.intervalId);
+    focusTimerState.intervalId = null;
+  }
+  _renderFocusTimerUI();
+}
+
+function resetFocusTimer() {
+  pauseFocusTimer();
+  focusTimerState.remainingSec = focusTimerState.targetSec;
+  focusTimerState.elapsedSec = 0;
+  _renderFocusTimerUI();
+}
+
+async function completeFocusTimerToM7() {
+  pauseFocusTimer();
+  const measuredMin = Math.max(1, Math.round((focusTimerState.elapsedSec || focusTimerState.targetSec) / 60));
+  const heroInp = document.getElementById("stHeroActualMin");
+  if (heroInp) heroInp.value = String(measuredMin);
+
+  const activeBlock = (state.currentSchedule && Array.isArray(state.currentSchedule.blocks))
+    ? state.currentSchedule.blocks.find((b) => !state.doneBlocks.has(b.block_id))
+    : null;
+  const taskId = activeBlock ? (activeBlock.task_id || "FOCUS-SESSION") : "FOCUS-SESSION";
+  const category = activeBlock ? (activeBlock.category || "STUDY") : "STUDY";
+  const estimatedMin = activeBlock ? (activeBlock.duration_min || Math.round(focusTimerState.targetSec / 60)) : Math.round(focusTimerState.targetSec / 60);
+
+  try {
+    const res = await fetch("/api/tasks/complete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        task_id: taskId,
+        category,
+        estimated_duration_min: estimatedMin,
+        actual_duration_min: measuredMin,
+        completed: true,
+      }),
+    });
+    if (res.ok) {
+      const st = document.getElementById("stFocusTimerStatus");
+      if (st) st.textContent = `✔️ Đã lưu M7 (${measuredMin}p / ước lượng ${estimatedMin}p) cho ${taskId}`;
+      focusTimerState.elapsedSec = 0;
+      focusTimerState.remainingSec = focusTimerState.targetSec;
+      await refreshCalibrationAdvisory();
+    }
+  } catch (err) {
+    console.error("Focus Timer M7 check-in error:", err);
+  }
+}
+
+async function refreshCalibrationAdvisory() {
+  const metricsEl = document.getElementById("stCalibrationMetrics");
+  const noteEl = document.getElementById("stCalibrationNote");
+  const applyBtn = document.getElementById("btnApplyCalibrationAlpha");
+  try {
+    const res = await fetch("/api/tasks/calibration?min_samples=5&lambda_ewma=0.25");
+    if (!res.ok) return;
+    const data = await res.json();
+    const cal = data.calibration;
+    if (!cal) return;
+    focusTimerState.lastCalibration = cal;
+    if (metricsEl) {
+      const ratioTxt = cal.mean_ratio != null ? ` · TB Act/Est=${cal.mean_ratio}` : "";
+      metricsEl.textContent = `Mẫu M7: ${cal.sample_count}/${cal.min_samples_required}${ratioTxt} · Đề xuất: α ${Number(cal.recommended_alpha_light).toFixed(2)} / ${Number(cal.recommended_alpha_heavy).toFixed(2)}`;
+    }
+    if (noteEl && cal.advisory_note) {
+      noteEl.textContent = cal.advisory_note;
+    }
+    if (applyBtn) {
+      applyBtn.disabled = !cal.ready_to_apply;
+    }
+  } catch (err) {
+    console.error("Calibration fetch error:", err);
+  }
+}
+
+async function applyRecommendedCalibrationAlpha() {
+  const cal = focusTimerState.lastCalibration;
+  if (!cal || !cal.ready_to_apply) return;
+  if (state.commitments) {
+    state.commitments.buffer_mode = "COGNITIVE_LOAD";
+    state.commitments.alpha_light = Number(cal.recommended_alpha_light);
+    state.commitments.alpha_heavy = Number(cal.recommended_alpha_heavy);
+    if (typeof savePersistedStudentState === "function") savePersistedStudentState();
+    if (typeof solveSchedule === "function") await solveSchedule();
+  }
+}
+
+function _sendDesktopNotification(title, body) {
+  if (typeof Notification === "undefined") return;
+  if (Notification.permission === "granted") {
+    try {
+      new Notification(title, { body });
+    } catch (_err) {
+      // Ignore browser notification restrictions in headless/iframe contexts
+    }
+  }
+}
+
+function _checkUpcomingBlockReminders() {
+  if (!focusTimerState.notifyEnabled || !state.currentSchedule || !Array.isArray(state.currentSchedule.blocks)) return;
+  const now = new Date();
+  const jsDay = now.getDay();
+  const mondayIdx = (jsDay + 6) % 7;
+  const dayNames = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+  const todayName = dayNames[mondayIdx];
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+
+  for (const blk of state.currentSchedule.blocks) {
+    if (blk.day !== todayName || state.doneBlocks.has(blk.block_id)) continue;
+    const parts = String(blk.start_time || "").split(":");
+    if (parts.length !== 2) continue;
+    const startMin = parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
+    const diff = startMin - nowMin;
+    const key = `${blk.block_id}_${todayName}_${blk.start_time}`;
+    if (diff >= 1 && diff <= 10 && !focusTimerState.notifiedBlockKeys.has(key)) {
+      focusTimerState.notifiedBlockKeys.add(key);
+      _sendDesktopNotification(
+        `Sắp tới phiên học (${diff} phút nữa)`,
+        `${blk.title || blk.task_id} (${blk.start_time} – ${blk.end_time})`
+      );
+    }
+  }
+}
+
+async function toggleScheduleNotifications() {
+  const btn = document.getElementById("btnStNotifyToggle");
+  if (focusTimerState.notifyEnabled) {
+    focusTimerState.notifyEnabled = false;
+    if (focusTimerState.notifyIntervalId) {
+      clearInterval(focusTimerState.notifyIntervalId);
+      focusTimerState.notifyIntervalId = null;
+    }
+    if (btn) btn.textContent = "🔔 Nhắc giờ: Tắt";
+    return;
+  }
+  if (typeof Notification !== "undefined" && Notification.permission === "default") {
+    try {
+      await Notification.requestPermission();
+    } catch (_err) {
+      // Ignore permission prompt failure
+    }
+  }
+  focusTimerState.notifyEnabled = true;
+  if (btn) btn.textContent = "🔔 Nhắc giờ: Bật";
+  _checkUpcomingBlockReminders();
+  focusTimerState.notifyIntervalId = setInterval(_checkUpcomingBlockReminders, 60000);
+}
