@@ -312,6 +312,46 @@
 
     <!-- ==================== VIEW 1: STUDENT WEEKLY CALENDAR (HORIZONTAL SCROLL + OBSERVED CHAIN) ==================== -->
     <div id="stViewWeek" class="space-y-3">
+      <!-- Real-Time v2.1 4-Pillar Productivity & ICEE Health Strip -->
+      <div id="stHealthV21Panel" class="hidden bg-white rounded-2xl border border-slate-200 shadow-sm p-3.5 space-y-2.5 text-xs">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div class="flex flex-wrap items-center gap-2">
+            <span id="stHealthVerdictBadge" class="px-2.5 py-1 rounded-full text-[11px] font-bold mono bg-emerald-100 text-emerald-800 border border-emerald-200">HIGH_PRODUCTIVITY</span>
+            <span id="stHealthSummaryText" class="text-slate-700 font-medium">Lịch học đạt chuẩn cân bằng nhịp sinh học và an toàn trước phát sinh.</span>
+          </div>
+          <span id="stHealthRhoBadge" class="text-[11px] mono text-slate-500"></span>
+        </div>
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-2">
+          <div class="p-2.5 rounded-xl bg-slate-50 border border-slate-200/80">
+            <div class="text-[10px] font-bold text-slate-500 uppercase">🎯 Kịp Hạn (P1)</div>
+            <div id="stHealthP1Val" class="text-sm font-bold mono text-indigo-700 mt-0.5">--%</div>
+            <div id="stHealthP1Sub" class="text-[10px] text-slate-500 mt-0.5">Dồn &lt;10h: --%</div>
+          </div>
+          <div class="p-2.5 rounded-xl bg-slate-50 border border-slate-200/80">
+            <div class="text-[10px] font-bold text-slate-500 uppercase">🧠 Nhịp Sinh Học (P2)</div>
+            <div id="stHealthP2Val" class="text-sm font-bold mono text-amber-700 mt-0.5">--%</div>
+            <div id="stHealthP2Sub" class="text-[10px] text-slate-500 mt-0.5">Nghỉ &gt;10p: --%</div>
+          </div>
+          <div class="p-2.5 rounded-xl bg-slate-50 border border-slate-200/80">
+            <div class="text-[10px] font-bold text-slate-500 uppercase">⚖️ Sức Bền Ngày (P3)</div>
+            <div id="stHealthP3Val" class="text-sm font-bold mono text-slate-800 mt-0.5">--p</div>
+            <div id="stHealthP3Sub" class="text-[10px] text-slate-500 mt-0.5">Chuyển môn: --</div>
+          </div>
+          <div class="p-2.5 rounded-xl bg-slate-50 border border-slate-200/80">
+            <div class="text-[10px] font-bold text-slate-500 uppercase">🛡️ Chịu Biến Cố (P4)</div>
+            <div id="stHealthP4Val" class="text-sm font-bold mono text-emerald-700 mt-0.5">--%</div>
+            <div id="stHealthP4Sub" class="text-[10px] text-slate-500 mt-0.5">Sốc +25% giờ</div>
+          </div>
+        </div>
+        <details id="stHealthIceeDetails" class="hidden border border-amber-200 bg-amber-50/70 rounded-xl px-3 py-2">
+          <summary class="cursor-pointer font-bold text-amber-950 text-[11px] flex items-center justify-between">
+            <span id="stHealthIceeSummary">💡 Gợi ý cải thiện lịch học (ICEE Top 3)</span>
+            <span class="text-amber-700 text-[10px]">Xem chi tiết ▼</span>
+          </summary>
+          <ul id="stHealthIceeList" class="mt-2 space-y-1.5 text-[11px]"></ul>
+        </details>
+      </div>
+
       <!-- Timeline Navigator, Observed Day-Chain Map & Horizontal Range Slider -->
       <div id="stTimelineNavigatorBar" class="bg-white rounded-2xl border border-slate-200 shadow-sm p-3 space-y-2.5 text-xs">
         <div class="flex flex-wrap items-center justify-between gap-2">
@@ -980,7 +1020,8 @@
           <div>
             <label class="block font-semibold text-slate-700 mb-1">Thuật toán mặc định</label>
             <select id="stSetSolver" class="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white">
-              <option value="SCORED_GREEDY" selected>Scored Greedy (Urgency×Importance + Circadian)</option>
+              <option value="SCORED_GREEDY" selected>Scored Greedy (Mặc định nhanh · Urgency×Circadian)</option>
+              <option value="HYBRID_ALNS">Tối ưu sâu — Hybrid ALNS (Chất lượng cao nhất, ~0.5s)</option>
               <option value="GREEDY_EDF_FIRST_FIT">EDF + First-Fit (Baseline V0)</option>
               <option value="GREEDY_LST_BEST_FIT">LST + Best-Fit (Giảm phân mảnh)</option>
               <option value="GREEDY_WSPT_SMITH_RULE">WSPT / Smith Rule</option>
@@ -1109,8 +1150,9 @@
               <option value="GREEDY_EDF_FIRST_FIT">1. EDF + First-Fit [Chuẩn V0 Energy-Blind]</option>
               <option value="GREEDY_LST_BEST_FIT">2. LST + Best-Fit [Giảm phân mảnh]</option>
               <option value="GREEDY_WSPT_SMITH_RULE">3. WSPT / Smith Rule [Trọng số / Thời lượng]</option>
-              <option value="BACKTRACKING_BRANCH_AND_BOUND">4. Backtracking Nhánh-Cận [Ground-Truth]</option>
-              <option value="SCORED_GREEDY" selected>5. Scored Greedy [Urgency × Circadian + Batching]</option>
+              <option value="BACKTRACKING_BRANCH_AND_BOUND">4. Backtracking Nhánh-Cận [Live-State B&B]</option>
+              <option value="SCORED_GREEDY" selected>5. Scored Greedy [Mặc Định · Urgency × Circadian]</option>
+              <option value="HYBRID_ALNS">6. Hybrid ALNS [Tối ưu sâu V3 · ALNS + Regret-2]</option>
             </select>
           </div>
           <button onclick="solveSchedule()" class="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg shadow transition flex items-center justify-center gap-1.5 tracking-wide">
@@ -1423,6 +1465,19 @@
             <div id="labFixedInspectorPanel" class="hidden border-t border-indigo-200 bg-indigo-50/70 px-4 py-3 text-xs"></div>
           </div>
 
+          <!-- Real-Time v2.1 Full Diagnostic Vector & ICEE Top-5 Panel -->
+          <div id="labHealthV21Panel" class="hidden bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-3 text-xs">
+            <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2">
+              <div class="flex items-center gap-2">
+                <h3 class="font-bold uppercase tracking-wider text-slate-800">🧬 Chẩn Đoán Sức Khỏe Lịch Trình (`Testing_System v2.1`)</h3>
+                <span id="labHealthVerdictBadge" class="px-2 py-0.5 rounded-full text-[11px] font-bold mono bg-emerald-100 text-emerald-800">--</span>
+              </div>
+              <span id="labHealthEvalMeta" class="text-[11px] mono text-slate-500"></span>
+            </div>
+            <div id="labHealthVectorGrid" class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2 mono"></div>
+            <div id="labHealthIceeList" class="space-y-1.5"></div>
+          </div>
+
           <!-- Placed Blocks Summary Table with Full DD/MM/YYYY & Energy Level -->
           <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
             <h3 class="text-xs font-bold uppercase tracking-wider text-slate-700 mb-2">📑 Bảng Kê Chi Tiết Các Khối Đã Xếp (`schedule_output.blocks`)</h3>
@@ -1462,6 +1517,7 @@
                   <option value="GREEDY_WSPT_SMITH_RULE">Trái (A): WSPT (Smith)</option>
                   <option value="BACKTRACKING_BRANCH_AND_BOUND">Trái (A): Backtracking</option>
                   <option value="SCORED_GREEDY">Trái (A): Scored Greedy</option>
+                  <option value="HYBRID_ALNS">Trái (A): Hybrid ALNS [Tối ưu sâu V3]</option>
                 </select>
                 <span class="font-bold text-slate-400">VS</span>
                 <select id="compareAlgoRight" class="px-2.5 py-1.5 rounded-lg border border-slate-300 bg-indigo-50 border-indigo-300 text-indigo-900 font-semibold">
@@ -1469,7 +1525,8 @@
                   <option value="GREEDY_LST_BEST_FIT">Phải (B): LST + Best-Fit</option>
                   <option value="GREEDY_WSPT_SMITH_RULE">Phải (B): WSPT (Smith)</option>
                   <option value="BACKTRACKING_BRANCH_AND_BOUND">Phải (B): Backtracking</option>
-                  <option value="SCORED_GREEDY" selected>Phải (B): Scored Greedy [Adaptive V1/V2]</option>
+                  <option value="SCORED_GREEDY" selected>Phải (B): Scored Greedy [Mặc Định V3]</option>
+                  <option value="HYBRID_ALNS">Phải (B): Hybrid ALNS [Tối ưu sâu V3]</option>
                 </select>
                 <button onclick="runDualComparison()" class="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg shadow-sm transition">🚀 Chạy So Sánh</button>
               </div>
@@ -1479,6 +1536,7 @@
             <div class="flex flex-wrap items-center gap-2 text-[11px]">
               <span class="font-bold text-slate-500">Cặp đối chứng nhanh:</span>
               <button type="button" onclick="runComparisonPreset('GREEDY_EDF_FIRST_FIT','SCORED_GREEDY')" class="px-2.5 py-1 rounded-full bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 font-semibold transition">🔬 Baseline V0 (EDF) vs Adaptive (Scored Greedy)</button>
+              <button type="button" onclick="runComparisonPreset('SCORED_GREEDY','HYBRID_ALNS')" class="px-2.5 py-1 rounded-full bg-violet-50 hover:bg-violet-100 text-violet-800 border border-violet-200 font-semibold transition">⚡ Scored Greedy vs Hybrid ALNS (Sâu)</button>
               <button type="button" onclick="runComparisonPreset('SCORED_GREEDY','BACKTRACKING_BRANCH_AND_BOUND')" class="px-2.5 py-1 rounded-full bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-semibold transition">🧮 Scored Greedy vs Exact Backtracking</button>
               <button type="button" onclick="runComparisonPreset('GREEDY_EDF_FIRST_FIT','GREEDY_LST_BEST_FIT')" class="px-2.5 py-1 rounded-full bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 font-semibold transition">📐 First-Fit (EDF) vs Best-Fit (LST)</button>
             </div>
@@ -1630,7 +1688,7 @@
               </div>
               <div class="flex gap-2">
                 <button onclick="runDeterminismCheck()" class="px-3 py-1.5 bg-teal-700 hover:bg-teal-600 text-white font-bold rounded-lg transition">🔒 Kiểm Chứng Solver Đang Chọn (3x)</button>
-                <button onclick="runAllSolversDeterminismLedger()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-lg transition">📊 Chạy Ledger Tất Cả 5 Solvers</button>
+                <button onclick="runAllSolversDeterminismLedger()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-lg transition">📊 Chạy Ledger Tất Cả 6 Solvers</button>
               </div>
             </div>
             <div id="determinismBanner" class="hidden bg-teal-950 text-teal-100 border border-teal-700 rounded-lg p-3 text-xs flex flex-wrap items-center justify-between gap-2">

@@ -32,6 +32,7 @@ from src.models import (
     PersonalHabit,
     ScheduleBlock,
     ScheduleOutput,
+    ScheduleSummary,
     SleepSchedule,
     Task,
 )
@@ -44,6 +45,7 @@ from src.storage import (
     load_workspace_state,
     save_workspace_state,
 )
+from web.health_v21 import evaluate_schedule_v21
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
@@ -127,8 +129,18 @@ def _extract_profile_and_tasks(payload: Dict[str, Any]) -> Tuple[CommitmentsProf
     return profile, tasks, algorithm, pinned_blocks
 
 
-def _enrich_response(out: ScheduleOutput, profile: Optional[CommitmentsProfile] = None) -> Dict[str, Any]:
-    """Attach Improve Plan §7.3 alias fields and optional Circadian/Batching insights alongside Baseline §6.2 fields."""
+def _extract_raw_tasks(payload: Dict[str, Any]) -> List[Task]:
+    """Parse raw un-expanded/un-buffered Task models for downstream v2.1 evaluation."""
+    return [Task.model_validate(t) for t in (payload.get("tasks") or [])]
+
+
+def _enrich_response(
+    out: ScheduleOutput,
+    profile: Optional[CommitmentsProfile] = None,
+    raw_tasks: Optional[List[Task]] = None,
+    pinned_blocks: Optional[List[ScheduleBlock]] = None,
+) -> Dict[str, Any]:
+    """Attach Improve Plan §7.3 alias fields, Circadian/Batching insights, and v2.1 4-pillar health telemetry."""
     data = out.model_dump()
     data["unplaced"] = data["unplaced_tasks"]
     data["experience_rating"] = out.summary.experience_rating
@@ -160,6 +172,14 @@ def _enrich_response(out: ScheduleOutput, profile: Optional[CommitmentsProfile] 
         "context_switches": insights.get("context_switches", 0),
         "batched_pairs": insights.get("batched_pairs", 0),
     }
+
+    if profile is not None and raw_tasks is not None:
+        data["health_v21"] = evaluate_schedule_v21(
+            profile=profile,
+            raw_tasks=raw_tasks,
+            schedule=out,
+            pinned_blocks=pinned_blocks,
+        )
     return data
 
 
@@ -251,16 +271,19 @@ def get_scenario(scenario_id: str):
 @app.post("/api/plan")
 @app.post("/api/solve")
 def api_solve_schedule(payload: Dict[str, Any] = Body(...)):
-    """Run the selected Baseline scheduling algorithm on the 672-slot grid."""
+    """Run the selected scheduling algorithm on the discrete 15-min grid and return v2.1 health telemetry."""
     try:
         profile, tasks, algorithm, pinned_blocks = _extract_profile_and_tasks(payload)
+        raw_tasks = _extract_raw_tasks(payload)
         out, _ = ScheduleController.solve_schedule(
             profile=profile,
             tasks=tasks,
             algorithm=algorithm,
             pinned_blocks=pinned_blocks,
         )
-        return JSONResponse(content=_enrich_response(out, profile=profile))
+        return JSONResponse(
+            content=_enrich_response(out, profile=profile, raw_tasks=raw_tasks, pinned_blocks=pinned_blocks)
+        )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -269,7 +292,8 @@ def api_solve_schedule(payload: Dict[str, Any] = Body(...)):
 def api_compare_algorithms(payload: Dict[str, Any] = Body(...)):
     """Run two algorithms side-by-side for Dual-Algorithm Comparative View (baseline_plan.md §7.4 Option 3)."""
     try:
-        profile, tasks, _, _ = _extract_profile_and_tasks(payload)
+        profile, tasks, _, pinned_blocks = _extract_profile_and_tasks(payload)
+        raw_tasks = _extract_raw_tasks(payload)
         algo_left = str(payload.get("algo_left") or "GREEDY_EDF_FIRST_FIT")
         algo_right = str(payload.get("algo_right") or "SCORED_GREEDY")
         res = ScheduleController.compare_algorithms(
@@ -279,10 +303,63 @@ def api_compare_algorithms(payload: Dict[str, Any] = Body(...)):
             algo_right=algo_right,
         )
         return {
-            "left": _enrich_response(res["left"], profile=profile),
-            "right": _enrich_response(res["right"], profile=profile),
+            "left": _enrich_response(res["left"], profile=profile, raw_tasks=raw_tasks, pinned_blocks=pinned_blocks),
+            "right": _enrich_response(res["right"], profile=profile, raw_tasks=raw_tasks, pinned_blocks=pinned_blocks),
             "comparison": res["comparison"],
         }
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/evaluate")
+def api_evaluate_schedule(payload: Dict[str, Any] = Body(...)):
+    """Evaluate a planned or manually adjusted schedule against Checking Engine v2.1 (`G1/G2` + `P1–P4` + `ICEE`)."""
+    try:
+        profile, _buffered_tasks, algorithm, pinned_blocks = _extract_profile_and_tasks(payload)
+        raw_tasks = _extract_raw_tasks(payload)
+
+        if "schedule" in payload and isinstance(payload["schedule"], dict):
+            schedule = ScheduleOutput.model_validate(payload["schedule"])
+        elif "blocks" in payload and isinstance(payload["blocks"], list):
+            blocks = [ScheduleBlock.model_validate(b) for b in payload["blocks"]]
+            placed_ids = {b.task_id for b in blocks}
+            schedule = ScheduleOutput(
+                status="SUCCESS",
+                solver_used=algorithm,
+                execution_time_ms=0.0,
+                summary=ScheduleSummary(
+                    total_tasks_requested=len(raw_tasks),
+                    tasks_placed=len(placed_ids),
+                    tasks_unplaced=max(0, len(raw_tasks) - len(placed_ids)),
+                ),
+                blocks=blocks,
+            )
+        else:
+            schedule, _ = ScheduleController.solve_schedule(
+                profile=profile,
+                tasks=raw_tasks,
+                algorithm=algorithm,
+                pinned_blocks=pinned_blocks,
+            )
+
+        base_sched = None
+        if "baseline_schedule" in payload and isinstance(payload["baseline_schedule"], dict):
+            base_sched = ScheduleOutput.model_validate(payload["baseline_schedule"])
+
+        dis_span = payload.get("disruption_span")
+        span_tuple = (int(dis_span[0]), int(dis_span[1])) if isinstance(dis_span, (list, tuple)) and len(dis_span) == 2 else None
+        repair_now = int(payload["repair_now_slot"]) if payload.get("repair_now_slot") is not None else None
+
+        return evaluate_schedule_v21(
+            profile=profile,
+            raw_tasks=raw_tasks,
+            schedule=schedule,
+            pinned_blocks=pinned_blocks,
+            baseline_schedule=base_sched,
+            disruption_span=span_tuple,
+            repair_now_slot=repair_now,
+            is_overrun_context=bool(payload.get("is_overrun_context", False)),
+        )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

@@ -1523,6 +1523,7 @@ async function solveSchedule() {
 
     updateTemporalContextUI();
     renderKpiCards(schedule);
+    renderHealthV21Panels(schedule);
     renderOverloadBox(schedule);
     renderTaskQueue();
     populateOverrunSelect();
@@ -1616,6 +1617,167 @@ function renderKpiCards(schedule) {
   }
   const solverEl = document.getElementById("kpiSolverLabel");
   if (solverEl) solverEl.textContent = schedule.solver_used || "";
+}
+
+function renderHealthV21Panels(schedule) {
+  const stPanel = document.getElementById("stHealthV21Panel");
+  const labPanel = document.getElementById("labHealthV21Panel");
+  const h = schedule && schedule.health_v21;
+  if (!h || !h.available) {
+    stPanel?.classList.add("hidden");
+    labPanel?.classList.add("hidden");
+    return;
+  }
+
+  const toneCls = {
+    emerald: "bg-emerald-100 text-emerald-800 border-emerald-200",
+    amber: "bg-amber-100 text-amber-900 border-amber-300",
+    indigo: "bg-indigo-100 text-indigo-800 border-indigo-200",
+    rose: "bg-rose-100 text-rose-800 border-rose-300",
+  }[h.verdict_tone || "slate"] || "bg-slate-100 text-slate-800 border-slate-200";
+
+  const g = h.gates || {};
+  const p = h.pillars || {};
+  const p1 = p.p1 || {};
+  const p2 = p.p2 || {};
+  const p3 = p.p3 || {};
+  const p4 = p.p4 || {};
+  const critiques = h.top_critiques || [];
+
+  if (stPanel) {
+    stPanel.classList.remove("hidden");
+    const vBadge = document.getElementById("stHealthVerdictBadge");
+    if (vBadge) {
+      vBadge.className = `px-2.5 py-1 rounded-full text-[11px] font-bold mono border ${toneCls}`;
+      vBadge.textContent = `${h.verdict_label_vi} (${h.verdict})`;
+    }
+    const sumEl = document.getElementById("stHealthSummaryText");
+    if (sumEl) {
+      sumEl.textContent = (h.verdict_reasons_vi && h.verdict_reasons_vi[0]) || "";
+    }
+    const rhoEl = document.getElementById("stHealthRhoBadge");
+    if (rhoEl) {
+      rhoEl.textContent = `G1=${g.g1_total_violations ?? 0} · ρ=${Number(g.rho_total ?? 0).toFixed(2)} · Crit=${h.critical_count ?? 0} · Warn=${h.warning_count ?? 0}`;
+    }
+
+    const p1Val = document.getElementById("stHealthP1Val");
+    const p1Sub = document.getElementById("stHealthP1Sub");
+    if (p1Val) p1Val.textContent = `${Number(p1.deadline_value_rate_pct ?? 100).toFixed(1)}%`;
+    if (p1Sub) p1Sub.textContent = `Dồn <10h: ${Number(p1.unjustified_last_10h_crowding_pct ?? 0).toFixed(1)}% · Habit: ${p1.habit_value_rate_pct ?? "-"}%`;
+
+    const p2Val = document.getElementById("stHealthP2Val");
+    const p2Sub = document.getElementById("stHealthP2Sub");
+    const apk = p2.achievable_heavy_peak_match_pct ?? p2.heavy_peak_match_pct;
+    if (p2Val) p2Val.textContent = apk !== null && apk !== undefined ? `${Number(apk).toFixed(1)}% Peak` : "Không có L3";
+    if (p2Sub) p2Sub.textContent = `Nghỉ >10p: ${p2.heavy_recovery_rate_pct ?? 100}% · OffP: ${p2.off_peak_heavy_mismatch_count ?? 0} · SJL: ${p2.sjl_minutes ?? "N/A"}p`;
+
+    const p3Val = document.getElementById("stHealthP3Val");
+    const p3Sub = document.getElementById("stHealthP3Sub");
+    if (p3Val) p3Val.textContent = `Max ${p3.max_daily_total_min ?? 0}p (${((p3.max_daily_total_min ?? 0) / 60).toFixed(1)}h)`;
+    if (p3Sub) p3Sub.textContent = `Std: ${Number(p3.total_daily_load_std_min ?? 0).toFixed(0)}p · Đổi môn: ${p3.focus_context_switches ?? 0}`;
+
+    const p4Val = document.getElementById("stHealthP4Val");
+    const p4Sub = document.getElementById("stHealthP4Sub");
+    if (p4Val) p4Val.textContent = `${Number(p4.shock_25_pct ?? 100).toFixed(1)}% an toàn`;
+    if (p4Sub) p4Sub.textContent = `Sốc +25% (+50%: ${Number(p4.shock_50_pct ?? 100).toFixed(0)}%) · Buffer: ${Number(p4.true_buffer_task_pct ?? 0).toFixed(0)}%`;
+
+    const details = document.getElementById("stHealthIceeDetails");
+    const list = document.getElementById("stHealthIceeList");
+    const iceeSum = document.getElementById("stHealthIceeSummary");
+    const actionable = critiques.filter((c) => c.severity !== "INFO").slice(0, 3);
+    if (details && list) {
+      if (actionable.length > 0) {
+        details.classList.remove("hidden");
+        if (iceeSum) iceeSum.textContent = `💡 Phát hiện ${actionable.length} điểm cần lưu ý trên lịch (Top ICEE)`;
+        list.innerHTML = actionable
+          .map(
+            (c) => `
+          <li class="p-2 rounded-lg bg-white border ${c.severity === "CRITICAL" ? "border-rose-300" : "border-amber-200"}">
+            <div class="font-bold text-slate-900">[${_escHtml(c.severity)}][${_escHtml(c.pillar)}] ${_escHtml(c.summary_vi)}</div>
+            <div class="text-slate-600 mt-0.5">→ ${_escHtml(c.suggested_action_vi)}</div>
+          </li>`
+          )
+          .join("");
+      } else {
+        details.classList.add("hidden");
+      }
+    }
+  }
+
+  if (labPanel) {
+    labPanel.classList.remove("hidden");
+    const lv = document.getElementById("labHealthVerdictBadge");
+    if (lv) {
+      lv.className = `px-2 py-0.5 rounded-full text-[11px] font-bold mono border ${toneCls}`;
+      lv.textContent = `${h.verdict} (Crit=${h.critical_count}, Warn=${h.warning_count})`;
+    }
+    const meta = document.getElementById("labHealthEvalMeta");
+    if (meta) {
+      meta.textContent = `G1=${g.g1_total_violations} · ρ_tot=${g.rho_total} · ρ_dl=${g.rho_deadline} · TStd=${p3.total_daily_load_std_min}/${p3.effective_daily_std_limit_min}p`;
+    }
+    const vecGrid = document.getElementById("labHealthVectorGrid");
+    if (vecGrid) {
+      const cells = [
+        ["#1 QUALITY", h.verdict],
+        ["#2 DEADLINE-VAL", `${p1.deadline_value_rate_pct ?? 100}%`],
+        ["#3 SHOCK+25%", `${p4.shock_25_pct ?? 100}%`],
+        ["#4 REC / STK", `${p2.heavy_recovery_rate_pct ?? "-"}% / ${p2.max_multi_block_streak_l2_min ?? 0}p`],
+        ["#5 OFFP / APK%", `${p2.off_peak_heavy_mismatch_count ?? 0} / ${p2.achievable_heavy_peak_match_pct ?? "-"}%`],
+        ["#6 NO-CRAM <10H", `${p1.unjustified_last_10h_crowding_pct ?? 0}%`],
+        ["#7 MAX DAILY", `${p3.max_daily_total_min ?? 0}p`],
+        ["#8 FOCUS CTX", `${p3.focus_context_switches ?? 0}`],
+        ["#9 HABIT%", `${p1.habit_value_rate_pct ?? "-"}%`],
+        ["#10 SJL / TSTD", `${p2.sjl_minutes ?? "N/A"}p / ${p3.total_daily_load_std_min ?? 0}p`],
+        ["CORNE VEC", `[${(p3.corne_lexicographic_vector || [0, 0, 0]).join(",")}]`],
+        ["POST-CLASS", `${p2.post_class_buffer_violations ?? 0}`],
+      ];
+      vecGrid.innerHTML = cells
+        .map(
+          ([k, v]) => `
+        <div class="p-2 rounded-lg bg-slate-50 border border-slate-200">
+          <div class="text-[9px] font-bold text-slate-500">${k}</div>
+          <div class="font-bold text-slate-900 truncate">${_escHtml(String(v))}</div>
+        </div>`
+        )
+        .join("");
+    }
+    const labIcee = document.getElementById("labHealthIceeList");
+    if (labIcee) {
+      labIcee.innerHTML = critiques.length
+        ? critiques
+            .map(
+              (c) => `
+          <div class="p-2 rounded-lg border ${c.severity === "CRITICAL" ? "bg-rose-50 border-rose-200" : c.severity === "WARNING" ? "bg-amber-50 border-amber-200" : "bg-slate-50 border-slate-200"}">
+            <div class="font-bold">[${_escHtml(c.severity)}][${_escHtml(c.pillar)}] ${_escHtml(c.summary_vi)}</div>
+            <div class="text-[11px] text-slate-600 mt-0.5">${_escHtml(c.rationale_vi)} · <strong>Gợi ý:</strong> ${_escHtml(c.suggested_action_vi)}</div>
+          </div>`
+            )
+            .join("")
+        : `<div class="text-emerald-700 font-semibold italic">✓ Không phát hiện cảnh báo ICEE — Lịch biểu đạt chuẩn HIGH_PRODUCTIVITY sạch.</div>`;
+    }
+  }
+}
+
+async function evaluateCurrentScheduleV21() {
+  if (!state.currentSchedule || !state.commitments) return;
+  try {
+    const algorithm = document.getElementById("solverSelect")?.value || state.currentSchedule.solver_used || "SCORED_GREEDY";
+    const res = await fetch("/api/evaluate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        commitments: state.commitments,
+        tasks: state.tasks,
+        algorithm,
+        pinned_blocks: Array.from(state.pinnedBlocks.values()),
+        schedule: state.currentSchedule,
+      }),
+    });
+    if (!res.ok) return;
+    const h = await res.json();
+    state.currentSchedule.health_v21 = h;
+    renderHealthV21Panels(state.currentSchedule);
+  } catch (_) {}
 }
 
 function renderOverloadBox(schedule) {
@@ -2221,6 +2383,23 @@ async function runDualComparison() {
       ["Độ phân mảnh & Thời gian giải", `${(c.left_fragmentation * 100).toFixed(1)}% · ${c.left_exec_ms.toFixed(2)}ms`, `${(c.right_fragmentation * 100).toFixed(1)}% · ${c.right_exec_ms.toFixed(2)}ms`, _formatDeltaChip((c.right_fragmentation - c.left_fragmentation) * 100, "% mảnh", false, 1)],
     ];
 
+    if (left.health_v21?.available && right.health_v21?.available) {
+      const lh = left.health_v21;
+      const rh = right.health_v21;
+      const lApk = lh.pillars?.p2?.achievable_heavy_peak_match_pct ?? 100;
+      const rApk = rh.pillars?.p2?.achievable_heavy_peak_match_pct ?? 100;
+      const lShk = lh.pillars?.p4?.shock_25_pct ?? 100;
+      const rShk = rh.pillars?.p4?.shock_25_pct ?? 100;
+      const lMaxD = lh.pillars?.p3?.max_daily_total_min ?? 0;
+      const rMaxD = rh.pillars?.p3?.max_daily_total_min ?? 0;
+      rowsSpec.push(
+        ["Phán quyết Máy `v2.1` (Verdict)", _escHtml(lh.verdict), _escHtml(rh.verdict), _formatDeltaChip((rh.critical_count ?? 0) - (lh.critical_count ?? 0), " crit", false, 0)],
+        ["Chịu Sốc +25% giờ (`Shock@+25%`)", `${Number(lShk).toFixed(1)}%`, `${Number(rShk).toFixed(1)}%`, _formatDeltaChip(rShk - lShk, "%", true, 1)],
+        ["Khớp Peak khả thi (`APk%`)", `${Number(lApk).toFixed(1)}%`, `${Number(rApk).toFixed(1)}%`, _formatDeltaChip(rApk - lApk, "%", true, 1)],
+        ["Đỉnh tổng tải ngày (`MaxD` lớp+tự học)", `${lMaxD}p`, `${rMaxD}p`, _formatDeltaChip(rMaxD - lMaxD, "p", false, 0)]
+      );
+    }
+
     document.getElementById("compareMetricsBox").innerHTML = `
       <table class="w-full text-left text-xs">
         <thead class="bg-slate-50 text-slate-600 border-b border-slate-200">
@@ -2314,10 +2493,12 @@ async function runDisruptionRepair(mode) {
     renderFixedEventsList();
 
     renderKpiCards(state.currentSchedule);
+    renderHealthV21Panels(state.currentSchedule);
     renderOverloadBox(state.currentSchedule);
     renderMainGrid();
     renderPlacedBlocksTable(state.currentSchedule);
     renderStudentViews();
+    evaluateCurrentScheduleV21();
 
     const logBox = document.getElementById("repairLogPanel");
     if (logBox) {
@@ -2445,10 +2626,12 @@ async function runTaskOverrunSimulation() {
     state.currentSchedule = data.after_schedule;
     syncAllLeftPanels();
     renderKpiCards(state.currentSchedule);
+    renderHealthV21Panels(state.currentSchedule);
     renderOverloadBox(state.currentSchedule);
     renderMainGrid();
     renderPlacedBlocksTable(state.currentSchedule);
     renderStudentViews();
+    evaluateCurrentScheduleV21();
 
     const logBox = document.getElementById("repairLogPanel");
     if (logBox) {
@@ -2524,8 +2707,9 @@ async function runAllSolversDeterminismLedger() {
     "GREEDY_WSPT_SMITH_RULE",
     "BACKTRACKING_BRANCH_AND_BOUND",
     "SCORED_GREEDY",
+    "HYBRID_ALNS",
   ];
-  ledgerBody.innerHTML = `<tr><td colspan="4" class="py-4 text-center text-indigo-700 font-semibold">⏳ Đang chạy kiểm chứng SHA-256 (3x runs × 5 solvers)...</td></tr>`;
+  ledgerBody.innerHTML = `<tr><td colspan="4" class="py-4 text-center text-indigo-700 font-semibold">⏳ Đang chạy kiểm chứng SHA-256 (3x runs × 6 solvers)...</td></tr>`;
 
   try {
     const rows = [];
@@ -2690,6 +2874,7 @@ function switchStudentView(view) {
 function renderStudentViews() {
   updateTemporalContextUI();
   renderStudentSummary();
+  renderHealthV21Panels(state.currentSchedule);
   renderStudentOverloadBanner();
   if (state.studentView === "WEEK") {
     renderStudentWeekCalendar();
@@ -5153,6 +5338,7 @@ async function applyStudentDisruption() {
     renderKpiCards(state.currentSchedule);
     renderMainGrid();
     renderStudentViews();
+    evaluateCurrentScheduleV21();
   } catch (err) {
     alert(`Lỗi tái lập lịch M5: ${err.message}`);
   }
@@ -5224,6 +5410,7 @@ function undoStudentChange() {
   renderKpiCards(state.currentSchedule);
   renderMainGrid();
   renderStudentViews();
+  evaluateCurrentScheduleV21();
 }
 
 let draggedBlockId = null;
