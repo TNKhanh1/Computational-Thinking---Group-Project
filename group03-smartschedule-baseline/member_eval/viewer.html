@@ -1,0 +1,881 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SmartSchedule — Chấm Mù Đa Thành Viên (Blind Human-in-the-Loop Evaluator)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap');
+    body { font-family: 'Inter', system-ui, sans-serif; }
+    .mono { font-family: 'JetBrains Mono', monospace; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen flex flex-col">
+
+  <!-- TOP HEADER -->
+  <header class="bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-40 shadow-md">
+    <div class="max-w-[1680px] mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-xl bg-indigo-500 flex items-center justify-center font-bold text-lg shadow">🎭</div>
+        <div>
+          <h1 class="text-sm sm:text-base font-bold tracking-tight flex items-center gap-2">
+            <span>SmartSchedule — Chương Trình Chấm Mù Đa Thành Viên</span>
+            <span class="px-2 py-0.5 text-[10px] font-bold bg-indigo-600 rounded-full mono">BLIND A/B · v2.1</span>
+          </h1>
+          <p class="text-[11px] text-slate-400">Đối chiếu Máy v2.1 × Trải nghiệm người thật (UX-1..UX-6) · Port 8010</p>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <div class="flex bg-slate-800 p-1 rounded-xl border border-slate-700 text-xs">
+          <button id="btnTabSession" onclick="switchTopTab('SESSION')" class="px-3.5 py-1.5 rounded-lg bg-indigo-600 text-white font-bold transition">🕵️ 1. Phiên Chấm Mù</button>
+          <button id="btnTabReport" onclick="switchTopTab('REPORT')" class="px-3.5 py-1.5 rounded-lg text-slate-300 hover:text-white font-semibold transition">📊 2. Báo Cáo Tổng Hợp (7 Thành Viên)</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN CONTAINER -->
+  <main class="flex-1 max-w-[1680px] w-full mx-auto px-4 py-5 space-y-5">
+
+    <!-- ==================== TAB 1: BLIND EVALUATION SESSION ==================== -->
+    <div id="panelSession" class="space-y-5">
+
+      <!-- STEP 1: SESSION SETUP -->
+      <section class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 space-y-4">
+        <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+          <div>
+            <h2 class="text-sm font-bold text-slate-900">1. Thiết Lập Phiên Chấm Mù (Ẩn Danh Thuật Toán)</h2>
+            <p class="text-xs text-slate-500">Chọn thành viên, chế độ 3/4/6 phương án ẩn (#A/#B/#C...) và kịch bản thực nghiệm hoặc nhập tuần thật của bạn.</p>
+          </div>
+          <span id="metaProgressBadge" class="px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 text-xs font-bold mono">Đã lưu: 0 phiên</span>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-12 gap-3 text-xs items-end">
+          <div class="md:col-span-3">
+            <label class="block font-semibold text-slate-700 mb-1">Thành viên chấm (Group 03 / Guest)</label>
+            <select id="selMember" class="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white font-medium"></select>
+          </div>
+          <div class="md:col-span-3">
+            <label class="block font-semibold text-slate-700 mb-1">Chế độ ứng viên mù</label>
+            <select id="selMode" class="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white font-medium">
+              <option value="standard_3" selected>3 Phương án Chuẩn (#A/#B/#C: EDF, Scored Greedy, Hybrid ALNS)</option>
+              <option value="standard_4">4 Phương án (#A..#D: + Backtracking)</option>
+              <option value="all_6">Tất cả 6 Thuật toán (#A..#F: phân tích sâu TIGHT/OVERLOAD)</option>
+            </select>
+          </div>
+          <div class="md:col-span-4">
+            <label class="block font-semibold text-slate-700 mb-1">Kịch bản đánh giá</label>
+            <select id="selScenario" onchange="onScenarioPickerChange()" class="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white font-medium"></select>
+          </div>
+          <div class="md:col-span-2">
+            <button id="btnStartBlind" onclick="startBlindSession()" class="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl shadow transition">
+              🎭 Sinh Lịch Mù
+            </button>
+          </div>
+        </div>
+
+        <!-- PERSONAL WEEK CUSTOM EDITOR (shown cleanly when PERSONAL_WEEK is selected) -->
+        <div id="personalWeekEditor" class="border border-indigo-200 bg-indigo-50/40 rounded-2xl p-4 space-y-3 text-xs">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 class="font-bold text-indigo-950">📝 Nhập Tuần Thật Của Chính Bạn (Ca 1 — Personal Week)</h3>
+              <p class="text-[11px] text-indigo-700">Chỉnh nhịp sinh học, lịch lớp/thói quen hoặc gõ tiếng Việt/Anh tự nhiên để thêm nhanh bài tập.</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <label class="font-semibold text-slate-700">Giờ tỉnh táo nhất:</label>
+              <select id="pwFocusPref" class="px-2 py-1 rounded-lg border border-indigo-300 bg-white">
+                <option value="MORNING" selected>MORNING (Sáng)</option>
+                <option value="AFTERNOON">AFTERNOON (Chiều)</option>
+                <option value="EVENING">EVENING (Tối - Cú đêm)</option>
+                <option value="BALANCED">BALANCED (Cân bằng)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="flex flex-wrap gap-2">
+            <input id="pwNlInput" type="text" placeholder="Thêm task nhanh bằng tiếng Việt/Anh: VD 'Làm đồ án CSDL 2 tiếng trước tối thứ 6'" class="flex-1 min-w-[260px] px-3 py-2 rounded-xl border border-slate-300 bg-white" onkeydown="if(event.key==='Enter'){event.preventDefault();nlAddPersonalTask();}" />
+            <button type="button" onclick="nlAddPersonalTask()" class="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl transition">✨ Phân Tích & Thêm Task</button>
+          </div>
+
+          <div id="pwTasksList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2"></div>
+        </div>
+      </section>
+
+      <!-- STEP 2: BLIND WORKSPACE (VISIBLE ONLY WHEN PACKET LOADED) -->
+      <section id="blindWorkspace" class="hidden space-y-5">
+
+        <!-- Blind Header + Candidate Switcher + Filters -->
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 space-y-3">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div class="flex items-center gap-2">
+                <span id="blindScenarioBadge" class="px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 font-bold text-[11px] mono"></span>
+                <h2 id="blindScenarioTitle" class="text-sm font-bold text-slate-900"></h2>
+              </div>
+              <p class="text-xs text-slate-500 mt-0.5">
+                Nhấn vào từng phương án ẩn bên dưới để soi thời khóa biểu. Click trực tiếp vào <strong>bất kỳ block học tập nào</strong> để gắn nhãn nguyên nhân gây khó chịu (`UX-6`).
+              </p>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2 text-xs">
+              <select id="filterDay" onchange="renderCandidateGrid()" class="px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white">
+                <option value="ALL">Tất cả các ngày</option>
+                <option value="0">Thứ 2 (Tuần 1)</option>
+                <option value="1">Thứ 3 (Tuần 1)</option>
+                <option value="2">Thứ 4 (Tuần 1)</option>
+                <option value="3">Thứ 5 (Tuần 1)</option>
+                <option value="4">Thứ 6 (Tuần 1)</option>
+                <option value="5">Thứ 7 (Tuần 1)</option>
+                <option value="6">Chủ Nhật (Tuần 1)</option>
+              </select>
+              <select id="filterLoad" onchange="renderCandidateGrid()" class="px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white">
+                <option value="ALL">Mọi độ nặng</option>
+                <option value="3">Chỉ việc Nặng (Load 3)</option>
+                <option value="2">Chỉ việc Vừa (Load 2)</option>
+                <option value="1">Chỉ việc Nhẹ / Thói quen (Load 1)</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Candidate Tabs -->
+          <div id="candidateTabs" class="flex flex-wrap gap-2 pt-1"></div>
+
+          <!-- Legend -->
+          <div class="flex flex-wrap items-center gap-3 text-[11px] text-slate-600 pt-1 border-t border-slate-100">
+            <span class="font-semibold">Chú giải:</span>
+            <span class="px-2 py-0.5 rounded bg-rose-100 text-rose-900 border border-rose-300 font-semibold">L3 · Nhận thức Nặng</span>
+            <span class="px-2 py-0.5 rounded bg-indigo-100 text-indigo-900 border border-indigo-300 font-semibold">L2 · Trung bình</span>
+            <span class="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-300 font-semibold">L1 · Nhẹ / Thói quen</span>
+            <span class="px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300 font-semibold">⚡ E3 = Peak Sinh Học</span>
+            <span class="px-2 py-0.5 rounded bg-slate-200 text-slate-700 font-semibold">🟥 Lớp cố định / 🍽️ Bữa ăn</span>
+          </div>
+        </div>
+
+        <!-- Candidate Summary + Day-by-Day Visual Timetable -->
+        <div id="candidateSummaryStrip" class="grid grid-cols-2 sm:grid-cols-5 gap-2.5"></div>
+        <div id="candidateUnplacedAlert" class="hidden bg-rose-50 border border-rose-300 rounded-2xl p-3 text-xs text-rose-950"></div>
+
+        <div id="candidateGridContainer" class="flex gap-3 overflow-x-auto pb-3"></div>
+
+        <!-- STEP 3: UX-1..UX-6 SCORECARD -->
+        <section class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
+          <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
+            <div>
+              <h3 class="text-sm font-bold text-slate-900">2. Phiếu Chấm Trải Nghiệm Con Người (`UX-1..UX-6`)</h3>
+              <p class="text-xs text-slate-500">Chấm rời từng tiêu chí (1 = Rất tệ → 5 = Rất hài lòng) cho từng phương án ẩn, chọn 1 lịch tốt nhất trước khi mở khóa Máy v2.1.</p>
+            </div>
+            <div id="tagsCounterBadge" class="px-2.5 py-1 rounded-full bg-amber-50 text-amber-900 border border-amber-200 text-xs font-bold mono">Đã gắn nhãn: 0 block</div>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs border-collapse">
+              <thead class="bg-slate-100 text-slate-700 border-b border-slate-200">
+                <tr>
+                  <th class="py-2.5 px-3 w-[320px]">Tiêu chí đánh giá UX</th>
+                  <th class="py-2.5 px-3">Chấm điểm 1–5 cho từng Phương án ẩn</th>
+                </tr>
+              </thead>
+              <tbody id="uxScorecardBody" class="divide-y divide-slate-100"></tbody>
+            </table>
+          </div>
+
+          <!-- Blind Winner Selection (UX-6) -->
+          <div class="bg-indigo-50/60 border border-indigo-200 rounded-xl p-4 space-y-2.5 text-xs">
+            <div class="font-bold text-indigo-950">UX-6. Chọn ĐÚNG 1 Phương Án bạn thật sự muốn dùng làm lịch tuần này (`Blind Winner`):</div>
+            <div id="winnerRadioContainer" class="flex flex-wrap gap-3"></div>
+          </div>
+
+          <!-- Marked Block Tags Summary -->
+          <div id="markedTagsList" class="hidden bg-amber-50/70 border border-amber-200 rounded-xl p-3 text-xs space-y-1.5"></div>
+
+          <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end text-xs">
+            <div class="md:col-span-9">
+              <label class="block font-semibold text-slate-700 mb-1">Ghi chú cảm nhận thực tế (lý do thích / điểm khó chịu ngoài đời):</label>
+              <textarea id="inpFreeNotes" rows="2" placeholder="VD: Phương án #B xếp bài nặng vào đúng buổi tối nhưng hơi ít khe dự phòng thứ 4..." class="w-full px-3 py-2 rounded-xl border border-slate-300"></textarea>
+            </div>
+            <div class="md:col-span-3">
+              <button id="btnSubmitReview" onclick="submitBlindReview()" class="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl shadow-md transition">
+                🔓 Nộp & Mở Kết Quả Máy v2.1
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <!-- STEP 4: REVEALED ORACLE (UNLOCKED STRICTLY AFTER SUBMIT) -->
+        <section id="revealedOraclePanel" class="hidden bg-white rounded-2xl border-2 border-emerald-400 shadow-md p-5 space-y-4">
+          <div class="flex flex-wrap items-center justify-between gap-3 border-b border-emerald-100 pb-3">
+            <div>
+              <h3 class="text-base font-bold text-emerald-950">🔓 Kết Quả Đối Chiếu: Người Thật × Máy Chấm Tự Động (`Testing_System v2.1`)</h3>
+              <p id="revealSummaryText" class="text-xs text-emerald-800 mt-0.5"></p>
+            </div>
+            <div id="agreementToggleBox" class="flex items-center gap-2 text-xs">
+              <span class="font-semibold text-slate-700">Bạn có đồng tình với xếp hạng của Máy v2.1 sau khi xem phân tích không?</span>
+              <button onclick="sendAgreementConfirm(true)" id="btnAgreeYes" class="px-3 py-1.5 rounded-lg bg-emerald-100 hover:bg-emerald-600 hover:text-white text-emerald-900 font-bold border border-emerald-300 transition">👍 Đồng ý</button>
+              <button onclick="sendAgreementConfirm(false)" id="btnAgreeNo" class="px-3 py-1.5 rounded-lg bg-rose-100 hover:bg-rose-600 hover:text-white text-rose-900 font-bold border border-rose-300 transition">👎 Máy chấm chưa sát thực tế</button>
+            </div>
+          </div>
+
+          <!-- Blind Mapping Pills -->
+          <div id="revealMappingStrip" class="flex flex-wrap gap-2 text-xs"></div>
+
+          <!-- 11-Criteria v2.1 Comparison Table -->
+          <div class="overflow-x-auto border border-slate-200 rounded-xl">
+            <table class="w-full text-left text-[11px] mono">
+              <thead class="bg-slate-900 text-white">
+                <tr>
+                  <th class="py-2 px-2.5">Mã Ẩn</th>
+                  <th class="py-2 px-2.5">Thuật Toán Thật</th>
+                  <th class="py-2 px-2.5">Rank v2.1</th>
+                  <th class="py-2 px-2.5">Verdict</th>
+                  <th class="py-2 px-2.5">G1</th>
+                  <th class="py-2 px-2.5">P1.1%</th>
+                  <th class="py-2 px-2.5">Shk25%</th>
+                  <th class="py-2 px-2.5">Rec% / Stk / PCl</th>
+                  <th class="py-2 px-2.5">OffP / APk%</th>
+                  <th class="py-2 px-2.5">MaxD / TStd</th>
+                  <th class="py-2 px-2.5">Ctx</th>
+                  <th class="py-2 px-2.5">SJL</th>
+                  <th class="py-2 px-2.5">ms</th>
+                </tr>
+              </thead>
+              <tbody id="revealVectorBody" class="divide-y divide-slate-100 bg-white"></tbody>
+            </table>
+          </div>
+
+          <!-- Top 5 ICEE Vietnamese Diagnostics per Solver -->
+          <div id="revealIceeGrid" class="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs"></div>
+        </section>
+      </section>
+    </div>
+
+    <!-- ==================== TAB 2: MULTI-MEMBER CALIBRATION AGGREGATOR ==================== -->
+    <div id="panelReport" class="hidden space-y-5">
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
+        <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
+          <div>
+            <h2 class="text-base font-bold text-slate-900">📊 Tổng Hợp Phản Hồi 7 Thành Viên & Hiệu Chuẩn Thuật Toán</h2>
+            <p class="text-xs text-slate-500">Đọc toàn bộ file JSON trong <code class="mono bg-slate-100 px-1 rounded">member_eval/reviews/</code>, đối chiếu Human Win-Rate vs v2.1 và phát hiện cụm lỗi &ge; 25%.</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <button onclick="loadAggregatorReport(true)" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl shadow transition">💾 Lưu Calibration_Report.md</button>
+          </div>
+        </div>
+
+        <div id="aggKpiCards" class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs"></div>
+        <div id="aggDecisionRules" class="space-y-2 text-xs"></div>
+
+        <div class="overflow-x-auto border border-slate-200 rounded-xl">
+          <table class="w-full text-left text-xs">
+            <thead class="bg-slate-100 text-slate-700 border-b border-slate-200">
+              <tr>
+                <th class="py-2.5 px-3">Thuật toán</th>
+                <th class="py-2.5 px-3">Lượt chấm</th>
+                <th class="py-2.5 px-3">Thắng Mù</th>
+                <th class="py-2.5 px-3">UX-1..5 Trung bình</th>
+                <th class="py-2.5 px-3">Mean UX</th>
+                <th class="py-2.5 px-3">Tỷ lệ v2.1 HIGH</th>
+              </tr>
+            </thead>
+            <tbody id="aggSolverTableBody" class="divide-y divide-slate-100"></tbody>
+          </table>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 text-xs">
+          <div class="border border-slate-200 rounded-xl p-4 space-y-2">
+            <h3 class="font-bold text-slate-900">🏷️ Thống Kê Cụm Phàn Nàn Thực Tế (Block Tags)</h3>
+            <div id="aggFrictionList" class="space-y-2"></div>
+          </div>
+          <div class="border border-slate-200 rounded-xl p-4 space-y-2">
+            <h3 class="font-bold text-slate-900">📝 Xem trước Calibration_Report.md</h3>
+            <pre id="aggMarkdownPreview" class="bg-slate-900 text-slate-100 p-3 rounded-xl text-[11px] mono max-h-[300px] overflow-auto whitespace-pre-wrap"></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- BLOCK TAGGING MODAL -->
+  <div id="tagModal" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4" onclick="if(event.target===this) closeTagModal()">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-5 space-y-4 border border-slate-200 text-xs">
+      <div class="flex items-center justify-between border-b border-slate-100 pb-2.5">
+        <div>
+          <h3 class="text-sm font-bold text-slate-900">🏷️ Gắn Nhãn Lỗi Thực Tế Cho Block</h3>
+          <p id="tagModalBlockDesc" class="text-[11px] text-slate-500 mt-0.5"></p>
+        </div>
+        <button onclick="closeTagModal()" class="text-slate-400 hover:text-slate-700 text-lg font-bold px-2">✕</button>
+      </div>
+      <div id="tagModalOptions" class="space-y-1.5"></div>
+      <div>
+        <label class="block font-semibold text-slate-700 mb-1">Ghi chú ngắn (tùy chọn):</label>
+        <input id="tagModalNote" type="text" placeholder="VD: Bị kẹt sát giờ đi học buổi sáng" class="w-full px-3 py-1.5 rounded-lg border border-slate-300" />
+      </div>
+      <div class="flex justify-end gap-2 pt-2 border-t border-slate-100">
+        <button onclick="closeTagModal()" class="px-4 py-1.5 rounded-lg text-slate-600 hover:bg-slate-100 font-semibold">Đóng</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const DAYS_VI = ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7", "Chủ Nhật"];
+    const appState = {
+      meta: null,
+      blindView: null,
+      activeCandidateId: null,
+      scoresByBlindId: {},
+      winnerId: null,
+      blockTags: [],
+      editingTagTarget: null,
+      lastSubmitRes: null,
+      personalDraft: null,
+    };
+
+    function esc(s) {
+      return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+
+    document.addEventListener("DOMContentLoaded", async () => {
+      await loadMeta();
+    });
+
+    async function loadMeta() {
+      const res = await fetch("/api/eval/meta");
+      const meta = await res.json();
+      appState.meta = meta;
+      appState.personalDraft = JSON.parse(JSON.stringify(meta.personal_week_template));
+
+      const memSel = document.getElementById("selMember");
+      memSel.innerHTML = meta.members.map(m => `<option value="${esc(m.member_id)}">${esc(m.name)} (${esc(m.role)})</option>`).join("");
+
+      const scSel = document.getElementById("selScenario");
+      scSel.innerHTML = meta.scenarios.map(s => `<option value="${esc(s.scenario_id)}">${esc(s.title_vi)}</option>`).join("");
+
+      document.getElementById("metaProgressBadge").textContent = `Đã lưu: ${meta.saved_reviews_count} phiên`;
+      onScenarioPickerChange();
+      renderPersonalTasks();
+    }
+
+    function onScenarioPickerChange() {
+      const scId = document.getElementById("selScenario").value;
+      const showPw = scId === "PERSONAL_WEEK";
+      document.getElementById("personalWeekEditor").classList.toggle("hidden", !showPw);
+      const spec = (appState.meta?.scenarios || []).find(s => s.scenario_id === scId);
+      if (spec?.recommended_mode) {
+        document.getElementById("selMode").value = spec.recommended_mode;
+      }
+    }
+
+    function renderPersonalTasks() {
+      const list = document.getElementById("pwTasksList");
+      const tasks = appState.personalDraft?.tasks || [];
+      list.innerHTML = tasks.map((t, idx) => `
+        <div class="bg-white rounded-xl border border-indigo-100 p-2.5 flex items-start justify-between gap-2 shadow-sm">
+          <div>
+            <div class="font-bold text-slate-900">${esc(t.title)}</div>
+            <div class="text-[11px] text-slate-600 mono">⏱ ${t.duration_min}p · 📅 ${esc(t.deadline_day || "Habit")} ${esc(t.deadline_time || "")} · ★ P${t.priority} · L${t.cognitive_load || 2}</div>
+          </div>
+          <button onclick="removePersonalTask(${idx})" class="text-slate-400 hover:text-rose-600 font-bold px-1">✕</button>
+        </div>
+      `).join("");
+    }
+
+    function removePersonalTask(idx) {
+      appState.personalDraft.tasks.splice(idx, 1);
+      renderPersonalTasks();
+    }
+
+    async function nlAddPersonalTask() {
+      const inp = document.getElementById("pwNlInput");
+      const prompt = inp.value.trim();
+      if (!prompt) return;
+      const res = await fetch("/api/eval/nl-parse", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt, existing_count: appState.personalDraft.tasks.length, engine: "offline" }),
+      });
+      if (!res.ok) {
+        alert("Không phân tích được câu nhập: " + await res.text());
+        return;
+      }
+      const data = await res.json();
+      if (!data.draft) {
+        alert("Không trích xuất được task từ câu nhập.");
+        return;
+      }
+      const d = data.draft;
+      appState.personalDraft.tasks.push({
+        task_id: d.task_id || `PW_${appState.personalDraft.tasks.length + 1}`,
+        title: d.title || prompt,
+        duration_min: d.duration_min || 60,
+        deadline_day: d.deadline_day || "Friday",
+        deadline_time: d.deadline_time || "22:00",
+        priority: d.priority || 3,
+        cognitive_load: d.cognitive_load || 2,
+        category: d.category || "ASSIGNMENT",
+        is_splittable: d.is_splittable !== false,
+        min_chunk_min: d.min_chunk_min || 30,
+        max_chunk_min: d.max_chunk_min || 90,
+      });
+      inp.value = "";
+      renderPersonalTasks();
+    }
+
+    async function startBlindSession() {
+      const member_id = document.getElementById("selMember").value;
+      const mode = document.getElementById("selMode").value;
+      const scenario_id = document.getElementById("selScenario").value;
+      const btn = document.getElementById("btnStartBlind");
+      btn.disabled = true;
+      btn.textContent = "⏳ Đang giải & ẩn danh...";
+
+      const body = { member_id, mode, scenario_id };
+      if (scenario_id === "PERSONAL_WEEK") {
+        appState.personalDraft.commitments.focus_preference = document.getElementById("pwFocusPref").value;
+        body.commitments = appState.personalDraft.commitments;
+        body.tasks = appState.personalDraft.tasks;
+      }
+
+      try {
+        const res = await fetch("/api/eval/session", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const blindView = await res.json();
+        appState.blindView = blindView;
+        appState.activeCandidateId = blindView.blind_candidates[0]?.blind_id || null;
+        appState.scoresByBlindId = {};
+        for (const c of blindView.blind_candidates) {
+          appState.scoresByBlindId[c.blind_id] = {};
+        }
+        appState.winnerId = null;
+        appState.blockTags = [];
+        appState.lastSubmitRes = null;
+
+        document.getElementById("blindWorkspace").classList.remove("hidden");
+        document.getElementById("revealedOraclePanel").classList.add("hidden");
+        document.getElementById("inpFreeNotes").value = "";
+
+        document.getElementById("blindScenarioBadge").textContent = `${blindView.scenario_id} · ${blindView.scenario_category} · ${blindView.horizon_days} ngày`;
+        document.getElementById("blindScenarioTitle").textContent = blindView.scenario_title_vi;
+
+        renderCandidateTabs();
+        renderCandidateGrid();
+        renderUxScorecard();
+        renderTagsSummary();
+      } catch (err) {
+        alert("Lỗi tạo phiên chấm mù: " + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "🎭 Sinh Lịch Mù";
+      }
+    }
+
+    function renderCandidateTabs() {
+      const container = document.getElementById("candidateTabs");
+      const cands = appState.blindView?.blind_candidates || [];
+      container.innerHTML = cands.map(c => {
+        const active = c.blind_id === appState.activeCandidateId;
+        const tagCnt = appState.blockTags.filter(t => t.blind_id === c.blind_id).length;
+        const doneScoreCount = Object.keys(appState.scoresByBlindId[c.blind_id] || {}).length;
+        return `
+          <button onclick="selectCandidate('${esc(c.blind_id)}')" class="px-4 py-2 rounded-xl text-xs font-bold border transition flex items-center gap-2 ${
+            active
+              ? "bg-indigo-600 text-white border-indigo-700 shadow-sm"
+              : "bg-slate-50 text-slate-700 border-slate-300 hover:bg-indigo-50"
+          }">
+            <span>Phương án ${esc(c.blind_id)}</span>
+            <span class="px-1.5 py-0.5 rounded text-[10px] mono ${active ? "bg-indigo-500 text-white" : "bg-white text-slate-600 border"}">
+              ${c.summary_basic.placed_count}/${c.summary_basic.total_tasks} tasks
+            </span>
+            ${tagCnt ? `<span class="px-1.5 py-0.5 rounded bg-amber-400 text-amber-950 text-[10px] mono">${tagCnt} tag</span>` : ""}
+            ${doneScoreCount === 5 ? `<span class="text-[11px]">✅</span>` : ""}
+          </button>`;
+      }).join("");
+    }
+
+    function selectCandidate(blindId) {
+      appState.activeCandidateId = blindId;
+      renderCandidateTabs();
+      renderCandidateGrid();
+    }
+
+    function renderCandidateGrid() {
+      const bv = appState.blindView;
+      if (!bv) return;
+      const cand = bv.blind_candidates.find(c => c.blind_id === appState.activeCandidateId);
+      if (!cand) return;
+
+      const s = cand.summary_basic;
+      document.getElementById("candidateSummaryStrip").innerHTML = `
+        <div class="bg-white p-3 rounded-xl border border-slate-200"><div class="text-[10px] text-slate-500 font-bold uppercase">Phương án đang xem</div><div class="text-lg font-bold text-indigo-700 mono">${esc(cand.blind_id)}</div></div>
+        <div class="bg-white p-3 rounded-xl border border-slate-200"><div class="text-[10px] text-slate-500 font-bold uppercase">Số task xếp được</div><div class="text-lg font-bold mono">${s.placed_count} / ${s.total_tasks}</div></div>
+        <div class="bg-white p-3 rounded-xl border border-slate-200"><div class="text-[10px] text-slate-500 font-bold uppercase">Đạt Hạn Chót</div><div class="text-lg font-bold mono ${s.deadline_satisfaction_rate >= 100 ? "text-emerald-600" : "text-rose-600"}">${s.deadline_satisfaction_rate.toFixed(1)}%</div></div>
+        <div class="bg-white p-3 rounded-xl border border-slate-200"><div class="text-[10px] text-slate-500 font-bold uppercase">Tổng giờ tự học</div><div class="text-lg font-bold mono">${(s.total_scheduled_min / 60).toFixed(1)} giờ</div></div>
+        <div class="bg-white p-3 rounded-xl border border-slate-200"><div class="text-[10px] text-slate-500 font-bold uppercase">Slot nghỉ (REST)</div><div class="text-lg font-bold mono">${s.rest_slots * 15} phút</div></div>
+      `;
+
+      const unplacedEl = document.getElementById("candidateUnplacedAlert");
+      if ((cand.unplaced_tasks || []).length > 0) {
+        unplacedEl.classList.remove("hidden");
+        unplacedEl.innerHTML = `<strong>⚠️ Bài chưa xếp được trong ${esc(cand.blind_id)}:</strong> ` +
+          cand.unplaced_tasks.map(u => `<span class="inline-block mr-2 px-2 py-0.5 rounded bg-rose-100 border border-rose-300 font-semibold">${esc(u.task_id)}: ${esc(u.title)} (${u.duration_min}p)</span>`).join("");
+      } else {
+        unplacedEl.classList.add("hidden");
+      }
+
+      const dayFilter = document.getElementById("filterDay").value;
+      const loadFilter = document.getElementById("filterLoad").value;
+      const totalDays = bv.horizon_days || 7;
+      const fixedEvents = bv.profile?.fixed_events || [];
+
+      const gridEl = document.getElementById("candidateGridContainer");
+      let colsHtml = "";
+      for (let d = 0; d < totalDays; d++) {
+        if (dayFilter !== "ALL" && Number(dayFilter) !== d) continue;
+        const dayBlocks = (cand.blocks || [])
+          .filter(b => Math.floor(b.start_slot / 96) === d)
+          .filter(b => loadFilter === "ALL" || String(b.cognitive_load || 2) === loadFilter)
+          .sort((a, b) => a.start_slot - b.start_slot);
+
+        const itemsHtml = dayBlocks.map(b => {
+          const load = Number(b.cognitive_load || 2);
+          const bgCls = load === 3
+            ? "bg-rose-50 border-rose-300 hover:border-rose-500"
+            : load === 2
+              ? "bg-indigo-50 border-indigo-300 hover:border-indigo-500"
+              : "bg-emerald-50 border-emerald-300 hover:border-emerald-500";
+          const eBadge = b.energy_level >= 3
+            ? `<span class="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-bold text-[9px] mono">⚡ Peak E3</span>`
+            : b.energy_level === 2
+              ? `<span class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 text-[9px] mono">E2 Mid</span>`
+              : `<span class="px-1.5 py-0.5 rounded bg-slate-200 text-slate-700 text-[9px] mono">E1 Low</span>`;
+          const myTags = appState.blockTags.filter(t => t.blind_id === cand.blind_id && t.block_id === b.block_id);
+          const tagBadges = myTags.map(t => `<span class="px-1.5 py-0.5 rounded bg-amber-500 text-white font-bold text-[9px] mono">${esc(t.tag)}</span>`).join(" ");
+
+          return `
+            <div onclick="openTagModal('${esc(cand.blind_id)}','${esc(b.block_id)}','${esc(b.task_id)}','${esc(b.title)} (${b.start_time}–${b.end_time})')"
+                 class="p-2.5 rounded-xl border ${bgCls} cursor-pointer transition shadow-sm space-y-1">
+              <div class="flex items-center justify-between gap-1 text-[10px] mono font-bold text-slate-700">
+                <span>${b.start_time}–${b.end_time} (${b.duration_min}p)</span>
+                ${eBadge}
+              </div>
+              <div class="font-bold text-xs text-slate-900">${esc(b.title)} ${b.total_chunks > 1 ? `<span class="text-[10px] text-slate-500">(${b.chunk_index}/${b.total_chunks})</span>` : ""}</div>
+              <div class="flex flex-wrap items-center gap-1 text-[10px] mono text-slate-600">
+                <span class="px-1 py-0.5 rounded bg-white border">L${load}</span>
+                <span class="px-1 py-0.5 rounded bg-white border">★P${b.priority}</span>
+                <span class="px-1 py-0.5 rounded bg-white border">${esc(b.category)}</span>
+                ${b.state === "PINNED" ? `<span class="px-1 py-0.5 rounded bg-amber-200 font-bold">📌PINNED</span>` : ""}
+              </div>
+              ${tagBadges ? `<div class="flex flex-wrap gap-1 pt-1">${tagBadges}</div>` : ""}
+            </div>`;
+        }).join("");
+
+        const dayWeekName = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"][d % 7];
+        const dayFixedCount = fixedEvents.filter(fe => {
+          const ds = Array.isArray(fe.day_of_week) ? fe.day_of_week : [fe.day_of_week];
+          return ds.includes("ALL") || ds.includes(dayWeekName);
+        }).length;
+
+        colsHtml += `
+          <div class="flex-shrink-0 w-[265px] bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+            <div class="p-3 bg-slate-100 border-b border-slate-200 flex items-center justify-between">
+              <div>
+                <div class="text-xs font-bold text-slate-900">${DAYS_VI[d % 7]} ${d >= 7 ? "(Tuần 2)" : ""}</div>
+                <div class="text-[10px] text-slate-500 mono">${dayFixedCount} khung cố định (Lớp/Ăn)</div>
+              </div>
+              <span class="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 text-[10px] font-bold mono">${dayBlocks.length} phiên</span>
+            </div>
+            <div class="p-2.5 space-y-2 flex-1 min-h-[260px] bg-slate-50/40">
+              ${itemsHtml || `<div class="text-xs text-slate-400 italic text-center py-8">Không có phiên học khớp bộ lọc</div>`}
+            </div>
+          </div>`;
+      }
+      gridEl.innerHTML = colsHtml;
+    }
+
+    function renderUxScorecard() {
+      const criteria = appState.meta?.ux_criteria || [];
+      const cands = appState.blindView?.blind_candidates || [];
+      const tbody = document.getElementById("uxScorecardBody");
+
+      tbody.innerHTML = criteria.map(ux => {
+        const candCols = cands.map(c => {
+          const cur = appState.scoresByBlindId[c.blind_id]?.[ux.code];
+          const btns = [1, 2, 3, 4, 5].map(val => {
+            const active = cur === val;
+            return `<button type="button" onclick="setUxScore('${esc(c.blind_id)}','${ux.code}',${val})" class="w-7 h-7 rounded-lg text-xs font-bold mono border transition ${
+              active ? "bg-indigo-600 text-white border-indigo-700 shadow" : "bg-white text-slate-700 border-slate-300 hover:bg-indigo-50"
+            }">${val}</button>`;
+          }).join("");
+          return `
+            <div class="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1.5 rounded-xl border border-slate-200">
+              <span class="font-bold mono text-indigo-800 mr-1">${esc(c.blind_id)}</span>
+              ${btns}
+            </div>`;
+        }).join("");
+
+        return `
+          <tr>
+            <td class="py-3 px-3 align-top">
+              <div class="font-bold text-slate-900">${esc(ux.code)} · ${esc(ux.name_vi)}</div>
+              <div class="text-[11px] text-slate-500 mt-0.5">${esc(ux.question_vi)}</div>
+            </td>
+            <td class="py-3 px-3">
+              <div class="flex flex-wrap gap-2">${candCols}</div>
+            </td>
+          </tr>`;
+      }).join("");
+
+      const winnerBox = document.getElementById("winnerRadioContainer");
+      winnerBox.innerHTML = cands.map(c => {
+        const checked = appState.winnerId === c.blind_id;
+        return `
+          <label class="cursor-pointer px-4 py-2 rounded-xl border font-bold text-xs flex items-center gap-2 transition ${
+            checked ? "bg-emerald-600 text-white border-emerald-700 shadow" : "bg-white text-slate-800 border-slate-300 hover:bg-emerald-50"
+          }">
+            <input type="radio" name="blindWinner" value="${esc(c.blind_id)}" ${checked ? "checked" : ""} onchange="appState.winnerId='${esc(c.blind_id)}'; renderUxScorecard();" />
+            <span>Chọn Phương án ${esc(c.blind_id)}</span>
+          </label>`;
+      }).join("");
+    }
+
+    function setUxScore(blindId, uxCode, val) {
+      if (!appState.scoresByBlindId[blindId]) appState.scoresByBlindId[blindId] = {};
+      appState.scoresByBlindId[blindId][uxCode] = val;
+      renderUxScorecard();
+      renderCandidateTabs();
+    }
+
+    function openTagModal(blindId, blockId, taskId, desc) {
+      appState.editingTagTarget = { blindId, blockId, taskId };
+      document.getElementById("tagModalBlockDesc").textContent = `${blindId} · ${blockId} · ${desc}`;
+      const optsEl = document.getElementById("tagModalOptions");
+      optsEl.innerHTML = (appState.meta?.block_tags || []).map(meta => `
+        <button type="button" onclick="attachBlockTag('${esc(meta.tag)}')" class="w-full text-left px-3 py-2 rounded-xl border border-slate-200 hover:border-amber-400 hover:bg-amber-50 transition flex items-center justify-between">
+          <span><strong class="mono text-amber-900">${esc(meta.tag)}</strong> — ${esc(meta.label_vi)}</span>
+          <span class="text-[11px] text-indigo-600 font-bold">+ Gắn</span>
+        </button>`).join("");
+      document.getElementById("tagModal").classList.remove("hidden");
+    }
+
+    function closeTagModal() {
+      document.getElementById("tagModal").classList.add("hidden");
+    }
+
+    function attachBlockTag(tag) {
+      const tgt = appState.editingTagTarget;
+      if (!tgt) return;
+      const note = document.getElementById("tagModalNote").value.trim();
+      const dup = appState.blockTags.find(t => t.blind_id === tgt.blindId && t.block_id === tgt.blockId && t.tag === tag);
+      if (!dup) {
+        appState.blockTags.push({
+          blind_id: tgt.blindId,
+          block_id: tgt.blockId,
+          task_id: tgt.taskId,
+          tag,
+          note,
+        });
+      }
+      document.getElementById("tagModalNote").value = "";
+      closeTagModal();
+      renderCandidateTabs();
+      renderCandidateGrid();
+      renderTagsSummary();
+    }
+
+    function removeBlockTag(idx) {
+      appState.blockTags.splice(idx, 1);
+      renderCandidateTabs();
+      renderCandidateGrid();
+      renderTagsSummary();
+    }
+
+    function renderTagsSummary() {
+      document.getElementById("tagsCounterBadge").textContent = `Đã gắn nhãn: ${appState.blockTags.length} block`;
+      const box = document.getElementById("markedTagsList");
+      if (appState.blockTags.length === 0) {
+        box.classList.add("hidden");
+        return;
+      }
+      box.classList.remove("hidden");
+      box.innerHTML = `<div class="font-bold text-amber-950">🏷️ Danh sách nhãn lỗi bạn đã đánh dấu:</div>` +
+        appState.blockTags.map((t, idx) => `
+          <span class="inline-flex items-center gap-1.5 mr-2 px-2.5 py-1 rounded-lg bg-white border border-amber-300 font-mono text-[11px]">
+            <strong>${esc(t.blind_id)} · ${esc(t.block_id)}</strong>: ${esc(t.tag)} ${t.note ? `(${esc(t.note)})` : ""}
+            <button onclick="removeBlockTag(${idx})" class="text-rose-600 font-bold ml-1">✕</button>
+          </span>`).join("");
+    }
+
+    async function submitBlindReview() {
+      const bv = appState.blindView;
+      if (!bv) return;
+      for (const c of bv.blind_candidates) {
+        const sc = appState.scoresByBlindId[c.blind_id] || {};
+        for (let i = 1; i <= 5; i++) {
+          if (!sc[`UX-${i}`]) {
+            alert(`Vui lòng chấm đủ cả 5 tiêu chí UX-1..UX-5 cho Phương án ${c.blind_id} trước khi nộp!`);
+            return;
+          }
+        }
+      }
+      if (!appState.winnerId) {
+        alert("Vui lòng chọn 1 Phương án tốt nhất ở mục UX-6 trước khi nộp!");
+        return;
+      }
+
+      const member_id = document.getElementById("selMember").value;
+      const body = {
+        packet_id: bv.packet_id,
+        member_id,
+        scores_by_blind_id: appState.scoresByBlindId,
+        blind_winner_id: appState.winnerId,
+        block_tags: appState.blockTags,
+        free_text_notes: document.getElementById("inpFreeNotes").value.trim(),
+      };
+
+      const res = await fetch("/api/eval/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        alert("Lỗi khi nộp phiếu chấm: " + await res.text());
+        return;
+      }
+      const data = await res.json();
+      appState.lastSubmitRes = data;
+      renderRevealedOracle(data);
+      await loadMeta();
+    }
+
+    function renderRevealedOracle(data) {
+      const panel = document.getElementById("revealedOraclePanel");
+      panel.classList.remove("hidden");
+      const mvh = data.machine_vs_human;
+      document.getElementById("revealSummaryText").textContent =
+        `Bạn chọn ${mvh.human_winner_blind_id} (${mvh.human_winner_solver} · v2.1 Rank #${mvh.human_winner_v21_rank} · ${mvh.human_winner_verdict}) — Máy v2.1 xếp #1: ${mvh.v21_rank1_blind_id} (${mvh.v21_rank1_solver}).`;
+
+      document.getElementById("revealMappingStrip").innerHTML = Object.entries(data.blind_mapping || {})
+        .map(([bId, sName]) => `<span class="px-3 py-1 rounded-xl bg-slate-900 text-white font-bold mono">${esc(bId)} = ${esc(sName)}</span>`)
+        .join("");
+
+      const tbody = document.getElementById("revealVectorBody");
+      tbody.innerHTML = (data.cross_solver_ranking || []).map(row => {
+        const rep = data.reports_by_blind_id[row.blind_id] || {};
+        const v = rep.v21_vector || {};
+        const vBadge = row.verdict === "HIGH_PRODUCTIVITY"
+          ? "bg-emerald-100 text-emerald-800"
+          : row.verdict === "OVERLOAD_TRIAGE"
+            ? "bg-indigo-100 text-indigo-800"
+            : "bg-amber-100 text-amber-900";
+        return `
+          <tr class="hover:bg-slate-50 ${row.blind_id === appState.winnerId ? "bg-emerald-50/40 font-semibold" : ""}">
+            <td class="py-2 px-2.5 font-bold">${esc(row.blind_id)} ${row.blind_id === appState.winnerId ? "👤" : ""}</td>
+            <td class="py-2 px-2.5 font-bold text-indigo-800">${esc(row.solver_name)}</td>
+            <td class="py-2 px-2.5 font-bold">#${row.lexicographic_rank}</td>
+            <td class="py-2 px-2.5"><span class="px-1.5 py-0.5 rounded font-bold ${vBadge}">${esc(row.verdict)}</span></td>
+            <td class="py-2 px-2.5">${v.g1_violations}</td>
+            <td class="py-2 px-2.5">${v.p1_deadline_val_pct}%</td>
+            <td class="py-2 px-2.5">${v.p4_shock25_pct}%</td>
+            <td class="py-2 px-2.5">${v.p2_recovery_pct ?? "-"}% / ${v.p2_max_streak_l2_min}p / ${v.p2_post_class_violations}</td>
+            <td class="py-2 px-2.5">${v.p2_off_peak_mismatch} / ${v.p2_achievable_peak_pct ?? "-"}%</td>
+            <td class="py-2 px-2.5">${v.p3_max_daily_total_min}p / ${v.p3_total_daily_std_min}p</td>
+            <td class="py-2 px-2.5">${v.p3_context_switches}</td>
+            <td class="py-2 px-2.5">${v.p2_sjl_minutes ?? "N/A"}</td>
+            <td class="py-2 px-2.5">${Number(v.exec_ms || 0).toFixed(1)}</td>
+          </tr>`;
+      }).join("");
+
+      const iceeGrid = document.getElementById("revealIceeGrid");
+      iceeGrid.innerHTML = Object.entries(data.reports_by_blind_id || {}).map(([bId, rep]) => {
+        const items = (rep.top_icee || []).map(c => `
+          <div class="p-2 rounded-lg border ${c.severity === "CRITICAL" ? "bg-rose-50 border-rose-200" : c.severity === "WARNING" ? "bg-amber-50 border-amber-200" : "bg-slate-50 border-slate-200"}">
+            <div class="font-bold">[${esc(c.severity)}][${esc(c.pillar)}] ${esc(c.summary_vi)}</div>
+            <div class="text-[11px] text-slate-600 mt-0.5">→ ${esc(c.suggested_action_vi)}</div>
+          </div>`).join("");
+        return `
+          <div class="border border-slate-200 rounded-xl p-3 space-y-2">
+            <div class="font-bold text-slate-900">${esc(bId)} · ${esc(rep.solver_name)} (#${rep.lexicographic_rank})</div>
+            ${items || `<div class="text-emerald-700 italic">Không có cảnh báo ICEE nghiêm trọng — đạt chuẩn sạch.</div>`}
+          </div>`;
+      }).join("");
+
+      panel.scrollIntoView({ behavior: "smooth" });
+    }
+
+    async function sendAgreementConfirm(agree) {
+      if (!appState.lastSubmitRes) return;
+      const res = await fetch("/api/eval/confirm-agreement", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          review_file: appState.lastSubmitRes.review_file,
+          revealed_diff_agree: agree,
+        }),
+      });
+      if (res.ok) {
+        document.getElementById("btnAgreeYes").className = agree
+          ? "px-3 py-1.5 rounded-lg bg-emerald-600 text-white font-bold border border-emerald-700"
+          : "px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 opacity-60";
+        document.getElementById("btnAgreeNo").className = !agree
+          ? "px-3 py-1.5 rounded-lg bg-rose-600 text-white font-bold border border-rose-700"
+          : "px-3 py-1.5 rounded-lg bg-rose-50 text-rose-700 border border-rose-200 opacity-60";
+      }
+    }
+
+    function switchTopTab(tab) {
+      const isSess = tab === "SESSION";
+      document.getElementById("panelSession").classList.toggle("hidden", !isSess);
+      document.getElementById("panelReport").classList.toggle("hidden", isSess);
+      document.getElementById("btnTabSession").className = isSess
+        ? "px-3.5 py-1.5 rounded-lg bg-indigo-600 text-white font-bold transition"
+        : "px-3.5 py-1.5 rounded-lg text-slate-300 hover:text-white font-semibold transition";
+      document.getElementById("btnTabReport").className = !isSess
+        ? "px-3.5 py-1.5 rounded-lg bg-indigo-600 text-white font-bold transition"
+        : "px-3.5 py-1.5 rounded-lg text-slate-300 hover:text-white font-semibold transition";
+      if (!isSess) loadAggregatorReport(false);
+    }
+
+    async function loadAggregatorReport(writeMd) {
+      const res = await fetch(`/api/eval/report?write_md=${writeMd ? "true" : "false"}`);
+      const data = await res.json();
+      const s = data.summary;
+      const ag = s.agreement_metrics;
+
+      document.getElementById("aggKpiCards").innerHTML = `
+        <div class="p-3 rounded-xl bg-slate-50 border border-slate-200"><div class="text-slate-500 font-bold uppercase text-[10px]">Tổng Phiên Đã Lưu</div><div class="text-xl font-bold mono text-indigo-700">${s.total_sessions}</div></div>
+        <div class="p-3 rounded-xl bg-slate-50 border border-slate-200"><div class="text-slate-500 font-bold uppercase text-[10px]">Số Thành Viên</div><div class="text-xl font-bold mono">${s.unique_members_count} / 7</div></div>
+        <div class="p-3 rounded-xl bg-slate-50 border border-slate-200"><div class="text-slate-500 font-bold uppercase text-[10px]">Khớp Hạng #1 (Máy vs Người)</div><div class="text-xl font-bold mono text-emerald-700">${ag.exact_rank1_agreement_pct}%</div></div>
+        <div class="p-3 rounded-xl bg-slate-50 border border-slate-200"><div class="text-slate-500 font-bold uppercase text-[10px]">Bất Đồng Top-2</div><div class="text-xl font-bold mono ${ag.disagreement_rate_pct > 20 ? "text-rose-600" : "text-emerald-700"}">${ag.disagreement_rate_pct}%</div></div>
+      `;
+
+      document.getElementById("aggDecisionRules").innerHTML = (s.decision_rules || []).map(r => `
+        <div class="p-2.5 rounded-xl border ${r.status === "ACTION_REQUIRED" ? "bg-amber-50 border-amber-300 text-amber-950" : "bg-emerald-50 border-emerald-200 text-emerald-950"}">
+          <strong class="mono">[${esc(r.status)}]</strong> ${esc(r.message_vi)}
+        </div>`).join("");
+
+      const rows = Object.values(s.solver_stats || {}).map(st => `
+        <tr class="hover:bg-slate-50">
+          <td class="py-2 px-3 font-bold mono text-indigo-800">${esc(st.solver_name)}</td>
+          <td class="py-2 px-3 mono">${st.appearances}</td>
+          <td class="py-2 px-3 mono font-bold">${st.blind_wins} (${st.blind_win_rate_pct}%)</td>
+          <td class="py-2 px-3 mono">${st.ux_means["UX-1"]} / ${st.ux_means["UX-2"]} / ${st.ux_means["UX-3"]} / ${st.ux_means["UX-4"]} / ${st.ux_means["UX-5"]}</td>
+          <td class="py-2 px-3 mono font-bold text-indigo-700">${st.mean_ux} / 5</td>
+          <td class="py-2 px-3 mono">${st.v21_high_rate_pct}%</td>
+        </tr>`).join("");
+      document.getElementById("aggSolverTableBody").innerHTML = rows || `<tr><td colspan="6" class="py-4 text-center text-slate-400 italic">Chưa có phiên chấm nào.</td></tr>`;
+
+      document.getElementById("aggFrictionList").innerHTML = (s.friction_clusters || []).map(fc => `
+        <div class="p-2 rounded-lg border ${fc.is_friction_cluster ? "bg-rose-50 border-rose-300" : "bg-slate-50 border-slate-200"} flex items-center justify-between gap-2">
+          <div><strong class="mono">${esc(fc.tag)}</strong> — ${esc(fc.label_vi)}</div>
+          <span class="px-2 py-0.5 rounded font-bold mono ${fc.is_friction_cluster ? "bg-rose-600 text-white" : "bg-white border"}">${fc.count} (${fc.share_pct}%)</span>
+        </div>`).join("");
+
+      document.getElementById("aggMarkdownPreview").textContent = data.markdown || "";
+    }
+  </script>
+</body>
+</html>
