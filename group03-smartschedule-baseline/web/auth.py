@@ -107,8 +107,10 @@ def verify_access_token(token: str) -> Dict[str, Any]:
     return payload
 
 
-def extract_bearer_claims(request: Request) -> Optional[Dict[str, Any]]:
+def extract_bearer_claims(request: Optional[Request]) -> Optional[Dict[str, Any]]:
     """Extract and verify Bearer JWT from Authorization header, or return None if absent."""
+    if request is None:
+        return None
     auth_header = request.headers.get("authorization") or request.headers.get("Authorization") or ""
     if not auth_header.strip():
         return None
@@ -121,7 +123,7 @@ def extract_bearer_claims(request: Request) -> Optional[Dict[str, Any]]:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
 
 
-def resolve_workspace_id(request: Request, requested_workspace_id: str = "default") -> str:
+def resolve_workspace_id(request: Optional[Request], requested_workspace_id: str = "default") -> str:
     """
     Resolve effective tenant workspace_id:
       - Authenticated request -> strictly scoped to `user:<user_id>` (ignores spoofed workspace_id).

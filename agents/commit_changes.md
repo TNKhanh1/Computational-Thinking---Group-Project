@@ -41,6 +41,19 @@ The project is currently at the transition point between the **Baseline Engine (
 
 ## 2. Chronological Log of System Changes
 
+### Entry 018 — 2026-11-20 | `P3` Commercial SaaS Foundations: Multi-Tenant Auth (`P3.1`), `.ics`/LMS Import (`P3.2`), Focus Timer & Notifications (`P3.3`), Docker + CI (`P3.4`) (`feat/v3-solvers-and-member-eval`)
+- **Authors:** Lê Minh Nhật + Antigravity Agent
+- **Branch:** `feat/v3-solvers-and-member-eval`
+- **Summary:** Implemented all four `P3` SaaS readiness packages (`Testing_Plan/HANDOFF_V3_MEMBER_EVAL_AND_P1.md §V.3`) with zero new third-party dependencies and zero modifications to `Testing_System/*.py`, `src/solvers/`, `src/models.py`, or `requirements.txt`.
+- **Key Changes:**
+  - **`P3.1` Multi-Tenant Auth & CORS ([`src/storage.py`](../group03-smartschedule-baseline/src/storage.py), [`web/auth.py`](../group03-smartschedule-baseline/web/auth.py), [`web/api.py`](../group03-smartschedule-baseline/web/api.py), [`test_p3_1_auth_multitenant.py`](../group03-smartschedule-baseline/verification_tests/logical_tests/test_p3_1_auth_multitenant.py)):** Added SQLite `users` table (PBKDF2-HMAC-SHA256), stateless HS256 JWT bearer auth (`/api/auth/register`, `/api/auth/login`, `/api/auth/me`), strict `user:<user_id>` workspace isolation, optional `SMARTSCHEDULE_AUTH_REQUIRED`, and `SMARTSCHEDULE_ALLOWED_ORIGINS` CORS allowlist.
+  - **`P3.2` `.ics` Timetable & LMS Importer ([`src/ics_importer.py`](../group03-smartschedule-baseline/src/ics_importer.py), [`web/api.py`](../group03-smartschedule-baseline/web/api.py), [`test_p3_2_ics_importer.py`](../group03-smartschedule-baseline/verification_tests/logical_tests/test_p3_2_ics_importer.py)):** Added pure stdlib RFC 5545 `VEVENT` parser (`POST /api/import/ics`) with line unfolding, `RRULE:FREQ=WEEKLY;BYDAY=...` expansion to `FixedEvent`, and Moodle/Canvas UTC deadline classification to `Task` LoA-4 previews.
+  - **`P3.3` Focus Timer, EWMA UI & Notifications ([`web/index.html`](../group03-smartschedule-baseline/web/index.html), [`web/app.js`](../group03-smartschedule-baseline/web/app.js), [`test_p3_3_focus_timer_ui.py`](../group03-smartschedule-baseline/verification_tests/logical_tests/test_p3_3_focus_timer_ui.py)):** Added Pomodoro/Deep/Flow Focus Timer wired to `POST /api/tasks/complete`, EWMA α advisory card wired to `GET /api/tasks/calibration` (LoA-4), and Web Notification API upcoming-block reminders.
+  - **`P3.4` Containerization & CI ([`group03-smartschedule-baseline/Dockerfile`](../group03-smartschedule-baseline/Dockerfile), [`docker-compose.yml`](../docker-compose.yml), [`.github/workflows/ci.yml`](../.github/workflows/ci.yml)):** Added production Dockerfile, Docker Compose (`smartschedule-web` Port `8000` + optional `eval` profile `member-eval` Port `8010`), and GitHub Actions CI running `Testing_System/tests`, `clean_runner.py --all`, `benchmark_runner.py`, and `node --check web/app.js`.
+- **Verification:** `pytest Testing_System/tests -q` (`39/39`), `clean_runner.py --all` (`178/178`), `benchmark_runner.py` (`exit 0`).
+
+---
+
 ### Entry 017 — 2026-11-20 | `P1.3` Docs Sync, `P2.1` Extreme Tight-Load Alpha Stress (`>= 1.70`) & `P2.2` M7 EWMA Calibration API (`feat/v3-solvers-and-member-eval`)
 - **Authors:** Lê Minh Nhật + Antigravity Agent
 - **Branch:** `feat/v3-solvers-and-member-eval`

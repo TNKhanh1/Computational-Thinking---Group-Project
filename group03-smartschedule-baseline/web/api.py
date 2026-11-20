@@ -584,7 +584,7 @@ def api_natural_language_add(payload: Dict[str, Any] = Body(...)):
 
 
 @app.post("/api/tasks/complete")
-def api_task_complete(request: Request, payload: Dict[str, Any] = Body(...)):
+def api_task_complete(payload: Dict[str, Any] = Body(...), request: Request = None):
     """
     M7 Execution Tracking & Feedback Loop:
     Records actual minutes spent on a task/block and recommends estimate-habit calibration
@@ -781,7 +781,7 @@ def api_auth_me(request: Request):
 
 
 @app.get("/api/state")
-def api_get_state(request: Request, workspace_id: str = "default"):
+def api_get_state(workspace_id: str = "default", request: Request = None):
     """Load persisted workspace state (commitments, tasks, pins, done blocks, algorithm) from SQLite."""
     ws_id = resolve_workspace_id(request, workspace_id)
     try:
@@ -799,7 +799,7 @@ def api_get_state(request: Request, workspace_id: str = "default"):
 
 
 @app.put("/api/state")
-def api_put_state(request: Request, payload: Dict[str, Any] = Body(...)):
+def api_put_state(payload: Dict[str, Any] = Body(...), request: Request = None):
     """Save or overwrite persisted workspace state in SQLite."""
     ws_id = resolve_workspace_id(request, str(payload.get("workspace_id") or "default"))
     try:
@@ -817,7 +817,7 @@ def api_put_state(request: Request, payload: Dict[str, Any] = Body(...)):
 
 
 @app.delete("/api/state")
-def api_delete_state(request: Request, workspace_id: str = "default"):
+def api_delete_state(workspace_id: str = "default", request: Request = None):
     """Reset/delete persisted workspace state in SQLite."""
     ws_id = resolve_workspace_id(request, workspace_id)
     try:
@@ -832,7 +832,7 @@ def api_delete_state(request: Request, workspace_id: str = "default"):
 
 
 @app.get("/api/tasks/completions")
-def api_list_completions(request: Request, workspace_id: str = "default", limit: int = 200):
+def api_list_completions(workspace_id: str = "default", limit: int = 200, request: Request = None):
     """Retrieve historical M7 actual duration completion logs from SQLite."""
     ws_id = resolve_workspace_id(request, workspace_id)
     try:
@@ -847,12 +847,12 @@ def api_list_completions(request: Request, workspace_id: str = "default", limit:
 
 @app.get("/api/tasks/calibration")
 def api_tasks_calibration(
-    request: Request,
     workspace_id: str = "default",
     limit: int = 200,
     lambda_ewma: float = 0.25,
     min_samples: int = 5,
     include_markdown: bool = False,
+    request: Request = None,
 ):
     """Compute M7 empirical Actual/Estimated ratios and EWMA personal alpha recommendations (LoA-4)."""
     ws_id = resolve_workspace_id(request, workspace_id)

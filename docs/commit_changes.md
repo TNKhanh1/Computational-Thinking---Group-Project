@@ -41,6 +41,19 @@ Dự án SmartSchedule đang ở bước chuyển tiếp quan trọng từ **B�
 
 ## 2. Nhật Ký Chi Tiết Các Thay Đổi Mã Nguồn
 
+### Lần cập nhật 018 — 2026-11-20 | Hạ Tầng Thương Mại Hóa `P3`: Multi-Tenant Auth (`P3.1`), Nhập `.ics`/LMS (`P3.2`), Focus Timer & Nhắc Giờ (`P3.3`), Docker + CI (`P3.4`) (`feat/v3-solvers-and-member-eval`)
+- **Người thực hiện:** Lê Minh Nhật (hỗ trợ bởi Antigravity AI)
+- **Nhánh Git:** `feat/v3-solvers-and-member-eval`
+- **Tóm tắt thay đổi:** Triển khai trọn bộ 4 gói thương mại hóa `P3` (`Testing_Plan/HANDOFF_V3_MEMBER_EVAL_AND_P1.md §V.3`) bằng hoàn toàn thư viện chuẩn Python (0 gói ngoài mới) và không chỉnh sửa `Testing_System/*.py`, `src/solvers/`, `src/models.py` hay `requirements.txt`.
+- **Chi tiết kỹ thuật:**
+  1. **`P3.1` Xác thực & Cô lập Đa Người Dùng ([`src/storage.py`](../group03-smartschedule-baseline/src/storage.py), [`web/auth.py`](../group03-smartschedule-baseline/web/auth.py), [`web/api.py`](../group03-smartschedule-baseline/web/api.py), [`test_p3_1_auth_multitenant.py`](../group03-smartschedule-baseline/verification_tests/logical_tests/test_p3_1_auth_multitenant.py)):** Bổ sung bảng `users` (PBKDF2-HMAC-SHA256), token JWT HS256 (`/api/auth/register`, `/api/auth/login`, `/api/auth/me`), cô lập cứng `user:<user_id>`, cờ `SMARTSCHEDULE_AUTH_REQUIRED`, và siết CORS theo `SMARTSCHEDULE_ALLOWED_ORIGINS`.
+  2. **`P3.2` Nhập `.ics` Thời Khóa Biểu & Moodle/Canvas LMS ([`src/ics_importer.py`](../group03-smartschedule-baseline/src/ics_importer.py), [`web/api.py`](../group03-smartschedule-baseline/web/api.py), [`test_p3_2_ics_importer.py`](../group03-smartschedule-baseline/verification_tests/logical_tests/test_p3_2_ics_importer.py)):** Parser RFC 5545 thuần stdlib (`POST /api/import/ics`) giải mã lịch lặp tuần `RRULE` thành `FixedEvent` và deadline Moodle/Canvas thành nháp `Task` (LoA Level 4).
+  3. **`P3.3` Focus Timer (Pomodoro → M7), Thẻ Hiệu Chuẩn EWMA & Nhắc Giờ ([`web/index.html`](../group03-smartschedule-baseline/web/index.html), [`web/app.js`](../group03-smartschedule-baseline/web/app.js), [`test_p3_3_focus_timer_ui.py`](../group03-smartschedule-baseline/verification_tests/logical_tests/test_p3_3_focus_timer_ui.py)):** Bổ sung bộ đếm tập trung nối thẳng `POST /api/tasks/complete`, thẻ gợi ý EWMA α nối `GET /api/tasks/calibration` (LoA-4) và thông báo nhắc giờ trình duyệt.
+  4. **`P3.4` Đóng Gói Docker & GitHub Actions CI ([`Dockerfile`](../group03-smartschedule-baseline/Dockerfile), [`docker-compose.yml`](../docker-compose.yml), [`.github/workflows/ci.yml`](../.github/workflows/ci.yml)):** Hỗ trợ chạy 1 lệnh Web App `8000` + profile `eval` cho `member_eval` `8010`, kèm CI tự động chạy toàn bộ test & benchmark trên mỗi PR.
+- **Kiểm thử xác nhận:** `pytest Testing_System/tests -q` (`39/39`), `clean_runner.py --all` (`178/178`), `benchmark_runner.py` (`exit 0`).
+
+---
+
 ### Lần cập nhật 017 — 2026-11-20 | Đồng Bộ `P1.3`, Stress Test Quá Đệm `α >= 1.70` (`P2.1`) & API Hiệu Chuẩn EWMA M7 (`P2.2`) (`feat/v3-solvers-and-member-eval`)
 - **Người thực hiện:** Lê Minh Nhật (hỗ trợ bởi Antigravity AI)
 - **Nhánh Git:** `feat/v3-solvers-and-member-eval`

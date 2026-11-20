@@ -1,0 +1,42 @@
+name: SmartSchedule CI
+
+on:
+  push:
+    branches: ["main", "feat/*", "testing-system/*"]
+  pull_request:
+    branches: ["main", "feat/*"]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONIOENCODING: utf-8
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: "group03-smartschedule-baseline/requirements.txt"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r group03-smartschedule-baseline/requirements.txt
+
+      - name: Run Testing_System v2.1 + Fuzz v2 suite (39 tests)
+        run: python -B -m pytest Testing_System/tests -v
+
+      - name: Run SmartSchedule full verification matrix (clean_runner --all)
+        working-directory: group03-smartschedule-baseline
+        run: python -B verification_tests/clean_runner.py --all
+
+      - name: Run standard T01-T10 & scalability benchmarks
+        working-directory: group03-smartschedule-baseline
+        run: python -B benchmark_runner.py
+
+      - name: Validate Frontend JavaScript syntax
+        run: node --check group03-smartschedule-baseline/web/app.js

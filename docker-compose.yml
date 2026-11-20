@@ -1,0 +1,33 @@
+services:
+  smartschedule-web:
+    build:
+      context: .
+      dockerfile: group03-smartschedule-baseline/Dockerfile
+    container_name: smartschedule-web
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONIOENCODING=utf-8
+      - SMARTSCHEDULE_DB_PATH=/app/group03-smartschedule-baseline/data/local_state.db
+      - SMARTSCHEDULE_AUTH_REQUIRED=${SMARTSCHEDULE_AUTH_REQUIRED:-false}
+      - SMARTSCHEDULE_SECRET_KEY=${SMARTSCHEDULE_SECRET_KEY:-smartschedule-local-dev-secret-change-in-prod}
+      - SMARTSCHEDULE_ALLOWED_ORIGINS=${SMARTSCHEDULE_ALLOWED_ORIGINS:-http://127.0.0.1:8000,http://localhost:8000,http://127.0.0.1:8010,http://localhost:8010}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+    volumes:
+      - ./group03-smartschedule-baseline/data:/app/group03-smartschedule-baseline/data
+    restart: unless-stopped
+
+  member-eval:
+    profiles: ["eval"]
+    build:
+      context: .
+      dockerfile: group03-smartschedule-baseline/Dockerfile
+    container_name: smartschedule-member-eval
+    command: ["python", "-m", "uvicorn", "member_eval.app:app", "--host", "0.0.0.0", "--port", "8010"]
+    ports:
+      - "8010:8010"
+    environment:
+      - PYTHONIOENCODING=utf-8
+    volumes:
+      - ./group03-smartschedule-baseline/member_eval/reviews:/app/group03-smartschedule-baseline/member_eval/reviews
+    restart: unless-stopped
