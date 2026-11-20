@@ -41,6 +41,19 @@ Dự án SmartSchedule đang ở bước chuyển tiếp quan trọng từ **B�
 
 ## 2. Nhật Ký Chi Tiết Các Thay Đổi Mã Nguồn
 
+### Lần cập nhật 017 — 2026-11-20 | Đồng Bộ `P1.3`, Stress Test Quá Đệm `α >= 1.70` (`P2.1`) & API Hiệu Chuẩn EWMA M7 (`P2.2`) (`feat/v3-solvers-and-member-eval`)
+- **Người thực hiện:** Lê Minh Nhật (hỗ trợ bởi Antigravity AI)
+- **Nhánh Git:** `feat/v3-solvers-and-member-eval`
+- **Tóm tắt thay đổi:** Hoàn tất Đợt 1 của `Testing_Plan/HANDOFF_V3_MEMBER_EVAL_AND_P1.md §V`: cập nhật `Testing_System/README.md` theo chuẩn `v2.1 + Fuzz v2` (`39/39` tests), mở rộng `benchmark_alpha_grid.py` với stress test tải hẹp cho `α >= 1.70..2.00` chứng minh điểm gãy quá đệm (*Over-Buffering Cliff* `20.0%` vs `0.0%` ở `1.20/1.35`), và bổ sung module thuần tầng 1 `src/calibration.py` + endpoint `GET /api/tasks/calibration` (LoA Level 4) phục vụ Pilot 7 ngày. Giữ nguyên **0 dòng thay đổi** trong `Testing_System/*.py`, `src/solvers/`, `src/models.py` và `requirements.txt`.
+- **Chi tiết kỹ thuật:**
+  1. **Đồng bộ `P1.3` ([`Testing_System/README.md`](../Testing_System/README.md)):** Cập nhật Cổng `#0 HARD-RULE` (`G1 == 0`, `SLA <= 1000 ms`), xếp hạng Từ Điển 10 cấp `v2.1`, Top 5 `ICEE`, `FuzzGenerator v2`, lệnh `--mode fuzz` và bộ `39/39` pytest tests.
+  2. **Stress test tải hẹp `P2.1` ([`benchmark_alpha_grid.py`](../group03-smartschedule-baseline/benchmark_alpha_grid.py), [`data/alpha_grid_calibration.json`](../group03-smartschedule-baseline/data/alpha_grid_calibration.json)):** Thêm `_load_tight_stress_benchmarks()`, `run_extreme_tight_stress()` và cờ `--include-extreme`. Xác nhận `1.20/1.35` đạt `100.0% R_dl` (`CliffDrop=0.0%`, `Score=89.84`), trong khi `α >= 1.70` gây rớt hạn giả `20.0%` (`R_dl=80.0%`, `Score=78.16–78.75`).
+  3. **Hiệu chuẩn EWMA M7 `P2.2` ([`src/calibration.py`](../group03-smartschedule-baseline/src/calibration.py), [`web/api.py`](../group03-smartschedule-baseline/web/api.py)):** Bổ sung `compute_ewma_calibration()` và `format_pilot_markdown_report()` (thuần Layer 1, kẹp outlier `[0.5, 2.5]`, ngưỡng `min_samples`, giới hạn an toàn `[1.00, 1.60]`) cùng endpoint `GET /api/tasks/calibration`.
+  4. **Kiểm thử tự động ([`verification_tests/logical_tests/test_p2_alpha_calibration.py`](../group03-smartschedule-baseline/verification_tests/logical_tests/test_p2_alpha_calibration.py)):** Thêm `4/4` test kiểm tra AST `INV-1`/`INV-2`, toán EWMA/gating, API E2E với SQLite cô lập, và điểm gãy quá đệm `α >= 1.70`.
+- **Kiểm thử xác nhận:** `pytest Testing_System/tests -q` (`39/39`), `clean_runner.py --all` (`171/171`), `benchmark_alpha_grid.py --include-extreme --save-json` (`exit 0`).
+
+---
+
 ### Lần cập nhật 016 — 2026-11-20 | Triển Khai Chương Trình Chấm Mù `member_eval/` & Nâng Cấp `P1` Web UI/API (`HYBRID_ALNS` + Chẩn Đoán `v2.1`) (`feat/v3-solvers-and-member-eval`)
 - **Người thực hiện:** Hoàng Minh Anh (hỗ trợ bởi Antigravity AI)
 - **Nhánh Git:** `feat/v3-solvers-and-member-eval`

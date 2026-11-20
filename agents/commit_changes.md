@@ -41,6 +41,19 @@ The project is currently at the transition point between the **Baseline Engine (
 
 ## 2. Chronological Log of System Changes
 
+### Entry 017 — 2026-11-20 | `P1.3` Docs Sync, `P2.1` Extreme Tight-Load Alpha Stress (`>= 1.70`) & `P2.2` M7 EWMA Calibration API (`feat/v3-solvers-and-member-eval`)
+- **Authors:** Lê Minh Nhật + Antigravity Agent
+- **Branch:** `feat/v3-solvers-and-member-eval`
+- **Summary:** Completed Wave 1 of `Testing_Plan/HANDOFF_V3_MEMBER_EVAL_AND_P1.md §V`: synced `Testing_System/README.md` with `v2.1 + Fuzz v2` (`39/39` tests), extended `benchmark_alpha_grid.py` with tight high-utilization stress testing (`alpha >= 1.70..2.00`) proving the Over-Buffering Cliff (`20.0%` deadline drop vs `0.0%` at `1.20/1.35`), and added pure Layer 1 M7 EWMA calibration (`src/calibration.py`) + `GET /api/tasks/calibration` (LoA Level 4) for the 7-day Pilot, while keeping `Testing_System/*.py`, `src/solvers/`, `src/models.py`, and `requirements.txt` 100% untouched.
+- **Key Changes:**
+  - **`P1.3` Documentation Sync ([`Testing_System/README.md`](../Testing_System/README.md)):** Documented Gate `#0 HARD-RULE` (`G1 == 0`, `SLA <= 1000 ms`), 10-level `v2.1` lexicographic ranking, Top 5 Vietnamese `ICEE`, `FuzzGenerator v2` (`7/14 days`, `LOOSE`/`TIGHT`/`OVERLOAD`), `--mode fuzz` CLI flags, and `39/39` pytest tests.
+  - **`P2.1` Extreme Alpha Stress Test ([`benchmark_alpha_grid.py`](../group03-smartschedule-baseline/benchmark_alpha_grid.py), [`data/alpha_grid_calibration.json`](../group03-smartschedule-baseline/data/alpha_grid_calibration.json)):** Added `_load_tight_stress_benchmarks()`, `run_extreme_tight_stress()`, and `--include-extreme` CLI flag. Confirmed `1.20/1.35` achieves `100.0% R_dl` (`0.0%` cliff drop, `Score=89.84`) while `alpha >= 1.70` triggers a `20.0%` false deadline failure (`R_dl=80.0%`, `Score=78.16–78.75`).
+  - **`P2.2` M7 EWMA Personal Alpha Calibration ([`src/calibration.py`](../group03-smartschedule-baseline/src/calibration.py), [`web/api.py`](../group03-smartschedule-baseline/web/api.py)):** Added pure leaf module `src/calibration.py` (`compute_ewma_calibration`, `format_pilot_markdown_report`, `INV-1`/`INV-2` compliant) with outlier clipping `[0.5, 2.5]`, `min_samples` gating, safe bounds `[1.00, 1.60]`, and `GET /api/tasks/calibration` (`?include_markdown=true`).
+  - **Verification Tests ([`verification_tests/logical_tests/test_p2_alpha_calibration.py`](../group03-smartschedule-baseline/verification_tests/logical_tests/test_p2_alpha_calibration.py)):** Added `4/4` tests covering `INV-1`/`INV-2` AST purity, EWMA math/gating/clipping, isolated SQLite E2E API calibration, and `alpha >= 1.70` over-buffering cliff verification.
+- **Verification:** `pytest Testing_System/tests -q` (`39/39`), `clean_runner.py --all` (`171/171`), `benchmark_alpha_grid.py --include-extreme --save-json` (`exit 0`).
+
+---
+
 ### Entry 016 — 2026-11-20 | Member-in-the-Loop Blind Evaluator (`member_eval/`) & `P1` Web UI/API Upgrade (`HYBRID_ALNS` + Real-Time `v2.1` Health) (`feat/v3-solvers-and-member-eval`)
 - **Authors:** Hoàng Minh Anh + Antigravity Agent
 - **Branch:** `feat/v3-solvers-and-member-eval`

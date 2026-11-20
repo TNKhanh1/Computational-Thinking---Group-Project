@@ -23,6 +23,7 @@ from fastapi import Body, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 
+from src.calibration import compute_ewma_calibration, format_pilot_markdown_report
 from src.controller import ScheduleController
 from src.exporter import export_to_csv, export_to_ics, export_to_json
 from src.models import (
@@ -770,6 +771,34 @@ def api_list_completions(workspace_id: str = "default", limit: int = 200):
             "workspace_id": ws_id,
             "completions": rows,
         }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/tasks/calibration")
+def api_tasks_calibration(
+    workspace_id: str = "default",
+    limit: int = 200,
+    lambda_ewma: float = 0.25,
+    min_samples: int = 5,
+    include_markdown: bool = False,
+):
+    """Compute M7 empirical Actual/Estimated ratios and EWMA personal alpha recommendations (LoA-4)."""
+    try:
+        ws_id = (workspace_id or "default").strip() or "default"
+        rows = list_completion_logs(workspace_id=ws_id, limit=limit)
+        cal = compute_ewma_calibration(
+            rows,
+            lambda_ewma=lambda_ewma,
+            min_samples=min_samples,
+        )
+        resp: Dict[str, Any] = {
+            "workspace_id": ws_id,
+            "calibration": cal,
+        }
+        if include_markdown:
+            resp["markdown"] = format_pilot_markdown_report(cal, workspace_id=ws_id)
+        return resp
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
