@@ -13,6 +13,8 @@ from src.solvers.greedy_lst import GreedyLSTSolver
 from src.solvers.greedy_wspt import GreedyWSPTSolver
 from src.solvers.scored_greedy import ScoredGreedySolver
 
+from src.solvers.hybrid_alns import HybridALNSSolver
+
 SOLVER_REGISTRY: Dict[str, Type[BaseScheduler]] = {
     "EDF": GreedyEDFSolver,
     "GREEDY_EDF": GreedyEDFSolver,
@@ -28,6 +30,9 @@ SOLVER_REGISTRY: Dict[str, Type[BaseScheduler]] = {
     "BACKTRACK": BacktrackingSolver,
     "BACKTRACKING": BacktrackingSolver,
     "BACKTRACKING_BRANCH_AND_BOUND": BacktrackingSolver,
+    "HYBRID_ALNS": HybridALNSSolver,
+    "ALNS": HybridALNSSolver,
+    "ULTIMATE": HybridALNSSolver,
 }
 
 

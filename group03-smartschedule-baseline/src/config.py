@@ -38,8 +38,28 @@ STABILITY_TARGET_PCT: float = 90.0
 # Backtracking Optimization Limits (Slide 15 < 2s latency bound)
 BACKTRACK_MAX_CANDIDATES_PER_TASK: int = 12
 BACKTRACK_MAX_NODES: int = 3000
+BACKTRACK_TIME_BUDGET_SEC: float = 0.55
 
 # Step 5: Early Extension Alert horizon (hours before deadline)
 EARLY_EXTENSION_ALERT_MIN_HOURS: float = 0.0
 EARLY_EXTENSION_ALERT_MAX_HOURS: float = 48.0
+
+# Ergonomic Engine Guardrails (aligned with Student Ergonomics & Testing_System v2.1)
+ERGONOMIC_DAILY_HEAVY_CAP: int = 2                # max load==3 blocks per day
+ERGONOMIC_DAILY_TOTAL_SOFT_SLOTS: int = 36        # 540 min (study + class)
+ERGONOMIC_DAILY_TOTAL_HARD_SLOTS: int = 40        # 600 min (study + class)
+ERGONOMIC_L2_STREAK_SOFT_SLOTS: int = 8           # 120 min contiguous load>=2 chain
+ERGONOMIC_L2_STREAK_HARD_SLOTS: int = 12          # 180 min contiguous load>=2 chain
+ERGONOMIC_HEAVY_MIN_GAP_SLOTS: int = 2            # >= 30 min separation between load==3 blocks
+ERGONOMIC_CRAM_WINDOW_SLOTS: int = 40             # last 10h before deadline
+ERGONOMIC_DAILY_STD_BASE_TOL_MIN: float = 45.0    # base_class_std + 45 tolerance
+ERGONOMIC_DAILY_STD_FLOOR_MIN: float = 180.0      # floor for daily std warning threshold
+
+# Hybrid ALNS & Greedy Polish Budgets (iteration-first determinism; time is safety guard only)
+GREEDY_POLISH_MAX_PASSES: int = 2
+GREEDY_TIME_BUDGET_SEC: float = 0.35
+ALNS_MAX_ITERS: int = 80
+ALNS_POLISH_MAX_PASSES: int = 3
+ALNS_TIME_BUDGET_SEC: float = 0.65
+
 
