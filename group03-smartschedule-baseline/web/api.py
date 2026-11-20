@@ -19,7 +19,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from fastapi import Body, FastAPI, HTTPException
+from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 
@@ -41,10 +41,19 @@ from src.nl_parser import parse_natural_language_task
 from src.solvers.local_repair import LocalRepairEngine
 from src.storage import (
     append_completion_log,
+    create_user,
     delete_workspace_state,
+    get_user_by_id,
     list_completion_logs,
     load_workspace_state,
     save_workspace_state,
+    verify_user_credentials,
+)
+from web.auth import (
+    extract_bearer_claims,
+    get_allowed_origins,
+    issue_access_token,
+    resolve_workspace_id,
 )
 from web.health_v21 import evaluate_schedule_v21
 
@@ -61,7 +70,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=get_allowed_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -574,7 +583,7 @@ def api_natural_language_add(payload: Dict[str, Any] = Body(...)):
 
 
 @app.post("/api/tasks/complete")
-def api_task_complete(payload: Dict[str, Any] = Body(...)):
+def api_task_complete(request: Request, payload: Dict[str, Any] = Body(...)):
     """
     M7 Execution Tracking & Feedback Loop:
     Records actual minutes spent on a task/block and recommends estimate-habit calibration
@@ -583,8 +592,13 @@ def api_task_complete(payload: Dict[str, Any] = Body(...)):
     try:
         task_id = str(payload.get("task_id") or "")
         category = str(payload.get("category") or "OTHER").strip().upper()
-        workspace_id = str(payload.get("workspace_id") or "default")
-        estimated_min = int(payload.get("estimated_min") or payload.get("duration_min") or 60)
+        workspace_id = resolve_workspace_id(request, str(payload.get("workspace_id") or "default"))
+        estimated_min = int(
+            payload.get("estimated_duration_min")
+            or payload.get("estimated_min")
+            or payload.get("duration_min")
+            or 60
+        )
         actual_min = int(payload.get("actual_duration_min") or payload.get("actual_min") or estimated_min)
         completed = bool(payload.get("completed", True))
         ratio = round(actual_min / max(1, estimated_min), 2)
@@ -711,15 +725,70 @@ def api_overload_preview(payload: Dict[str, Any] = Body(...)):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@app.get("/api/state")
-def api_get_state(workspace_id: str = "default"):
-    """Load persisted workspace state (commitments, tasks, pins, done blocks, algorithm) from SQLite."""
+@app.post("/api/auth/register")
+def api_auth_register(payload: Dict[str, Any] = Body(...)):
+    """Register a multi-tenant student account and return a signed HS256 Bearer token."""
+    email = str(payload.get("email") or "").strip()
+    password = str(payload.get("password") or "")
+    display_name = str(payload.get("display_name") or "").strip()
     try:
-        record = load_workspace_state(workspace_id=workspace_id)
+        user = create_user(email=email, password=password, display_name=display_name, provider="local")
+    except ValueError as exc:
+        msg = str(exc)
+        status = 409 if "already registered" in msg.lower() else 400
+        raise HTTPException(status_code=status, detail=msg) from exc
+
+    token = issue_access_token(user["user_id"], user["email"], user["display_name"])
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "workspace_id": f"user:{user['user_id']}",
+        "user": user,
+    }
+
+
+@app.post("/api/auth/login")
+def api_auth_login(payload: Dict[str, Any] = Body(...)):
+    """Authenticate an existing account and return a signed HS256 Bearer token."""
+    email = str(payload.get("email") or "").strip()
+    password = str(payload.get("password") or "")
+    user = verify_user_credentials(email=email, password=password)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Invalid email or password.")
+    token = issue_access_token(user["user_id"], user["email"], user["display_name"])
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "workspace_id": f"user:{user['user_id']}",
+        "user": user,
+    }
+
+
+@app.get("/api/auth/me")
+def api_auth_me(request: Request):
+    """Return the authenticated user profile and isolated tenant workspace_id."""
+    claims = extract_bearer_claims(request)
+    if claims is None:
+        raise HTTPException(status_code=401, detail="Missing Bearer token.")
+    user = get_user_by_id(claims["sub"])
+    if user is None:
+        raise HTTPException(status_code=401, detail="User account no longer exists.")
+    return {
+        "workspace_id": f"user:{user['user_id']}",
+        "user": user,
+    }
+
+
+@app.get("/api/state")
+def api_get_state(request: Request, workspace_id: str = "default"):
+    """Load persisted workspace state (commitments, tasks, pins, done blocks, algorithm) from SQLite."""
+    ws_id = resolve_workspace_id(request, workspace_id)
+    try:
+        record = load_workspace_state(workspace_id=ws_id)
         if record is None:
             return {
                 "exists": False,
-                "workspace_id": (workspace_id or "default").strip() or "default",
+                "workspace_id": ws_id,
                 "state": None,
                 "updated_at": None,
             }
@@ -729,17 +798,17 @@ def api_get_state(workspace_id: str = "default"):
 
 
 @app.put("/api/state")
-def api_put_state(payload: Dict[str, Any] = Body(...)):
+def api_put_state(request: Request, payload: Dict[str, Any] = Body(...)):
     """Save or overwrite persisted workspace state in SQLite."""
+    ws_id = resolve_workspace_id(request, str(payload.get("workspace_id") or "default"))
     try:
-        workspace_id = str(payload.get("workspace_id") or "default").strip() or "default"
         state_data = payload.get("state")
         if not isinstance(state_data, dict):
             state_data = {k: v for k, v in payload.items() if k != "workspace_id"}
-        updated_at = save_workspace_state(state_data, workspace_id=workspace_id)
+        updated_at = save_workspace_state(state_data, workspace_id=ws_id)
         return {
             "status": "saved",
-            "workspace_id": workspace_id,
+            "workspace_id": ws_id,
             "updated_at": updated_at,
         }
     except Exception as exc:
@@ -747,10 +816,10 @@ def api_put_state(payload: Dict[str, Any] = Body(...)):
 
 
 @app.delete("/api/state")
-def api_delete_state(workspace_id: str = "default"):
+def api_delete_state(request: Request, workspace_id: str = "default"):
     """Reset/delete persisted workspace state in SQLite."""
+    ws_id = resolve_workspace_id(request, workspace_id)
     try:
-        ws_id = (workspace_id or "default").strip() or "default"
         removed = delete_workspace_state(workspace_id=ws_id)
         return {
             "status": "deleted",
@@ -762,10 +831,10 @@ def api_delete_state(workspace_id: str = "default"):
 
 
 @app.get("/api/tasks/completions")
-def api_list_completions(workspace_id: str = "default", limit: int = 200):
+def api_list_completions(request: Request, workspace_id: str = "default", limit: int = 200):
     """Retrieve historical M7 actual duration completion logs from SQLite."""
+    ws_id = resolve_workspace_id(request, workspace_id)
     try:
-        ws_id = (workspace_id or "default").strip() or "default"
         rows = list_completion_logs(workspace_id=ws_id, limit=limit)
         return {
             "workspace_id": ws_id,
@@ -777,6 +846,7 @@ def api_list_completions(workspace_id: str = "default", limit: int = 200):
 
 @app.get("/api/tasks/calibration")
 def api_tasks_calibration(
+    request: Request,
     workspace_id: str = "default",
     limit: int = 200,
     lambda_ewma: float = 0.25,
@@ -784,8 +854,8 @@ def api_tasks_calibration(
     include_markdown: bool = False,
 ):
     """Compute M7 empirical Actual/Estimated ratios and EWMA personal alpha recommendations (LoA-4)."""
+    ws_id = resolve_workspace_id(request, workspace_id)
     try:
-        ws_id = (workspace_id or "default").strip() or "default"
         rows = list_completion_logs(workspace_id=ws_id, limit=limit)
         cal = compute_ewma_calibration(
             rows,

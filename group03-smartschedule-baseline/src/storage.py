@@ -7,9 +7,13 @@ library ``sqlite3`` module with zero external database dependencies.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import os
+import secrets
 import sqlite3
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -62,6 +66,18 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
 
         CREATE INDEX IF NOT EXISTS idx_completion_logs_workspace
             ON completion_logs (workspace_id, id DESC);
+
+        CREATE TABLE IF NOT EXISTS users (
+            user_id TEXT PRIMARY KEY,
+            email TEXT NOT NULL UNIQUE,
+            display_name TEXT NOT NULL,
+            provider TEXT NOT NULL DEFAULT 'local',
+            password_hash TEXT NOT NULL,
+            password_salt TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_users_email ON users (email);
         """
     )
     conn.commit()
@@ -172,3 +188,107 @@ def list_completion_logs(workspace_id: str = "default", limit: int = 200) -> Lis
             (ws_id, capped_limit),
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+def _hash_password(password: str, salt_hex: str) -> str:
+    dk = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        bytes.fromhex(salt_hex),
+        120_000,
+    )
+    return dk.hex()
+
+
+def create_user(
+    email: str,
+    password: str,
+    display_name: str = "",
+    provider: str = "local",
+) -> Dict[str, Any]:
+    """Create a new local/OAuth user account in SQLite. Raises ValueError if email already exists."""
+    norm_email = (email or "").strip().lower()
+    if not norm_email or "@" not in norm_email:
+        raise ValueError("Invalid email address.")
+    if provider == "local" and len(password or "") < 6:
+        raise ValueError("Password must be at least 6 characters.")
+
+    user_id = f"usr_{uuid.uuid4().hex[:12]}"
+    name = (display_name or norm_email.split("@")[0]).strip() or "Student"
+    salt_hex = secrets.token_hex(16)
+    pw_hash = _hash_password(password or secrets.token_urlsafe(24), salt_hex)
+    created_at = _utc_now_iso()
+
+    try:
+        with _connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO users (user_id, email, display_name, provider, password_hash, password_salt, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (user_id, norm_email, name, provider, pw_hash, salt_hex, created_at),
+            )
+            conn.commit()
+    except sqlite3.IntegrityError as exc:
+        raise ValueError("Email is already registered.") from exc
+
+    return {
+        "user_id": user_id,
+        "email": norm_email,
+        "display_name": name,
+        "provider": provider,
+        "created_at": created_at,
+    }
+
+
+def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
+    """Lookup user record (excluding password secrets) by normalized email."""
+    norm_email = (email or "").strip().lower()
+    if not norm_email:
+        return None
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT user_id, email, display_name, provider, created_at FROM users WHERE email = ?",
+            (norm_email,),
+        ).fetchone()
+    return dict(row) if row is not None else None
+
+
+def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
+    """Lookup user record (excluding password secrets) by user_id."""
+    uid = (user_id or "").strip()
+    if not uid:
+        return None
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT user_id, email, display_name, provider, created_at FROM users WHERE user_id = ?",
+            (uid,),
+        ).fetchone()
+    return dict(row) if row is not None else None
+
+
+def verify_user_credentials(email: str, password: str) -> Optional[Dict[str, Any]]:
+    """Verify email + password against SQLite PBKDF2-HMAC-SHA256 hash."""
+    norm_email = (email or "").strip().lower()
+    if not norm_email or not password:
+        return None
+    with _connect() as conn:
+        row = conn.execute(
+            """
+            SELECT user_id, email, display_name, provider, password_hash, password_salt, created_at
+            FROM users WHERE email = ?
+            """,
+            (norm_email,),
+        ).fetchone()
+    if row is None:
+        return None
+    expected = _hash_password(password, row["password_salt"])
+    if not hmac.compare_digest(expected, row["password_hash"]):
+        return None
+    return {
+        "user_id": row["user_id"],
+        "email": row["email"],
+        "display_name": row["display_name"],
+        "provider": row["provider"],
+        "created_at": row["created_at"],
+    }
