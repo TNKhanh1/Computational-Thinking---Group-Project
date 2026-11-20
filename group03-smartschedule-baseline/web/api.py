@@ -26,6 +26,7 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Res
 from src.calibration import compute_ewma_calibration, format_pilot_markdown_report
 from src.controller import ScheduleController
 from src.exporter import export_to_csv, export_to_ics, export_to_json
+from src.ics_importer import parse_ics_calendar
 from src.models import (
     CommitmentsProfile,
     DisruptionEvent,
@@ -871,4 +872,22 @@ def api_tasks_calibration(
         return resp
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/api/import/ics")
+def api_import_ics(payload: Dict[str, Any] = Body(...)):
+    """
+    Parse an uploaded `.ics` timetable or Moodle/Canvas LMS calendar feed into
+    LoA Level 4 preview drafts of FixedEvents and Tasks.
+    """
+    ics_text = str(payload.get("ics_content") or payload.get("ics") or "").strip()
+    if not ics_text:
+        raise HTTPException(status_code=400, detail="Field 'ics_content' cannot be empty.")
+    tz_offset = int(payload.get("tz_offset_hours", 7))
+    default_dur = int(payload.get("default_task_duration_min", 90))
+    return parse_ics_calendar(
+        ics_text=ics_text,
+        tz_offset_hours=tz_offset,
+        default_task_duration_min=default_dur,
+    )
 
