@@ -1,100 +1,107 @@
-# Báo Cáo Thống Kê & Đánh Giá 5 Thuật Toán Lập Lịch (`Testing_System v2.1 + Fuzzing v2`)
+# Báo Cáo Thống Kê & Đánh Giá Bộ Thuật Toán Lập Lịch (`Testing_System v2.1 + Fuzzing v2`)
 
 > [!NOTE]
-> Báo cáo này tuân thủ **Rule 2** trong [AGENTS.md](../AGENTS.md), sử dụng máy chấm **phiên bản `v2.1` (Cổng `#0` + 10 cấp Từ Điển có dung sai & chống lách luật)** sau khi vá đơn điệu `_simulate_shock_survival` ([pillars.py#L867-L880](../Testing_System/evaluator/pillars.py#L867-L880)) và nâng cấp bộ sinh đề ngẫu nhiên vô hạn **`FuzzGenerator v2` (*Plant-a-Witness* + mở rộng `14 ngày`)** ([fuzz_generator.py](../Testing_System/generator/fuzz_generator.py)). Đặc tả chi tiết xem tại [Problem_Statement_And_Checker_Spec.md](Problem_Statement_And_Checker_Spec.md); các lập luận CT xem tại [CT_Rationale_Log.md](CT_Rationale_Log.md).
+> Báo cáo này tuân thủ **Rule 2** trong [AGENTS.md](../AGENTS.md), giữ nguyên đầy đủ **5 mục chuẩn** và sử dụng máy chấm bất biến **`Testing_System v2.1`** (*Cổng `#0` + 10 cấp Từ Điển có dung sai & chống lách luật*, [verdict_and_icee.py](../Testing_System/evaluator/verdict_and_icee.py), [pillars.py](../Testing_System/evaluator/pillars.py)) cùng bộ sinh đề **`FuzzGenerator v2`** ([fuzz_generator.py](../Testing_System/generator/fuzz_generator.py)). Không một file nào trong `Testing_System/` bị chỉnh sửa. Tài liệu kiến trúc nâng cấp xem tại [ultimate_plan.md](ultimate_plan.md); lập luận CT xem tại [CT_Rationale_Log.md](CT_Rationale_Log.md).
 
 ---
 
 ## I. Thông Tin Đợt Chạy & Phạm Vi Dữ Liệu
 
-* **Ngày thực nghiệm:** `2026-11-20` *(bộ test đóng băng cho pha xây lại 5 thuật toán)* | **Chế độ:** `DIRECT_CONTROLLER` (`v2.1`) | **`pytest Testing_System/tests`:** **`39 / 39` passed (`18.46s`)**
-* **Tập kiểm thử 1 — 6 Regimes chuẩn:** `20 seeds (1..20) × 6 Regimes = 120 đề` (`600 lượt chạy & chấm` trong `37.42s`)
-  * Invariants PASS: **`120 / 120` (`20/20` ở cả 6 Regimes)** | Lỗi cứng `INVALID`: **`0 / 600`** | Nghịch lý xếp hạng (`LOW` thắng `#1` trên `HIGH`): **`0 / 120`**.
-* **Tập kiểm thử 2 — Bộ sinh ngẫu nhiên vô hạn `FuzzGenerator v2` (`Plant-a-Witness`):** `50 seeds (1001..1050) = 50 đề` (`250 lượt chạy & chấm` + kiểm định 42 Witness trong `31.66s`)
-  * Kiểm định lệch tier độc lập (`50 seeds × 3 tiers`): `LOOSE` **`0/50`**, `TIGHT` **`0/50`**, `OVERLOAD` **`0/50`**.
-  * Cơ cấu ngẫu nhiên trên `50 seeds (1001..1050)`:
-    * **4 mẫu hồ sơ thực tế:** `EXAM_PREP_WEEK` (`22`), `UNI_ASYMMETRIC` (`14`), `HIGH_SCHOOL_STUDENT` (`8`), `UNI_BUSY_WEEK` (`6`).
-    * **Độ dài tuần:** `7 ngày` (`38` đề), `14 ngày` (`12` đề).
-    * **3 mức độ tải:** `LOOSE` (`24`), `TIGHT` (`18`, gồm `3` đề `14 ngày TIGHT` đạt $\rho = [0.7067, 0.7472, 0.7749]$), `OVERLOAD` (`8`).
-  * Kết quả Invariants & Witness Fuzz v2: **`50 / 50` ALL PASS** (`0/250 INVALID`, **`50 / 50` đơn điệu sốc `P1.1 >= Shock@+25% >= Shock@+50%`**, **`42 / 42` lời giải chứng từ Witness đạt `G1=0, P1.1=100%, not overloaded`**, `0 / 50` nghịch lý).
-  * **Bằng chứng khả thi `HIGH_PRODUCTIVITY` trên Witness:**
-    * Nhóm **`LOOSE` (`24` đề):** **`22 / 24` (`91.7%`)** lời giải chứng từ đạt hẳn **`HIGH_PRODUCTIVITY`** (`2` đề còn lại `LOW`) — khẳng định các đề `LOOSE` chắc chắn có nghiệm đạt chuẩn vàng con người.
-    * Nhóm **`TIGHT` (`18` đề):** `18 / 18` Witness đạt `G1=0, P1.1=100%` (`LOW`) — dùng làm bài test chịu tải nước rút (vì $\rho \in [0.65, 0.83]$ đẩy tổng giờ/ngày lên `~11.3h > 10h` sinh học).
+* **Ngày thực nghiệm sau nâng cấp V3:** `2026-11-20` *(đối chiếu trực tiếp với mốc baseline đóng băng cùng thước đo `v2.1`)* | **Chế độ:** `DIRECT_CONTROLLER` (`v2.1`)
+* **Toàn bộ bộ kiểm thử tự động đều XANH 100% (`0` sửa đổi trong `Testing_System/`):**
+  * **`pytest Testing_System/tests -v`:** **`39 / 39` passed (`40.25s`)**
+  * **`clean_runner.py --all`:** **`161 / 161` Passed (`47.31s`)** *(gồm 6 test hồi quy V3 mới trong `test_ergonomic_solvers_v3.py`)*
+  * **`benchmark_runner.py`:** **`EXIT=0`** (`T01–T10 C_hard=0`, `3x Determ PASS`, `T04 LOCAL_INSERTION Stability=100.00%`, `EDF N=50 = 4.97 ms`, `T09 Ablation`: `EDF` `4268107a006d` bất biến vs `SCORED_GREEDY` `6aa59bace73a -> 00c63b253dde`).
+* **Quy mô benchmark 6 thuật toán (`EDF` [V0 untouched], `WSPT` [Blind], `LST` [Blind], `SCORED_GREEDY` [V3], `BACKTRACK` [V3], `HYBRID_ALNS` [V3 thứ 6]): `220` đề × `6` thuật toán = `1.320` lượt giải & chấm (`444.7s`):**
+  1. **Tập 1 — `6 Regimes` chuẩn (`20 seeds: 1..20` × `6 Regimes` = `120` đề, `720` lượt chạy):**
+     * Invariants PASS: **`120 / 120`** (`0` thất bại) | Lỗi cứng `INVALID`: **`0 / 720`** | Rớt hạn vô lý `SUBOPT`: **`0 / 720`** | Nghịch lý xếp hạng (6 & 5 solvers): **`0 / 120`**.
+  2. **Tập 2 — `FuzzGenerator v2` (`50 seeds: 1001..1050`, `300` lượt chạy):** `EXAM_PREP_WEEK` (`22`), `UNI_ASYMMETRIC` (`14`), `HIGH_SCHOOL_STUDENT` (`8`), `UNI_BUSY_WEEK` (`6`); `7 ngày` (`38`), `14 ngày` (`12`); `LOOSE` (`24` — Witness đạt `22/24 HIGH`), `TIGHT` (`18`), `OVERLOAD` (`8`).
+     * Invariants PASS: **`50 / 50`** | Lỗi cứng `INVALID`: **`0 / 300`** | `SUBOPT`: **`0 / 300`** | Nghịch lý xếp hạng: **`0 / 50`**.
+  3. **Tập 3 — Tập kiểm chứng mù chưa từng chạm khi tinh chỉnh (`Held-Out Unseen Fuzz v2`, `50 seeds: 5001..5050`, `300` lượt chạy):** `EXAM_PREP_WEEK` (`14`), `HIGH_SCHOOL_STUDENT` (`14`), `UNI_BUSY_WEEK` (`11`), `UNI_ASYMMETRIC` (`11`); `7 ngày` (`34`), `14 ngày` (`16`); `LOOSE` (`25`), `TIGHT` (`15`), `OVERLOAD` (`10`); `witness_verified = 40/40`.
+     * Invariants PASS: **`50 / 50`** | Lỗi cứng `INVALID`: **`0 / 300`** | `SUBOPT`: **`0 / 300`** | Nghịch lý xếp hạng: **`0 / 50`**.
 
 ---
 
-## II. Bảng Thống Kê 5 Thuật Toán Theo Tiêu Chí `v2.1` & Phân Bố `Verdict`
+## II. Bảng Thống Kê Bộ Thuật Toán Theo Tiêu Chí `v2.1` & Phân Bố `Verdict`
 
-### 2.1. Tập 1 — Tổng hợp `120` test `Regimes 1–6` (`600 lượt chấm`, `paradox = 0`)
+### 2.1. Tập 1 — Tổng hợp `120` test `Regimes 1–6` (`720` lượt chấm, `invariants_failed = 0`, `paradox = 0/0`)
 
-| Thuật toán | Hạng TB | `#1` | `(G1)` | `P1.1%` | `Shk25` | `Rec / Stk / PCl` | `OffP / APk%` | `<10h%` | `Corne (d/a/m) / MxD` | `Ctx` | `Hab / Prf%` | `SJL / TStd` | `ms` | Verdict (`HIGH`/`LOW`/`SUBOPT`/`OVLD`/`INV`) |
+| Thuật toán | Hạng TB | `#1` *(6 / 5)* | `(G1)` | `P1.1%` | `Shk25` | `Rec / Stk / PCl` | `OffP / APk%` | `<10h%` | `Corne (d/a/m) / MxD` | `Ctx` | `Hab / Prf%` | `SJL / TStd` | `ms` *(Max)* | Verdict (`HIGH`/`LOW`/`SUBO`/`OVLD`/`INV`) *(Baseline → V3)* |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| **`SCORED_GREEDY`** | **1.89** | **71/120** | 0.00 | **94.69** | **90.09** | 91.4 / 114.8 / 0.58 | **0.01 / 84.5** | 1.12 | **0.92/1.79/0.78** / **584p** | **4.33** | 100 / **98.0** | 362 / **178** | 39.4 | **60** / 24 / **16** / 20 / 0 |
-| **`BACKTRACK`** | 2.67 | 0/120 | 0.00 | 93.78 | 88.53 | **98.8** / 115.0 / **0.56** | 0.08 / 83.5 | 0.61 | 0.89/2.99/0.72 / 587p | 5.32 | 100 / **98.0** | 364 / 178 | **368.7** | **40** / 56 / **4** / 20 / 0 |
-| **`EDF`** | 2.79 | 26/120 | 0.00 | 93.83 | 89.13 | 93.1 / 105.5 / 0.76 | 0.72 / 24.7 | 0.76 | 1.83/2.77/0.86 / 700p | 6.85 | 100 / 38.9 | 431 / 226 | **6.0** | **0** / 100 / 0 / 20 / 0 |
-| **`WSPT`** | 3.94 | 14/120 | 0.00 | 93.49 | 89.80 | 98.0 / 116.0 / 1.06 | 0.90 / 24.7 | **0.15** | 1.38/2.64/0.78 / 703p | 5.19 | 100 / 23.5 | 393 / 253 | 8.0 | **0** / 80 / **20** / 20 / 0 |
-| **`LST`** | 3.70 | 9/120 | 0.00 | **87.66** | **82.13** | **99.1 / 97.5** / 1.09 | 0.88 / 42.7 | **10.26** | 1.20/2.56/0.59 / 635p | 6.15 | 100 / 38.9 | **166** / 189 | 26.3 | **0** / 100 / 0 / 20 / 0 |
+| **`SCORED_GREEDY`** *(V3)* | **`2.22`** | **`57`** / **`73`** | 0.00 | **95.68** | 90.71 | 86.1 / 73.2 / 0.21 | 0.24 / 83.6 | 0.92 | 0.75/1.31/0.64 / 511p | 3.83 | 100 / 97.1 | 196 / 153 | 263.1 *(535.6)* | **77** / 23 / **0** / 20 / 0 *(từ 60/24/16/20/0)* |
+| **`BACKTRACK`** *(V3)* | 2.58 | 4 / 9 | 0.00 | **95.68** | **91.90** | 91.5 / 65.5 / 0.18 | 0.32 / 82.7 | 1.39 | **0.72**/0.94/0.66 / **504p** | **3.34** | 100 / 96.2 | 186 / **143** | 331.3 *(550.3)* | **77** / 23 / **0** / 20 / 0 *(từ 40/56/4/20/0)* |
+| **`HYBRID_ALNS`** *(V3 thứ 6)* | 2.85 | 21 / — | 0.00 | **95.68** | 91.69 | **93.1** / 61.1 / **0.17** | **0.15 / 84.1** | 1.26 | 0.73/**0.93**/0.64 / 507p | 3.67 | 100 / **97.4** | **180** / 144 | 590.6 *(774.8)* | **79** / 21 / **0** / 20 / 0 *(Thuật mới)* |
+| **`WSPT`** *(Blind V3)* | 3.92 | 20 / — | 0.00 | **95.68** | 90.09 | 84.4 / 75.4 / 0.23 | 0.54 / 65.4 | **0.12** | 0.76/1.50/0.62 / 545p | 4.03 | 100 / 90.3 | 229 / 179 | 101.8 *(281.9)* | **50** / 50 / **0** / 20 / 0 *(từ 0/80/20/20/0)* |
+| **`LST`** *(Blind V3)* | 4.25 | 0 / 20 | 0.00 | 94.44 | 88.90 | 87.8 / **55.4** / 0.23 | 0.49 / 61.1 | 3.84 | 0.76/1.52/**0.46** / 523p | 3.82 | 100 / 87.0 | 220 / 172 | 96.3 *(285.1)* | **60** / 40 / **0** / 20 / 0 *(từ 0/100/0/20/0)* |
+| **`EDF`** *(Untouched V0)* | 5.18 | 18 / 18 | 0.00 | 93.83 | 89.13 | 93.1 / 105.5 / 0.76 | 0.72 / 24.7 | 0.76 | 1.83/2.77/0.86 / 700p | 6.85 | 100 / 38.9 | 374 / 226 | **12.4** *(52.1)* | **0** / 100 / 0 / 20 / 0 *(mốc V0 giữ nguyên)* |
 
-### 2.2. Tập 2 — Bộ test Ngẫu Nhiên Vô Hạn `FuzzGenerator v2` (`50 seeds: 1001..1050`, `250 lượt chấm`, `paradox = 0`)
+### 2.2. Tập 2 & Tập 3 — `FuzzGenerator v2` (`1001..1050`) và Tập Ẩn Chống Học Vẹt (`5001..5050`)
 
-#### 2.2a. Tổng hợp toàn bộ `50` đề Fuzz v2 (`LOOSE: 24`, `TIGHT: 18`, `OVERLOAD: 8`)
+#### 2.2a. Tổng hợp toàn bộ `50` đề Fuzz v2 (`seeds 1001..1050`, `LOOSE: 24`, `TIGHT: 18`, `OVERLOAD: 8`, `paradox = 0/0`)
 
-| Thuật toán | Hạng TB | `#1` | `(G1)` | `P1.1%` | `Shk25` | `Rec / Stk / PCl` | `OffP / APk%` | `<10h%` | `Corne (d/a/m) / MxD` | `Ctx` | `Hab / Prf%` | `SJL / TStd` | `ms` | Verdict (`HIGH`/`LOW`/`SUBOPT`/`OVLD`/`INV`) |
+| Thuật toán | Hạng TB | `#1` *(6 / 5)* | `(G1)` | `P1.1%` | `Shk25` | `Rec / Stk / PCl` | `OffP / APk%` | `<10h%` | `Corne (d/a/m) / MxD` | `Ctx` | `Hab / Prf%` | `SJL / TStd` | `ms` *(Max)* | Verdict (`HIGH`/`LOW`/`SUBO`/`OVLD`/`INV`) *(Baseline → V3)* |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| **`SCORED_GREEDY`** | **2.14** | **19/50** | 0.00 | 95.52 | **78.31** | 83.4 / **200.7** / 0.28 | 1.60 / 43.6 | 0.37 | 2.00/5.12/0.60 / 728p | **10.84** | **100 / 88.7** | 230 / **153** | 119.2 | 0 / 32 / **10** / 8 / 0 |
-| **`BACKTRACK`** | 2.24 | 13/50 | 0.00 | 96.08 | 76.34 | **97.4** / 227.4 / **0.22** | **1.52 / 45.1** | 0.30 | 2.12/5.28/0.94 / 764p | 13.16 | **100** / 88.1 | 211 / 168 | **280.5** | 0 / **42** / **0** / 8 / 0 |
-| **`EDF`** | 2.40 | 13/50 | 0.00 | **96.49** | 73.64 | 89.9 / 235.8 / 0.34 | 2.22 / 29.8 | 0.05 | 2.64/5.58/1.38 / 801p | 13.08 | **100** / 33.0 | **196** / 234 | **11.7** | 0 / **42** / **0** / 8 / 0 |
-| **`WSPT`** | 3.36 | 5/50 | 0.00 | 94.17 | 73.86 | 79.2 / 241.8 / 0.16 | 2.32 / 29.9 | **0.00** | 2.38/5.08/1.14 / 793p | 13.76 | **100** / 34.6 | 209 / 282 | 15.5 | 0 / 23 / **19** / 8 / 0 |
-| **`LST`** | 4.86 | 0/50 | 0.00 | **81.45** | **58.59** | 75.9 / 200.1 / 0.34 | 3.46 / 25.3 | **11.35** | **1.50/3.46/0.50 / 688p** | 11.24 | 99.6 / 31.5 | 220 / 159 | 53.4 | 0 / 9 / **33** / 8 / 0 |
+| **`BACKTRACK`** *(V3)* | **`2.30`** | 12 / 12 | 0.00 | 96.00 | **87.77** | **94.2** / 78.6 / **0.02** | 0.56 / 75.2 | 1.88 | 1.10/**0.76**/0.38 / 589p | **7.54** | 91 / 51.1 | **105** / **58** | 425.4 *(557.1)* | **23** / 19 / **0** / 8 / 0 *(từ 0/42/0/8/0)* |
+| **`SCORED_GREEDY`** *(V3)* | 2.50 | **`20`** / **`21`** | 0.00 | 95.96 | 86.64 | 91.2 / **74.1** / **0.02** | 0.60 / **75.7** | 1.82 | 1.02/1.18/0.42 / 589p | 8.06 | 92 / 51.8 | **105** / 70 | 396.5 *(658.8)* | **22** / 20 / **0** / 8 / 0 *(từ 0/32/10/8/0)* |
+| **`HYBRID_ALNS`** *(V3 thứ 6)* | 2.82 | 1 / — | 0.00 | 96.09 | 87.59 | 92.8 / 75.3 / **0.02** | **0.54** / **75.7** | 1.67 | **0.98**/0.82/**0.30** / **587p** | 8.58 | 94 / 52.5 | 109 / 61 | 539.4 *(731.4)* | **22** / 20 / **0** / 8 / 0 *(Thuật mới)* |
+| **`LST`** *(Blind V3)* | 4.06 | 6 / 6 | 0.00 | 95.77 | **88.35** | 89.1 / 90.9 / **0.00** | 1.82 / 29.2 | 1.35 | 1.04/1.26/0.58 / 632p | 8.72 | 84 / **63.0** | 127 / 109 | 225.4 *(454.1)* | **3** / 39 / **0** / 8 / 0 *(từ 0/9/33/8/0)* |
+| **`WSPT`** *(Blind V3)* | 4.58 | 2 / 2 | 0.00 | 95.72 | 82.11 | 77.5 / 120.3 / **0.00** | 2.04 / 32.6 | 0.92 | 1.36/2.22/0.72 / 654p | 8.20 | **100** / 57.0 | 127 / 152 | 241.1 *(543.1)* | **2** / 40 / **0** / 8 / 0 *(từ 0/23/19/8/0)* |
+| **`EDF`** *(Untouched V0)* | 4.74 | 9 / 9 | 0.00 | **96.49** | 73.64 | 89.9 / 235.8 / 0.34 | 2.22 / 29.8 | **0.05** | 2.64/5.58/1.38 / 801p | 13.08 | **100** / 33.0 | 196 / 233 | **33.7** *(140.8)* | **0** / 42 / 0 / 8 / 0 *(mốc V0 giữ nguyên)* |
 
-#### 2.2b. Bóc tách 3 mức độ khó của `FuzzGenerator v2`
+#### 2.2b. Bóc tách 3 mức độ khó của `FuzzGenerator v2` (`1001..1050`)
 
-| Nhóm tải Fuzz v2 | `SCORED_GREEDY` | `BACKTRACK` | `EDF` | `WSPT` | `LST` |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **`LOOSE`** *(`24` đề)* | **`#1` 15/24** (**`Rk 1.58`**) · P1.1 `100%` · Shk **`84.7%`** · Stk **`143p`** · Prf `95.3%` | `#1` 2/24 (`Rk 2.54`) · P1.1 `100%` · APk **`47.2%`** · `306ms` | `#1` 3/24 (`Rk 2.92`) · P1.1 `100%` · MxD `786p` · Prf `31.9%` | `#1` 4/24 (`Rk 3.12`) · **3/24 SUBOPT** · P1.1 `99.8%` | `#1` 0/24 (`Rk 4.83`) · **16/24 SUBOPT** · `<10h 15.6%` |
-| **`TIGHT`** *(`18` đề)* | `#1` 1/18 (`Rk 3.06`) · **10/18 SUBOPT** · P1.1 `96.4%` · Shk **`74.7%`** | **`#1` 10/18** (**`Rk 1.50`**) · P1.1 **`100%`** · Rec **`97.6%`** · **`0` SUBOPT** | `#1` 7/18 (`Rk 1.78`) · P1.1 **`100%`** · **`0` SUBOPT** · MxD `806p` | `#1` 0/18 (`Rk 3.78`) · **16/18 SUBOPT** · P1.1 `95.4%` | `#1` 0/18 (`Rk 4.89`) · **17/18 SUBOPT** · P1.1 `72.6%` |
-| **`OVERLOAD`** *(`8` đề)* | **`#1` 3/8** (**`Rk 1.75`**) · P1.1 **`80.1%`** · Prf **`69.5%`** | `#1` 1/8 (`Rk 3.00`) · P1.1 `75.5%` · Shk **`67.7%`** · Rec **`97.7%`** | `#1` 3/8 (`Rk 2.25`) · P1.1 `78.1%` · `HP 100%` · MxD `834p` | `#1` 1/8 (`Rk 3.12`) · P1.1 `74.5%` | `#1` 0/8 (`Rk 4.88`) · P1.1 `65.1%` · Shk `60.3%` |
+| Nhóm tải (`1001..1050`) | `SCORED_GREEDY` *(V3)* | `BACKTRACK` *(V3)* | `HYBRID_ALNS` *(V3 thứ 6)* | `WSPT` *(Blind V3)* | `LST` *(Blind V3)* | `EDF` *(Untouched V0)* |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **`LOOSE`** *(`24`, Witness=`22`)* | **`#1` 16/24** (**`Rk 1.50`**) · **`22/24 HIGH`** · P1.1 `100%` · Shk `98.5%` · APk `91.2%` · `0` SUBO | `#1` 6/24 (`Rk 2.00`) · **`23/24 HIGH`** · P1.1 `100%` · Shk **`98.7%`** · APk **`92.5%`** · `0` SUBO | `#1` 1/24 (`Rk 2.75`) · **`22/24 HIGH`** · P1.1 `100%` · Shk `98.6%` · TStd **`57p`** · `0` SUBO | `2/24 HIGH` · `Rk 4.50` · P1.1 `100%` · Shk `97.1%` · **`0` SUBO** *(was 3)* | `3/24 HIGH` · `Rk 4.33` · P1.1 `100%` · Shk **`100%`** · **`0` SUBO** *(was 16)* | `0/24 HIGH` · `Rk 5.92` · Shk `78.7%` · TStd `312p` |
+| **`TIGHT`** *(`18` đề)* | `#1` 2/18 (`Rk 3.56`) · P1.1 **`100%`** · APk **`74.9%`** · Stk **`155p`** · **`0` SUBO** *(was 10)* | **`#1` 5/18** (**`Rk 2.56`**) · P1.1 **`100%`** · Shk **`80.0%`** · Rec **`86.0%`** · TStd **`60p`** · **`0` SUBO** | `#1` 0/18 (`Rk 3.00`) · P1.1 **`100%`** · Shk `79.9%` · Crn **`1.56/2.11`** · **`0` SUBO** | `#1` 2/18 (`Rk 4.44`) · P1.1 **`100%`** · **`0` SUBO** *(was 16)* | `#1` 5/18 (`Rk 3.39`) · P1.1 **`100%`** · Shk **`80.0%`** · **`0` SUBO** *(was 17)* | `#1` 4/18 (`Rk 4.06`) · P1.1 `100%` · Rec `97.1%` · MxD `806p` |
+| **`OVERLOAD`** *(`8` đề)* | `#1` 2/8 (`Rk 3.12`) · P1.1 `74.7%` · Rec **`95.6%`** · `0` INV | `#1` 1/8 (**`Rk 2.62`**) · P1.1 `75.0%` · Shk **`72.4%`** · `0` INV | `#1` 0/8 (**`Rk 2.62`**) · P1.1 `75.5%` · Stk **`98p`** · `0` INV | `#1` 0/8 (`Rk 5.12`) · P1.1 `73.2%` · `0` INV | `#1` 0/8 (`Rk 4.75`) · P1.1 `73.6%` · `0` INV | **`#1` 5/8** (`Rk 2.75`) · P1.1 **`78.1%`** · Rec `52.1%` |
+
+#### 2.2c. Tập 3 — Tập Ẩn Chống Học Vẹt (`Held-Out Unseen Fuzz v2`, `seeds 5001..5050`, `LOOSE: 25`, `TIGHT: 15`, `OVERLOAD: 10`, `paradox = 0/0`)
+
+| Thuật toán | Hạng TB | `#1` *(6 / 5)* | `(G1)` | `P1.1%` | `Shk25` | `Rec / Stk / PCl` | `OffP / APk%` | `<10h%` | `Corne (d/a/m) / MxD` | `Ctx` | `Hab / Prf%` | `SJL / TStd` | `ms` *(Max)* | Verdict (`H`/`L`/`S`/`O`/`I`) | **`LOOSE` `HIGH` (`25`)** | **`TIGHT` `SUBO` (`15`)** |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- | :---: | :---: |
+| **`SCORED_GREEDY`** | **`2.48`** | 10 / 16 | 0.00 | 94.92 | 87.12 | 90.2 / 83.1 / **0.04** | 1.10 / 71.0 | 2.56 | 1.18/1.16/0.50 / 619p | 7.52 | 96 / 49.4 | 114 / 74 | 442.3 *(739.2)* | **25** / 15 / **0** / 10 / 0 | **`25 / 25` (`100%`)** | **`0 / 15`** |
+| **`BACKTRACK`** | 2.50 | **`15`** / **`18`** | 0.00 | 94.71 | **87.29** | **94.2** / 77.1 / 0.06 | **0.84** / 71.2 | 2.70 | 1.18/**0.80**/**0.28** / 616p | **6.84** | 95 / 49.8 | 119 / 64 | 478.9 *(680.8)* | **24** / 16 / **0** / 10 / 0 | **`24 / 25` (`96%`)** | **`0 / 15`** |
+| **`HYBRID_ALNS`** | 2.62 | 9 / — | 0.00 | 95.06 | 87.02 | 92.2 / **75.3** / **0.04** | 1.06 / **71.9** | 2.77 | **1.12**/0.90/0.36 / **615p** | 7.92 | 96 / 48.8 | **107** / **61** | 625.7 *(743.8)* | **25** / 15 / **0** / 10 / 0 | **`25 / 25` (`100%`)** | **`0 / 15`** |
+| **`LST`** *(Blind)* | 4.50 | 1 / 1 | 0.00 | 94.48 | 84.52 | 84.1 / 97.2 / 0.10 | 2.62 / 31.1 | 2.01 | 1.36/2.06/0.56 / 649p | 7.68 | 99 / **59.9** | 126 / 129 | 237.1 *(464.3)* | **4** / 36 / **0** / 10 / 0 | `4 / 25` | **`0 / 15`** |
+| **`WSPT`** *(Blind)* | 4.56 | 1 / 1 | 0.00 | 94.52 | 84.42 | 80.1 / 113.4 / 0.12 | 2.64 / 28.6 | 2.18 | 1.54/2.42/0.68 / 662p | 7.96 | **100** / 56.5 | 122 / 143 | 268.8 *(582.5)* | **3** / 37 / **0** / 10 / 0 | `3 / 25` | **`0 / 15`** |
+| **`EDF`** *(Untouched)* | 4.34 | 14 / 14 | 0.00 | **95.98** | 76.69 | 86.7 / 252.3 / 0.28 | 2.20 / 30.5 | **0.02** | 2.68/6.42/1.58 / 812p | 13.72 | 97 / 31.4 | 167 / 226 | **36.5** *(123.0)* | **0** / 40 / 0 / 10 / 0 | `0 / 25` | `0 / 15` |
 
 ### 2.3. Bóc tách từng `Regime 1..6` dưới chuẩn `v2.1` (`20 seeds` mỗi Regime)
 
-| Regime (`20` đề) | `SCORED_GREEDY` | `BACKTRACK` | `EDF` | `WSPT` | `LST` |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **R1 — Tải nhẹ** | `#1` 5/20 · **0/20 HIGH** *(Stk `244m`, MxD `729m`)* | `#1` 0/20 · **0/20 HIGH** *(Stk `272m`, `502ms`)* | **`#1` 11/20** · Stk `176m`, OffP `2.15`, APk `29%` | `#1` 0/20 · OffP `1.95` | `#1` 4/20 · SJL `52m`, OffP `3.10` |
-| **R2 — Deadline dồn sát** | `#1` 0/20 · **16/20 SUBOPT** · Rec `66.1%` | `#1` 0/20 · **4/20 SUBOPT** · P1.1 `99.7%` | **`#1` 15/20** · P1.1 `100%` · 20 LOW | `#1` 0/20 · **20/20 SUBOPT** · P1.1 `86.9%` | `#1` 5/20 · P1.1 `100%` · 20 LOW |
-| **R3 — Cú đêm & SJL** | **`#1` 20/20** · **20/20 HIGH** · APk `100%` · Crn `0/0/0` | `#1` 0/20 · **0/20 HIGH** *(Crn `0/2/0`)* | `#1` 0/20 · OffP `1.20` · APk `45%` | `#1` 0/20 · PCl `1.00` · SJL `630m` | `#1` 0/20 · PCl `1.20` · Prf `33%` |
-| **R4 — DAG & `<10h`** | **`#1` 20/20** · **20/20 HIGH** · Stk `0m` | **`#1` 0/20** · **20/20 HIGH** | `#1` 0/20 · APk `9.5%` · Crn `1/2/0` | `#1` 0/20 · APk `9.5%` · Prf `0%` | `#1` 0/20 · `<10h 30.0%` · 20 LOW |
-| **R5 — Quá tải thật** | `#1` 6/20 · P1.1 `71.5%` · Prf `100%` · **20 OVLD** | `#1` 0/20 · P1.1 `63.0%` · **20 OVLD** | `#1` 0/20 · P1.1 `63.0%` · **20 OVLD** | **`#1` 14/20** · P1.1 **`74.1%`** · **20 OVLD** | `#1` 0/20 · P1.1 **`25.9%`** · **20 OVLD** |
-| **R6 — Sự cố (nền)** | **`#1` 20/20** · **20/20 HIGH** · `5.7ms` | `#1` 0/20 · **20/20 HIGH** | `#1` 0/20 · APk `0%` · MxD `705m` | `#1` 0/20 · APk `0%` · MxD `705m` | `#1` 0/20 · Stk `150m` · APk `0%` |
+| Regime (`20` đề) | `SCORED_GREEDY` *(V3)* | `BACKTRACK` *(V3)* | `HYBRID_ALNS` *(V3 thứ 6)* | `WSPT` *(Blind V3)* | `LST` *(Blind V3)* | `EDF` *(Untouched V0)* |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **R1 — Tải nhẹ** | `#1` 7/20 · **17/20 HIGH** (`APk 81.7%`, `TStd 118p`, `Stk 0m`) | `#1` 2/20 · **17/20 HIGH** (`APk 79.2%`, `TStd 101p`, `MxD 493p`) | **`#1` 11/20** (`Rk 1.50`) · **`19/20 HIGH`** (`APk 83.7%`, `Stk 0m`) | `6/20 HIGH` (`APk 58.3%`, `Stk 0m`) | `4/20 HIGH` (`APk 49.7%`, `Stk 0m`) | `0/20 HIGH` (`Rk 6.00`, `Stk 176m`, `MxD 760p`) |
+| **R2 — Deadline sát** | **`0/20 SUBO`** *(was 16)* · P1.1 `100%` · Shk `70.2%` | `#1` 2/20 (`Rk 2.40`) · **`0/20 SUBO`** · Shk `77.3%` · TStd `40p` | `Rk 2.60` · **`0/20 SUBO`** · APk **`32.1%`** · TStd `38p` | **`0/20 SUBO`** *(was 20)* · P1.1 `100%` | **`0/20 SUBO`** · P1.1 `100%` | **`#1` 18/20** (`Rk 1.10`) · P1.1 `100%` · Shk `79.2%` |
+| **R3 — Cú đêm & SJL** | **`#1` 16/20** (`Rk 1.20`) · **20/20 HIGH** · APk `100%` | `Rk 2.20` · **20/20 HIGH** · APk `100%` | `#1` 4/20 (`Rk 2.60`) · **20/20 HIGH** · SJL **`38p`** | `4/20 HIGH` (`APk 70.0%`, `SJL 63p`) | **16/20 HIGH** (`APk 60.0%`, `SJL 46p`) | `0/20 HIGH` (`APk 45%`, `SJL 630p`, `OffP 1.20`) |
+| **R4 — DAG & `<10h`** | **`#1` 20/20** (`Rk 1.00`) · **20/20 HIGH** · APk `100%` · `<10h 0%` | `Rk 2.00` · **20/20 HIGH** · APk `100%` | `Rk 3.00` · **20/20 HIGH** · APk `100%` | **20/20 HIGH** (`0` -> `20`, `Prf 100%`) | **20/20 HIGH** (`<10h 30%` -> `0%`) | `0/20 HIGH` (`APk 9.5%`, `Prf 16.7%`) |
+| **R5 — Quá tải thật** | **`#1` 14/20** (`Rk 1.30`) · P1.1 **`74.1%`** · 20 OVLD | `Rk 2.30` · P1.1 **`74.1%`** *(was 63%)* · 20 OVLD | `#1` 6/20 (`Rk 2.40`) · P1.1 **`74.1%`** · Rec **`86%`** | P1.1 **`74.1%`** · `20 OVLD` | P1.1 **`66.7%`** *(was 25.9%)* · `20 OVLD` | P1.1 `63.0%` · PCl `2.00` · `20 OVLD` |
+| **R6 — Sự cố (nền)** | **20/20 HIGH** · APk `100%` · MxD `330p` · SJL `22p` | **20/20 HIGH** · `116.9ms` | **20/20 HIGH** · SJL `22p` | **`#1` 20/20** · **20/20 HIGH** (`35.1ms`) | **20/20 HIGH** (`34.1ms`) | `0/20 HIGH` (`APk 0%`, `MxD 705p`) |
 
-### 2.4. Tần suất thẻ đỏ (`CRITICAL`) trên `50` đề Fuzz v2 & `120` đề Regimes
+### 2.4. Tần suất thẻ đỏ (`CRITICAL`) trước vs sau nâng cấp V3
 
-* **Trên `50` đề Fuzz v2 (`seeds 1001..1050`):**
-  * **`SCORED_GREEDY`:** `CRIT={'DAILY-CAP': 91, 'BREAK-SAFE': 40, 'BIO-SYNC': 35, 'SHOCK-SAFE': 18, 'P1.1': 10}`
-  * **`BACKTRACK`:** `CRIT={'DAILY-CAP': 96, 'BREAK-SAFE': 49, 'BIO-SYNC': 33, 'SHOCK-SAFE': 18}` *(0 thẻ P1.1)*
-  * **`EDF`:** `CRIT={'DAILY-CAP': 100, 'BREAK-SAFE': 50, 'BIO-SYNC': 40, 'SHOCK-SAFE': 19}` *(0 thẻ P1.1)*
-  * **`WSPT`:** `CRIT={'DAILY-CAP': 100, 'BREAK-SAFE': 52, 'BIO-SYNC': 40, 'SHOCK-SAFE': 22, 'P1.1': 19}`
-  * **`LST`:** `CRIT={'DAILY-CAP': 73, 'BREAK-SAFE': 50, 'BIO-SYNC': 43, 'P1.1': 33, 'SHOCK-SAFE': 32}`
-* **Trên `120` đề Regimes:** `SCORED_GREEDY` `DAILY-CAP(104) > BREAK-SAFE(79) > P1.1(16) > SHOCK-SAFE(14) > BIO-SYNC(12)` | `BACKTRACK` `DAILY-CAP(100) > BREAK-SAFE(81) > SHOCK-SAFE(23) > BIO-SYNC(13) > P1.1(4)` | `EDF` `DAILY-CAP(200) > BIO-SYNC(96) > BREAK-SAFE(81) > SHOCK-SAFE(20)`.
+* **Tập `50` Fuzz v2 (`1001..1050`):**
+  * `SCORED_GREEDY`: `DAILY-CAP: 91 -> 48`, `BREAK-SAFE: 40 -> 9`, `BIO-SYNC: 35 -> 13`, `SHOCK-SAFE: 18 -> 10`, **`P1.1: 10 -> 0`**.
+  * `BACKTRACK`: `DAILY-CAP: 96 -> 48`, `BREAK-SAFE: 49 -> 10`, `BIO-SYNC: 33 -> 10`, `SHOCK-SAFE: 18 -> 9` (`P1.1 = 0`).
+  * `HYBRID_ALNS`: `DAILY-CAP=48, BIO-SYNC=10, BREAK-SAFE=11, SHOCK-SAFE=8` (`P1.1 = 0`).
+  * `WSPT`: `DAILY-CAP: 100 -> 55, P1.1: 19 -> 0`; `LST`: `DAILY-CAP: 73 -> 52, P1.1: 33 -> 0`.
+  * *(Lưu ý: `48` thẻ `DAILY-CAP` còn lại tập trung chủ yếu ở `18` đề `TIGHT` + `8` đề `OVERLOAD`, nơi lịch lớp/đề ép tổng giờ `> 600p/ngày` — cả nhóm `LOOSE` chỉ còn 1–2 thẻ trên `seed=1027/1050`.)*
+* **Tập `50` Unseen Fuzz (`5001..5050`):** `SCORED_GREEDY` `DAILY-CAP=46, BIO-SYNC=16, BREAK-SAFE=13, SHOCK-SAFE=11, USER-PREF=1`; `HYBRID_ALNS` `DAILY-CAP=46, BIO-SYNC=15, BREAK-SAFE=13, SHOCK-SAFE=11, USER-PREF=1` (`0` thẻ `P1.1`).
+* **Tập `120` Regimes (`1..20`):** `DAILY-CAP: 104 -> 60` (đều nằm ở `20` R2 + `20` R5 vốn kín lịch lớp), `BREAK-SAFE: 79 -> 45` (`SCORED_GREEDY`) / `37` (`HYBRID_ALNS`), `P1.1: 16 -> 0`.
 
-### 2.5. Minh họa 2 Đề Bài Ngẫu Nhiên `Fuzz v2` Cụ Thể & Kết Quả Chấm 5 Thuật Toán
+### 2.5. Minh họa 2 Đề Bài Ngẫu Nhiên `Fuzz v2` Cụ Thể Sau Nâng Cấp V3
 
-#### Ví dụ 1 — `FUZZ[TIGHT | HIGH_SCHOOL_STUDENT]` (`seed=1001`)
-* **Đề bài sinh ngẫu nhiên (`Plant-a-Witness`):** `FUZZ[TIGHT | HIGH_SCHOOL_STUDENT]`, nhịp **`AFTERNOON`**, `horizon=7 ngày`, `buffer=COGNITIVE_LOAD`, tải thực **$\rho = 0.7877$ (`230/292 slots`, $\rho_{\text{deadline}} = 0.7877$)**.
-* **Lời giải & bảng chấm 5 thuật toán (`v2.1`):**
-  * `#1 BACKTRACK` (`LOW`): `G1=0, P1.1=100.0%, Shk25=86.4%, Rec/Stk/PCl=100/270/0, OffP/APk%=1/53, <10h=0.0%, Crn/MaxD=1/5/1/840m, Ctx=12, Prf=85%` (`224.2ms`)
-  * `#2 EDF` (`LOW`): `G1=0, P1.1=100.0%, Shk25=86.4%, Rec/Stk/PCl=91/270/1, OffP/APk%=3/41, <10h=0.0%, Crn/MaxD=3/2/1/870m, Ctx=13, Prf=36%` (`7.6ms`)
-  * `#3 WSPT` (`SUBOPT`): rơi `1.7%` (`P1.1=98.3%`), `Shk25=88.1%`, `Rec/Stk/PCl=100/225/0`, `OffP/APk%=2/80`, `Crn/MaxD=1/4/1/900m`, `Ctx=12`, `Prf=46%` (`13.0ms`)
-  * `#4 SCORED_GREEDY` (`SUBOPT`): rơi `18.6%` (`P1.1=81.4%`), `Shk25=66.1%`, `Rec/Stk/PCl=100/225/0`, `OffP/APk%=3/53`, `Crn/MaxD=1/5/0/795m`, `Ctx=8`, `Prf=96%` (`63.8ms`)
-  * `#5 LST` (`SUBOPT`): rơi `20.3%` (`P1.1=79.7%`), `Shk25=72.9%`, `Rec=25%`, `OffP/APk%=8/0`, `<10h=9.0%`, `Crn/MaxD=1/4/1/870m`, `Ctx=6`, `Prf=20%` (`31.2ms`)
+#### Ví dụ 1 — `FUZZ[TIGHT | HIGH_SCHOOL_STUDENT]` (`seed=1001`, $\rho = 0.7877$, `230/292 slots`)
+* `#1 LST (FEASIBLE_BUT_LOW_PRODUCTIVITY)`: `G1=0, P1.1=100.0%, Shk25=94.92%, Rec/Stk/PCl=91/135/0, OffP/APk%=3/31, <10h=1.74%, Crn/MaxD=1/1/0/810m, Ctx=15, Hab/Prf=-/42, SJL/TStd=105/29` (`181.7ms`)
+* `#2 EDF (FEASIBLE_BUT_LOW_PRODUCTIVITY)`: `G1=0, P1.1=100.0%, Shk25=86.44%, Rec/Stk/PCl=91/270/1, OffP/APk%=3/41, <10h=0.0%, Crn/MaxD=3/2/1/870m, Ctx=13, Hab/Prf=-/36, SJL/TStd=435/148` (`23.8ms`)
+* `#3 WSPT (FEASIBLE_BUT_LOW_PRODUCTIVITY)`: `G1=0, P1.1=100.0%, Shk25=71.19%, Rec/Stk/PCl=82/150/0, OffP/APk%=3/49, <10h=0.0%, Crn/MaxD=1/0/1/825m, Ctx=16, Hab/Prf=-/53, SJL/TStd=165/49` (`175.8ms`)
+* `#4 SCORED_GREEDY`, `#5 BACKTRACK`, `#6 HYBRID_ALNS` *(hội tụ cùng nghiệm tối ưu `APk=100%`, `Crn=0/0/0`)*: `G1=0, P1.1=100.0%, Shk25=67.8%, Rec/Stk/PCl=91/105/0, OffP/APk%=0/100, <10h=2.61%, Crn/MaxD=0/0/0/840m, Ctx=15, Hab/Prf=-/48, SJL/TStd=172/55` (`420.2ms` / `481.4ms` / `652.0ms`) — **xóa sạch `18.6%` (`SCORED_GREEDY`) & `20.3%` (`LST`) `SUBOPT` ở baseline**.
 
-#### Ví dụ 2 — `FUZZ[TIGHT | EXAM_PREP_WEEK]` (`seed=1002`, `14 ngày` đã đủ tải thật)
-* **Đề bài sinh ngẫu nhiên (`Plant-a-Witness`):** `FUZZ[TIGHT | EXAM_PREP_WEEK]`, nhịp **`AFTERNOON`**, `horizon=14 ngày`, `buffer=HABIT`, tải thực **$\rho = 0.7067$ (`530/750 slots`, $\rho_{\text{deadline}} = 0.7067$)** *(đạt ngưỡng `TIGHT` $\ge 0.65$ thay cho `0.1453` ở bản v1)*.
-* **Lời giải & bảng chấm 5 thuật toán (`v2.1`):**
-  * `#1 BACKTRACK` (`LOW`): `G1=0, P1.1=100.0%, Shk25=47.9%, Rec/Stk/PCl=100/315/0, OffP/APk%=5/81, <10h=0.8%, Crn/MaxD=4/14/0/720m, Ctx=23, Prf=94%` (`705.3ms`)
-  * `#2 EDF` (`LOW`): `G1=0, P1.1=100.0%, Shk25=21.3%, Rec/Stk/PCl=100/345/0, OffP/APk%=5/48, <10h=0.0%, Crn/MaxD=6/14/1/765m, Ctx=18, Prf=30%` (`21.0ms`)
-  * `#3 SCORED_GREEDY` (`SUBOPT`): rơi `1.1%` (`P1.1=98.9%`), `Shk25=56.4%`, `Rec/Stk/PCl=100/270/0`, `OffP/APk%=5/78`, `<10h=0.8%`, `Crn/MaxD=4/13/1/735m`, `Ctx=15`, `Prf=100%` (`581.2ms`)
-  * `#4 WSPT` (`SUBOPT`): rơi `6.4%` (`P1.1=93.6%`), `Shk25=39.4%`, `Rec/Stk/PCl=33/345/0`, `OffP/APk%=5/46`, `<10h=0.0%`, `Crn/MaxD=4/12/5/810m`, `Ctx=15`, `Prf=35%` (`38.1ms`)
-  * `#5 LST` (`SUBOPT`): rơi `42.5%` (`P1.1=57.5%`), `Shk25=23.4%`, `OffP/APk%=3/22`, `<10h=8.4%`, `Crn/MaxD=1/3/0/525m`, `Ctx=12`, `Prf=15%` (`121.8ms`)
+#### Ví dụ 2 — `FUZZ[TIGHT | EXAM_PREP_WEEK]` (`seed=1002`, `14 ngày`, $\rho = 0.7067$, `530/750 slots`)
+* `#1 BACKTRACK`: `G1=0, P1.1=100.0%, Shk25=27.66%, Rec/Stk/PCl=92/360/0, OffP/APk%=2/69, <10h=0.75%, Crn/MaxD=5/2/3/795m, Ctx=18, Hab/Prf=-/29, SJL/TStd=60/197` (`521.4ms`)
+* `#2 HYBRID_ALNS`: `G1=0, P1.1=100.0%, Shk25=26.6%, Rec/Stk/PCl=67/360/0, OffP/APk%=4/62, <10h=0.75%, Crn/MaxD=5/5/2/795m, Ctx=19, Hab/Prf=-/31, SJL/TStd=105/243` (`676.3ms`)
+* `#3 EDF`: `G1=0, P1.1=100.0%, Shk25=21.28%, Rec/Stk/PCl=100/345/0, OffP/APk%=5/48, <10h=0.0%, Crn/MaxD=6/14/1/765m, Ctx=18, Hab/Prf=-/30, SJL/TStd=82/259` (`64.9ms`)
+* `#4 WSPT`, `#5 LST`, `#6 SCORED_GREEDY`: `G1=0, P1.1=100.0%, Shk25=12.77%, Rec/Stk/PCl=21/360/0, OffP/APk%=7/42, <10h=0.0%, Crn/MaxD=5/14/2/795m, Ctx=23, Hab/Prf=-/31, SJL/TStd=105/312` (`539.2ms` / `316.2ms` / `512.4ms`) — **toàn bộ `6/6` solver đạt `100%` deadline thay vì `42.5% SUBOPT` (`LST`) hay `1.1–6.4%` (`SCORED_GREEDY`/`WSPT`)**.
 
 ---
 
@@ -147,16 +154,12 @@ Tại [verdict_and_icee.py#L538-L630](../Testing_System/evaluator/verdict_and_ic
 
 ---
 
-## V. Đánh Giá Sơ Bộ Của AI (Hệ thống Test Đóng Băng `v2.1 + Fuzz v2`)
+## V. Đánh Giá Tổng Kết Của AI (Trước vs. Sau Nâng Cấp V3 & Lựa Chọn Thuật Toán)
 
-1. **Bộ sinh đề & Máy chấm đã đạt trạng thái "đóng băng" tin cậy để làm thước đo xây lại 5 thuật toán:**
-   * **`39/39 pytest passed`**, **`120/120` Regimes PASS**, **`50/50` Fuzz v2 PASS**, **`0/170` nghịch lý xếp hạng**, **`0/150` lệch tier (`LOOSE`/`TIGHT`/`OVERLOAD`)**, **`14 ngày TIGHT` $\rho \in [0.7067, 0.7749]$**.
-   * **Bằng chứng cứng cho thuật mới:** Ở **`LOOSE` (`24` đề)**, chính **`22 / 24` (`91.7%`)** lời giải chứng từ Witness đã đạt **`HIGH_PRODUCTIVITY`** → khẳng định đề hoàn toàn khả thi đạt chuẩn vàng; việc cả 5 thuật cũ chỉ đạt **`0 / 24 HIGH`** ở `LOOSE` 100% là lỗi thiết kế của 5 thuật toán cũ.
-   * Ở **`TIGHT` (`18` đề, $\rho \in [0.65, 0.83]$)**, tải thực ~`11.3h/ngày` đóng vai trò *stress test nước rút* phân loại sức bền không rớt hạn (`P1.1=100%`) — `18/18` Witness chứng minh chắc chắn giải đủ 100% deadline.
-2. **Bức tranh tổng kết 5 thuật toán baseline trước khi "đập đi xây lại":**
-   * **`SCORED_GREEDY`:** Đứng **`#1` nhiều nhất (`19/50`, `AvgRk 2.14`)** nhờ thống trị **`LOOSE` (`15/24`, `AvgRk 1.58`, `Prf=95.3%`, `Stk=143p`)** và `OVERLOAD` (`3/8`, `80.1%`), nhưng **gãy ở `TIGHT` (`10/18 SUBOPT`, `AvgRk 3.06`)** và dính `91` thẻ đỏ `DAILY-CAP` do chưa tính tải tích lũy ngày.
-   * **`BACKTRACK`:** **Không rơi bài khả thi nào (`0/42 SUBOPT`, `100%` ở cả `LOOSE` & `TIGHT`)**, dẫn đầu **`TIGHT` (`10/18`, `AvgRk 1.50`, `Rec=97.6%`)**, nhưng chậm nhất (`280.5ms`) và vẫn nhồi ngày (`96` thẻ đỏ `DAILY-CAP`).
-   * **`EDF`:** **`0/42 SUBOPT`** (`11.7ms`, `#2` ở `TIGHT`), nhưng mù sinh học (`APk=29.8%`, `Prf=33.0%`, `MxD=801p`).
-   * **`WSPT` & `LST`:** Sụp đổ ở `TIGHT` (`16/18` và `17/18 SUBOPT`; riêng `LST` rớt `16/24` ngay ở `LOOSE`, `AvgRk 4.86`).
-3. **Kim chỉ nam khi xây lại 5 thuật toán mới (dựa trên dữ liệu thẻ đỏ `ICEE`):**
-   * Muốn bứt phá từ `0%` lên mức cao `HIGH_PRODUCTIVITY` ở `LOOSE` và xóa sạch `SUBOPT` ở `TIGHT`, bộ thuật toán mới bắt buộc phải có: *(1)* Bộ đếm trần tải ngày (`<= 2` ca nặng, tổng `lớp+tự học <= 540p`), *(2)* Ngắt chuỗi ghép `load>=2 <= 120p` + đệm `15p` sau `load=3` & lớp dài, *(3)* Khóa tránh `energy=1` cho `load=3`, và *(4)* Pha cứu hạn (*feasibility-first rescue*) khi tải tiến gần $\rho \rightarrow 0.85$.
+1. **Bước nhảy vọt toàn diện trên cả 3 tập (`220` đề × `6` thuật toán = `1.320` lượt, `0` lỗi cứng, `0` nghịch lý):**
+   * **`SUBOPT` giảm về `0 / 220`** cho **tất cả các thuật toán nâng cấp** (`WSPT: 19->0` Fuzz / `20->0` Regimes; `LST: 33->0` Fuzz; `SCORED_GREEDY: 10->0` Fuzz / `16->0` Regimes; `BACKTRACK: 4->0` Regimes; `HYBRID_ALNS: 0`) nhờ tách mảnh thích ứng chuẩn `G1`, cứu hạn Kempe `1/2-eject` và sàn khả thi `build_feasibility_first_fit_state`.
+   * **Nhóm `LOOSE` bứt phá từ `0%` lên mức trần Witness & `100%` tập ẩn:** Trên Fuzz `1001..1050` (`LOOSE=24`, Witness=`22/24`), **`SCORED_GREEDY` (`22/24 = 91.7%`)**, **`HYBRID_ALNS` (`22/24`)** và **`BACKTRACK` (`23/24 = 95.8%`)** đạt ngang & vượt chứng từ Witness. Trên **50 đề ẩn chưa từng đụng (`5001..5050`, `LOOSE=25`)**, **`SCORED_GREEDY` và `HYBRID_ALNS` cùng đạt `25/25 (100.0%) HIGH_PRODUCTIVITY`** (`BACKTRACK 24/25`), bác bỏ hoàn toàn rủi ro học vẹt.
+   * **Bảo toàn nghiêm ngặt `Q10` & `T09` Ablation:** `EDF` giữ nguyên bản chất V0 (`0/120 HIGH`), trong khi `WSPT` và `LST` đạt `50/120` & `60/120 HIGH` mà vẫn bất biến 100% theo chronotype (`MORNING == EVENING`, không đọc `energy_profile`).
+2. **Đề xuất chọn thuật toán chính thức cho SmartSchedule:**
+   * **Thuật toán mặc định cho Web UI & API thời gian thực (`<= 1000 ms`):** **`SCORED_GREEDY`** — giữ hạng TB tốt nhất trên Regimes (`2.22`, `#1` `57/120` và `73/120` ở mode 5 thuật) lẫn Unseen (`2.48`), nhanh nhất trong nhóm Energy-Aware (`263.1ms` Regimes, `396.5ms` Fuzz, `22.41ms` T01), giữ vững ngôi `#1` trên `Regime 3` & `T09 Ablation`, đạt `22/24` Fuzz `LOOSE` & `25/25` Unseen `LOOSE`.
+   * **Thuật toán cao cấp thiên về chất lượng tối đa (`Higher-End Design`):** **`HYBRID_ALNS`** (thuật thứ 6, alias `ALNS`/`ULTIMATE`) — đứng đầu tổng số ca **`HIGH_PRODUCTIVITY` toàn bộ `220` đề (`79/120` Regimes gồm `19/20 R1`, `22/24` Fuzz `LOOSE`, `25/25` Unseen `LOOSE`)**, dẫn đầu `APk%` (`84.1%` / `71.9%`), giảm nhẹ `TStd` xuống `61p` trên tập ẩn và khống chế `max_ms <= 774.8ms`; song hành cùng **`BACKTRACK`** (`AvgRk 2.30` trên Fuzz, `23/24 LOOSE HIGH`) làm đối chứng nhánh-cận trạng thái sống.
