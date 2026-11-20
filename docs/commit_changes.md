@@ -33,13 +33,28 @@
 Dự án SmartSchedule đang ở bước chuyển tiếp quan trọng từ **Bản mốc chuẩn (Baseline V0)** sang **Kế hoạch cải tiến (Improve Plan V1/V2)**:
 
 - **Bản Baseline (V0):** Đã hoàn thiện và chạy rất mượt. Bộ giải toán CSP trên lưới 672 ô (15 phút/ô) với các thuật toán tham lam EDF, LST, WSPT đảm bảo 5 ràng buộc cứng $H_1$–$H_5$.
-- **Giao diện Web Workbench:** Đang chạy tại `http://127.0.0.1:8000`, hiển thị thời khóa biểu tuần trực quan và cho phép kéo thả thử nghiệm.
-- **Hệ thống Kiểm thử (Verification Tests):** Hiện đạt **161/161 bài test chạy xanh 100%** trong `clean_runner.py --all` (`47.31s`, gồm 6 test V3 mới trong `test_ergonomic_solvers_v3.py`), **`39/39` passed** trong `pytest Testing_System/tests -v` (`40.25s`), `benchmark_runner.py` (`T01–T10 C_hard=0`, `T04 LOCAL_INSERTION 100.00%`, đối chứng `T09` Ablation PASS), **benchmark 220 kịch bản × 6 thuật toán = `1.320` lượt chạy** (`0` INVALID, `0` SUBOPT, `0` invariant thất bại, `0` nghịch lý xếp hạng, `max <= 774.8ms`), cùng **200/200 ca Benchmark Hybrid NL Parser**, bộ 8 test Cột mốc 2 & UI Redesign (`test_milestone2_production_readiness.py`), và **Live Gemini API (`AI_GEMINI`)**.
-- **Nhánh hiện tại (`testing-system/v2.1-fuzz-handoff`):** Đóng băng bộ chấm `Testing_System v2.1 + Fuzz v2` và hoàn tất **đại tu V3 cho 5 thuật toán (`EDF` V0 đối chứng, `WSPT`/`LST` thuần Blind `Q10`, `SCORED_GREEDY` V3 mặc định Web UI, `BACKTRACK` nhánh-cận trạng thái sống) + bổ sung thuật toán thứ 6 [`HYBRID_ALNS`](../group03-smartschedule-baseline/src/solvers/hybrid_alns.py)** dùng chung hạt nhân [`ergonomic_engine.py`](../group03-smartschedule-baseline/src/solvers/ergonomic_engine.py).
+- **Giao diện Web Workbench & Chương trình Chấm Mù:** Web chính chạy tại `http://127.0.0.1:8000` (hỗ trợ đủ 6 thuật toán gồm `HYBRID_ALNS`, thẻ chẩn đoán 4 Trụ Cột `Testing_System v2.1` + `ICEE` thời gian thực cho Student & Lab, `POST /api/evaluate`) cùng cổng chấm mù đa thành viên `member_eval/` độc lập tại `http://127.0.0.1:8010`.
+- **Hệ thống Kiểm thử (Verification Tests):** Đạt **`167 / 167` bài test xanh 100%** trong `clean_runner.py --all` (`7.54s`, gồm 6 test V3 `test_ergonomic_solvers_v3.py`, 3 test `test_member_eval_system.py` và 3 test `test_p1_v21_ui_and_api.py`), **`39 / 39` passed** trong `pytest Testing_System/tests -v` (`13.54s`), và `benchmark_runner.py` (`T01–T10 C_hard=0`, `T04 LOCAL_INSERTION 100.00%`, `T09 Ablation PASS`, `N=50 = 4.65 ms`).
+- **Nhánh hiện tại (`feat/v3-solvers-and-member-eval`):** Kế thừa `Testing_System v2.1 + Fuzz v2`, bộ 6 thuật toán V3 (`EDF` V0 đối chứng, `WSPT`/`LST` Blind `Q10`, `SCORED_GREEDY` mặc định, `BACKTRACK`, `HYBRID_ALNS`), bổ sung trọn bộ **Chương trình Chấm Mù Đa Thành Viên (`member_eval/`)** và đồng bộ **`P1` (`HYBRID_ALNS` + Chẩn đoán `v2.1` lên UI/API)**.
 
 ---
 
 ## 2. Nhật Ký Chi Tiết Các Thay Đổi Mã Nguồn
+
+### Lần cập nhật 016 — 2026-11-20 | Triển Khai Chương Trình Chấm Mù `member_eval/` & Nâng Cấp `P1` Web UI/API (`HYBRID_ALNS` + Chẩn Đoán `v2.1`) (`feat/v3-solvers-and-member-eval`)
+- **Người thực hiện:** Hoàng Minh Anh (hỗ trợ bởi Antigravity AI)
+- **Nhánh Git:** `feat/v3-solvers-and-member-eval`
+- **Tóm tắt thay đổi:** Hiện thực hóa trọn vẹn `Testing_Plan/evaluation_plan.md` (chương trình trung gian chấm mù A/B cho 7 thành viên và sinh viên dùng thử tại `http://127.0.0.1:8010`) và hoàn tất cụm `P1` trong `Testing_Plan/HANDOFF_SUMMARY_AND_NEXT_TASKS.md` (đưa thuật toán thứ 6 `HYBRID_ALNS` + chẩn đoán 4 Trụ Cột `v2.1` & cảnh báo `ICEE` thời gian thực lên Web App chính). Giữ nguyên **0 dòng thay đổi** trong `Testing_System/`, `src/solvers/`, `src/models.py` và `requirements.txt`.
+- **Chi tiết kỹ thuật:**
+  1. **Gói Chấm Mù Độc Lập (`group03-smartschedule-baseline/member_eval/`, `run_member_eval.bat`):**
+     - Tạo [`member_eval/__init__.py`](../group03-smartschedule-baseline/member_eval/__init__.py), [`scenarios.py`](../group03-smartschedule-baseline/member_eval/scenarios.py) (7 kịch bản khóa seed + `PERSONAL_WEEK` nhập trực tiếp hoặc dùng Hybrid NL Parser), [`blind_runner.py`](../group03-smartschedule-baseline/member_eval/blind_runner.py) (tráo mã `#A/#B/#C` tất định theo SHA-256, làm sạch tên solver khỏi `blind_view` và khóa kín `revealed_oracle`), [`aggregator.py`](../group03-smartschedule-baseline/member_eval/aggregator.py) (tính tỷ lệ thắng mù, điểm `UX-1..5`, đồng thuận Máy vs Người, phát hiện cụm nhãn `>=25%` trỏ về `ergonomic_engine.py`, xuất `Calibration_Report.md`), [`app.py`](../group03-smartschedule-baseline/member_eval/app.py), [`viewer.html`](../group03-smartschedule-baseline/member_eval/viewer.html), và [`run_member_eval.bat`](../group03-smartschedule-baseline/run_member_eval.bat).
+  2. **Nâng Cấp `P1` Web UI/API (`web/health_v21.py`, `web/api.py`, `web/index.html`, `web/app.js`):**
+     - Bổ sung cầu nối Tầng 4 [`web/health_v21.py`](../group03-smartschedule-baseline/web/health_v21.py) (`evaluate_schedule_v21`); gắn `"health_v21"` cho `/api/plan`, `/api/compare` (truyền đúng raw unbuffered `Task`) và thêm `POST /api/evaluate` chấm lại lịch sửa tay/sự cố.
+     - Mở tùy chọn `HYBRID_ALNS` trong Cài đặt Sinh viên, Active Solver, A/B Comparison Studio (kèm preset `SCORED_GREEDY` vs `HYBRID_ALNS`), Ledger SHA-256 6 thuật toán; bổ sung 4 thẻ sức khỏe Sinh viên (`#stHealthV21Panel` + Top 3 `ICEE`), bảng 12 chỉ số `v2.1` ở Lab Tab 1 (`#labHealthV21Panel`), và hàng so sánh `v2.1` ở Lab Tab 2.
+  3. **Kiểm thử tự động (`verification_tests/logical_tests/`):** Bổ sung [`test_member_eval_system.py`](../group03-smartschedule-baseline/verification_tests/logical_tests/test_member_eval_system.py) (`3/3`) và [`test_p1_v21_ui_and_api.py`](../group03-smartschedule-baseline/verification_tests/logical_tests/test_p1_v21_ui_and_api.py) (`3/3`).
+- **Kiểm thử xác nhận:** `clean_runner.py --all` (`167/167` trong `7.54s`), `pytest Testing_System/tests -v` (`39/39` trong `13.54s`), `benchmark_runner.py` (`exit 0`), `node --check web/app.js` (`exit 0`), kiểm tra JS của `member_eval/viewer.html` (`exit 0`), và `POST /api/compare` (`SCORED_GREEDY` vs `HYBRID_ALNS` -> `200 OK`, đều đạt `HIGH_PRODUCTIVITY`).
+
+---
 
 ### Lần cập nhật 015 — 2026-11-20 | Đại Tu V3 Bộ 5 Thuật Toán & Thiết Kế Thuật Toán Thứ 6 `HYBRID_ALNS` (`testing-system/v2.1-fuzz-handoff`)
 - **Người thực hiện:** ltbinh (hỗ trợ bởi Antigravity AI)
