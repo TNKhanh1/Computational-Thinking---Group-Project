@@ -108,17 +108,14 @@ Thiết kế thành một gói **hoàn toàn độc lập** tại `group03-smart
    • Sinh báo cáo `Calibration_Report.md` chỉ rõ cần chỉnh gì ở `ergonomic_engine.py`
 ```
 
-### 2. Cấu trúc file dự kiến (khi triển khai ở bước code tiếp theo)
-1. **`member_eval/scenarios.py`:** Định nghĩa bộ kịch bản đầu vào gồm bộ template nhập lịch thật cho thành viên + tập kịch bản mẫu khóa seed (gợi ý: `R1 seed=1`, `R2 seed=42`, `R3 seed=5`, `R5 seed=1`, `Fuzz LOOSE seed=1041`, `Fuzz TIGHT seed=1001`, `Fuzz OVERLOAD seed=1049`).
-2. **`member_eval/blind_runner.py`:** Script CLI chạy toàn bộ solver đã chọn (`--solvers EDF SCORED_GREEDY HYBRID_ALNS` hoặc `--all-6`), ẩn tên thành `#A/#B/#C`, nhúng bảng chấm `v2.1` vào phần `revealed_oracle` (mã hóa hoặc tách khối UI chỉ mở sau khi submit), và xuất ra `member_eval/packets/`.
-3. **`member_eval/app.py` + `member_eval/viewer.html`** *(chạy trên port riêng, vd `127.0.0.1:8010`, hoặc gắn làm tab phụ tách biệt khỏi core workbench)*:
-   * Tải `packet` hoặc cho thành viên nhập trực tiếp danh sách công việc tuần này bằng giao diện đơn giản / [`src/nl_parser.py`](../group03-smartschedule-baseline/src/nl_parser.py).
-   * Hiển thị thời khóa biểu tuần trực quan dạng cột ngày (`7/14 ngày`) với màu theo `cognitive_load` (`1/2/3`), vùng `SLEEP`/`OCCUPIED`/`MEAL` và vạch năng lượng `Low/Med/Peak`.
-   * Lưu kết quả JSON sạch về `member_eval/reviews/` gồm: `member_id`, `role`, `scenario_id`, `blind_mapping`, `scores_by_blind_id` (`UX-1..5`), `blind_winner_id`, `block_tags[]`, `free_text_notes`, `revealed_diff_agree: bool`.
-4. **`member_eval/aggregator.py`:** Đọc mọi file trong `member_eval/reviews/`, tính:
-   * **Tỷ lệ thắng mù của từng thuật toán (*Blind Human Win-Rate*):** Tách theo `Personal Real`, `LOOSE`, `TIGHT`, `OVERLOAD`.
-   * **Độ đồng thuận Máy vs. Người (*Rank Agreement Rate*):** Tỷ lệ thành viên chọn đúng lịch được `v2.1` xếp `#1` hoặc `#2`.
-   * **Bảng Bất Đồng (*Disagreement & Friction Clusters*):** Thống kê theo `block_tags` lý do vì sao lịch `HIGH_PRODUCTIVITY` vẫn bị người thật đánh giá thấp (hoặc ngược lại).
+### 2. Cấu trúc module đã triển khai (`group03-smartschedule-baseline/member_eval/`)
+1. **[`member_eval/__init__.py`](../group03-smartschedule-baseline/member_eval/__init__.py) & [`member_eval/evaluate_schedule.py`](../group03-smartschedule-baseline/member_eval/evaluate_schedule.py):**
+   * **Kho kịch bản chuẩn & tự nhập (`SCENARIO_CATALOG` + Custom JSON):** Gồm `PERSONAL_MINH`, `PERSONAL_LAN`, `REGIME_1_LOOSE..REGIME_5_OVERLOAD`, `FUZZ_LOOSE_14D (seed=1041)`, `FUZZ_TIGHT_7D (seed=1001)`, `FUZZ_OVERLOAD_14D (seed=1049)`, và lịch tự nhập `custom_payload`.
+   * **`generate_blind_packet()`:** Chạy bộ solver (`BLIND_3`, `BLIND_4`, hoặc `ALL_6`), ẩn tên thuật toán thành `#A/#B/#C...`, xóa nhãn thuật toán trong chuỗi lý do block, tính trước bảng chấm `v2.1` + `Top ICEE` đưa vào `oracle_reveal`.
+   * **`save_member_review()` & `aggregate_reviews()`:** Lưu từng phiếu chấm vào `member_eval/reviews/<member_id>_<scenario_id>.json` và tự động tổng hợp tỷ lệ thắng mù, `Mean UX`, tỷ lệ đồng thuận với `v2.1 #1`, các ca bất đồng, và tần suất `Block Issue Tags` ra `member_eval/Calibration_Report.md`.
+   * **3 chế độ chạy (`--mode serve|cli|aggregate`):** Server HTTP thuần stdlib (`ThreadingHTTPServer` — tách khỏi `fastapi` để bảo vệ `INV-1`), CLI tương tác/tóm tắt, và lệnh tổng hợp báo cáo.
+2. **[`member_eval/viewer.html`](../group03-smartschedule-baseline/member_eval/viewer.html):** Giao diện web nhẹ (`http://127.0.0.1:8010`) hiển thị thời khóa biểu theo cột ngày (`7/14 ngày`), cho phép click block để gắn nhãn `UX-6`, chấm điểm `UX-1..UX-5`, bỏ phiếu thắng mù, và mở khóa bảng 11 tiêu chí `v2.1` + `ICEE` ngay sau khi nộp.
+3. **[`run_member_eval.bat`](../group03-smartschedule-baseline/run_member_eval.bat) & [`test_member_eval_program.py`](../group03-smartschedule-baseline/verification_tests/logical_tests/test_member_eval_program.py):** File chạy 1 chạm cho mọi thành viên trên Windows và bộ test kiểm định tự động.
 
 ---
 
@@ -157,3 +154,13 @@ Sau khi chạy `aggregator.py` trên dữ liệu của cả 7 thành viên, nhó
    * `BAD_TIME_OF_DAY` / `HABIT_MISPLACED`: rà soát lại cách chia cửa sổ `MORNING`/`AFTERNOON`/`EVENING` hoặc phạt `preferred_window` ở bước xây dựng lịch ban đầu.
 3. **Khi Có Xung Đột Giữa Người Thật và Thước Đo `v2.1` (`Disagreement > 20%`):**
    * Chỉ cập nhật trọng số/thứ tự tie-breaker bên trong `group03-smartschedule-baseline/src/solvers/` rồi chạy lại đủ bộ kiểm định (`clean_runner.py --all`, `pytest Testing_System/tests -v`, và benchmark 220 kịch bản) để bảo đảm **trải nghiệm tốt hơn nhưng không làm vỡ chuẩn an toàn `G1 = 0`, `0 SUBOPT`, `<= 1000 ms`**.
+
+---
+
+## VII. Hướng Dẫn Chạy Nhanh Chương Trình Trung Gian
+
+* **Cách 1 — Giao diện Web 1 chạm cho mọi thành viên (`http://127.0.0.1:8010`):**
+  * Chạy [`run_member_eval.bat`](../group03-smartschedule-baseline/run_member_eval.bat) *(hoặc `python -B group03-smartschedule-baseline/member_eval/evaluate_schedule.py --mode serve --port 8010`)*.
+* **Cách 2 — Chế độ dòng lệnh (CLI) cho từng kịch bản / tổng hợp báo cáo nhóm:**
+  * Chấm & đối chiếu 1 kịch bản trên terminal: `python -B group03-smartschedule-baseline/member_eval/evaluate_schedule.py --mode cli --scenario PERSONAL_MINH --member 25125028 --interactive`
+  * Tổng hợp toàn bộ phiếu chấm đã thu: `python -B group03-smartschedule-baseline/member_eval/evaluate_schedule.py --mode aggregate`
