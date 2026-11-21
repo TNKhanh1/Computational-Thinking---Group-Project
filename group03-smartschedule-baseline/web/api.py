@@ -57,6 +57,14 @@ from web.auth import (
     resolve_workspace_id,
 )
 from web.health_v21 import evaluate_schedule_v21
+from web.v3_services import (
+    compute_solver_weights,
+    get_available_solvers,
+    get_test_suites_catalog,
+    load_test_suite,
+    parse_ics_content,
+    run_benchmark_all,
+)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
@@ -139,6 +147,13 @@ def _extract_profile_and_tasks_impl(
     pinned_blocks = [ScheduleBlock.model_validate(pb) for pb in raw_pinned]
 
     return profile, tasks, algorithm, pinned_blocks
+
+
+def _extract_profile_and_tasks(
+    payload: Dict[str, Any], apply_buffer: bool = True
+) -> Tuple[CommitmentsProfile, List[Task], str, List[ScheduleBlock]]:
+    """Backward-compatible helper delegating to `_extract_profile_and_tasks_impl`."""
+    return _extract_profile_and_tasks_impl(payload, apply_buffer=apply_buffer)
 
 
 def _extract_raw_tasks(payload: Dict[str, Any]) -> List[Task]:
@@ -305,6 +320,68 @@ def get_scenario(scenario_id: str):
             if key in (sid, path.stem.lower(), path.name.lower()):
                 return raw
     raise HTTPException(status_code=404, detail=f"Scenario '{scenario_id}' not found.")
+
+
+@app.get("/api/solvers")
+def api_list_solvers():
+    """Return canonical solver metadata registered in SOLVER_REGISTRY."""
+    return {"solvers": get_available_solvers()}
+
+
+@app.get("/api/test-suites/catalog")
+def api_test_suites_catalog():
+    """Return unified test suite catalog (Presets, Scenarios T01-T10, Regimes R1-R6)."""
+    presets_dict = get_presets()["presets"]
+    scenarios_list = list_scenarios()["scenarios"]
+    return get_test_suites_catalog(presets_dict, scenarios_list)
+
+
+@app.post("/api/test-suites/load")
+def api_test_suites_load(payload: Dict[str, Any] = Body(...)):
+    """Load any preset, T01-T10 scenario, or seeded R1-R6 Testing_System regime."""
+    source = str(payload.get("source") or "preset")
+    suite_id = str(payload.get("id") or "")
+    seed = int(payload.get("seed") or 42)
+    try:
+        presets_dict = get_presets()["presets"]
+        return load_test_suite(
+            source=source,
+            suite_id=suite_id,
+            seed=seed,
+            presets_dict=presets_dict,
+            scenarios_dir=SCENARIOS_DIR,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/api/benchmark-all")
+def api_benchmark_all(payload: Dict[str, Any] = Body(...)):
+    """Run and evaluate every available canonical solver on the same raw input."""
+    try:
+        profile, _, _, pinned_blocks = _extract_profile_and_tasks(payload, apply_buffer=False)
+        raw_tasks = _extract_raw_tasks(payload)
+        return run_benchmark_all(
+            profile=profile,
+            raw_tasks=raw_tasks,
+            pinned_blocks=pinned_blocks,
+            enrich_fn=lambda out, prof=None: _enrich_response(
+                out, profile=prof, raw_tasks=raw_tasks, pinned_blocks=pinned_blocks
+            ),
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/solver-weights")
+def api_solver_weights(payload: Dict[str, Any] = Body(...)):
+    """Inspect per-task weights, circadian energy levels, and config constants."""
+    try:
+        profile, _, _, pinned_blocks = _extract_profile_and_tasks(payload, apply_buffer=False)
+        raw_tasks = _extract_raw_tasks(payload)
+        return compute_solver_weights(profile=profile, raw_tasks=raw_tasks, pinned_blocks=pinned_blocks)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/api/plan")
@@ -891,8 +968,20 @@ def api_tasks_calibration(
             lambda_ewma=lambda_ewma,
             min_samples=min_samples,
         )
+        rec_alpha = cal.get("recommended_alpha_heavy")
+        rec_habit = (
+            "OFTEN"
+            if isinstance(rec_alpha, (int, float)) and rec_alpha >= 1.25
+            else ("SOMETIMES" if isinstance(rec_alpha, (int, float)) and rec_alpha >= 1.10 else "RARELY")
+        )
         resp: Dict[str, Any] = {
             "workspace_id": ws_id,
+            "sample_count": cal["sample_count"],
+            "ready_for_calibration": cal["ready_to_apply"],
+            "ewma_ratio": cal.get("ewma_overall") or cal.get("mean_ratio"),
+            "mean_ratio": cal.get("mean_ratio"),
+            "recommended_alpha": rec_alpha,
+            "recommended_habit": rec_habit,
             "calibration": cal,
         }
         if include_markdown:
@@ -906,8 +995,17 @@ def api_tasks_calibration(
 def api_import_ics(payload: Dict[str, Any] = Body(...)):
     """
     Parse an uploaded `.ics` timetable or Moodle/Canvas LMS calendar feed into
-    LoA Level 4 preview drafts of FixedEvents and Tasks.
+    preview drafts of FixedEvents and Tasks.
     """
+    if "content" in payload and "ics_content" not in payload:
+        ics_raw = str(payload.get("content") or "").strip()
+        if not ics_raw:
+            raise HTTPException(status_code=400, detail="Field 'content' cannot be empty.")
+        try:
+            return parse_ics_content(ics_raw)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     ics_text = str(payload.get("ics_content") or payload.get("ics") or "").strip()
     if not ics_text:
         raise HTTPException(status_code=400, detail="Field 'ics_content' cannot be empty.")

@@ -41,6 +41,18 @@ Dự án SmartSchedule đang ở bước chuyển tiếp quan trọng từ **B�
 
 ## 2. Nhật Ký Chi Tiết Các Thay Đổi Mã Nguồn
 
+### Lần cập nhật 019 — 2026-11-21 | Sửa Lỗi Merge UI v3 & Khôi Phục API Endpoint Đồng Bộ (`feat/v3-solvers-and-member-eval`)
+- **Người thực hiện:** ltbinh (hỗ trợ bởi Antigravity AI)
+- **Nhánh Git:** `feat/v3-solvers-and-member-eval`
+- **Tóm tắt thay đổi:** Khắc phục trọn vẹn lỗi ghép nhánh từ commit `bc978d2` (`Renew UI`) trên [`web/app.js`](../group03-smartschedule-baseline/web/app.js), [`web/index.html`](../group03-smartschedule-baseline/web/index.html) và [`web/api.py`](../group03-smartschedule-baseline/web/api.py); khôi phục giao diện UI v3 ES module sạch, lựa chọn `HYBRID_ALNS`, thẻ sức khỏe 4 trụ cột `Testing_System v2.1` + `ICEE`, cùng bộ đếm `Focus Timer` & hiệu chuẩn `EWMA (P3.3)`.
+- **Chi tiết kỹ thuật:**
+  1. **Sửa sạch ES Module Coordinator ([`web/app.js`](../group03-smartschedule-baseline/web/app.js)):** Loại bỏ các mảnh code cũ lồng lỗi vào hàm không `async` (`SyntaxError: Unexpected reserved word`), hoàn chỉnh luồng UI v3 (`bootstrap`, `persistWorkspace`, `evaluateCurrentScheduleV21`, `solveActiveSolver`, `runBenchmarkAll`, `fetchSolverWeights`, `loadSuite`, `handleDropMoveBlock`, `handleTogglePin`, `handleCheckinBlock`, `handleOverrunBlock`, `handleRunRepair`, `handlePreviewOverload`, `handleApplyOverloadPreview`, `handleCancelOverloadPreview`, `handleExport`, `handleResetState`, `renderAll`, `setActiveView`, `applyTheme`, `wireStaticListeners`), bổ sung `renderHealthV21Panels` với `HYBRID_ALNS` và các hàm `P3.3`.
+  2. **Làm sạch khung HTML UI v3 ([`web/index.html`](../group03-smartschedule-baseline/web/index.html)):** Nạp `/app.js` với `type="module"`, gỡ bỏ phần DOM cũ bị chèn lẫn (`labFixedInspectorPanel`, `determinismLedgerBody`, `studentAppLayout`, `labWorkbenchLayout`), khôi phục thanh tuần (`#btnWeekPrev`, `#btnWeekToday`, `#btnWeekNext`) & `#inputModal`, đồng thời đặt bảng `v2.1` + `Focus Timer / EWMA` gọn gàng trong `#devSidePanel`.
+  3. **Khôi phục Route API FastAPI ([`web/api.py`](../group03-smartschedule-baseline/web/api.py)):** Bổ sung hàm `_extract_profile_and_tasks`, mở lại đủ các route UI v3 (`/api/solvers`, `/api/test-suites/catalog`, `/api/test-suites/load`, `/api/benchmark-all`, `/api/solver-weights`) từ [`web/v3_services.py`](../group03-smartschedule-baseline/web/v3_services.py), và giữ tương thích ngược cho `/api/tasks/calibration` cùng `/api/import/ics`.
+- **Kiểm thử xác nhận:** `node --check` xanh trên `web/app.js` và toàn bộ `web/js/*.js` (`ESM_IMPORT_OK`), `clean_runner.py --all` đạt **`186 / 186` Passed** (`83.43s`), `Testing_System/` giữ nguyên không chỉnh sửa.
+
+---
+
 ### Lần cập nhật 018 — 2026-11-20 | Hạ Tầng Thương Mại Hóa `P3`: Multi-Tenant Auth (`P3.1`), Nhập `.ics`/LMS (`P3.2`), Focus Timer & Nhắc Giờ (`P3.3`), Docker + CI (`P3.4`) (`feat/v3-solvers-and-member-eval`)
 - **Người thực hiện:** Lê Minh Nhật (hỗ trợ bởi Antigravity AI)
 - **Nhánh Git:** `feat/v3-solvers-and-member-eval`

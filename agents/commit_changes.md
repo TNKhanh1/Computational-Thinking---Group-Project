@@ -41,6 +41,18 @@ The project is currently at the transition point between the **Baseline Engine (
 
 ## 2. Chronological Log of System Changes
 
+### Entry 019 — 2026-11-21 | Restore UI v3 ES Module Wiring & API Endpoint Compatibility (`feat/v3-solvers-and-member-eval`)
+- **Authors:** ltbinh + Antigravity Agent
+- **Branch:** `feat/v3-solvers-and-member-eval`
+- **Summary:** Fixed the merge corruption introduced in `bc978d2` (`Renew UI`) across [`web/app.js`](../group03-smartschedule-baseline/web/app.js), [`web/index.html`](../group03-smartschedule-baseline/web/index.html), and [`web/api.py`](../group03-smartschedule-baseline/web/api.py), restoring clean UI v3 ES-module execution, `HYBRID_ALNS` solver selection, real-time `Testing_System v2.1` 4-pillar health & `ICEE` telemetry, and `P3.3` Focus Timer + EWMA calibration controls.
+- **Key Changes:**
+  - **Frontend ES Module Coordinator ([`web/app.js`](../group03-smartschedule-baseline/web/app.js)):** Removed interleaved non-async legacy fragments causing `SyntaxError: Unexpected reserved word`, implemented complete UI v3 lifecycle (`bootstrap`, `applyLoadedState`, `persistWorkspace`, `evaluateCurrentScheduleV21`, `solveActiveSolver`, `runBenchmarkAll`, `fetchSolverWeights`, `loadSuite`, `handleDropMoveBlock`, `handleTogglePin`, `handleCheckinBlock`, `handleOverrunBlock`, `handleRunRepair`, `handlePreviewOverload`, `handleApplyOverloadPreview`, `handleCancelOverloadPreview`, `handleExport`, `handleResetState`, `renderAll`, `setActiveView`, `applyTheme`, `wireStaticListeners`), `renderHealthV21Panels` with `HYBRID_ALNS`, and `P3.3` Focus Timer + EWMA calibration handlers.
+  - **UI v3 HTML Shell ([`web/index.html`](../group03-smartschedule-baseline/web/index.html)):** Switched `/app.js` script tag to `type="module"`, removed leftover legacy `studentAppLayout`/`labWorkbenchLayout`/`labFixedInspectorPanel`/`determinismLedgerBody` DOM blocks, restored topbar week/action controls & `#inputModal`, and integrated `v2.1` 4-pillar summary and `P3.3` Focus Timer/EWMA panels cleanly inside `#devSidePanel`.
+  - **FastAPI Backend Routes ([`web/api.py`](../group03-smartschedule-baseline/web/api.py)):** Restored `_extract_profile_and_tasks` wrapper, exposed UI v3 endpoints (`/api/solvers`, `/api/test-suites/catalog`, `/api/test-suites/load`, `/api/benchmark-all`, `/api/solver-weights`) backed by [`web/v3_services.py`](../group03-smartschedule-baseline/web/v3_services.py), and kept `/api/tasks/calibration` and `/api/import/ics` backward-compatible across P2/P3 and UI v3 payloads.
+- **Verification:** `node --check` passed on `web/app.js` and all `web/js/*.js` modules (`ESM_IMPORT_OK`), `clean_runner.py --all` passed **`186 / 186`** (`83.43s`), and `Testing_System` remained completely untouched.
+
+---
+
 ### Entry 018 — 2026-11-20 | `P3` Commercial SaaS Foundations: Multi-Tenant Auth (`P3.1`), `.ics`/LMS Import (`P3.2`), Focus Timer & Notifications (`P3.3`), Docker + CI (`P3.4`) (`feat/v3-solvers-and-member-eval`)
 - **Authors:** Lê Minh Nhật + Antigravity Agent
 - **Branch:** `feat/v3-solvers-and-member-eval`
