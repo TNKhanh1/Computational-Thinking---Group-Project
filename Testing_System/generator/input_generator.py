@@ -57,6 +57,7 @@ class GeneratedCaseBundle:
     pinned_blocks: List[ScheduleBlock]
     metadata: GeneratedTestMetadata
     regime6_suite: Optional[Regime6PerturbationSuite] = None
+    witness_blocks: Optional[List[ScheduleBlock]] = None
 
 
 def _build_meals() -> List[FixedEvent]:

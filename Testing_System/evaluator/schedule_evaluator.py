@@ -83,8 +83,8 @@ class ScheduleEvaluator:
         )
 
         p1 = evaluate_p1(prof_copy, prepared_tasks, sched_copy, gates, base_grid)
-        p2 = evaluate_p2(prof_copy, prepared_tasks, sched_copy, gates, base_grid)
-        p3 = evaluate_p3(prof_copy, prepared_tasks, sched_copy, gates, base_grid)
+        p2 = evaluate_p2(prof_copy, prepared_tasks, sched_copy, gates, base_grid, config=cfg)
+        p3 = evaluate_p3(prof_copy, prepared_tasks, sched_copy, gates, base_grid, config=cfg)
         p4 = evaluate_p4(
             profile=prof_copy,
             raw_tasks=raw_task_copies,
@@ -99,12 +99,24 @@ class ScheduleEvaluator:
             completion_logs=completion_logs,
         )
 
-        verdict, reasons_vi, crit_breaches, mod_warnings, critiques = evaluate_verdict_and_critiques(
-            gates=gates, p1=p1, p2=p2, p3=p3, p4=p4, config=cfg
+        diagnostics = build_auxiliary_diagnostics(
+            base_grid,
+            sched_copy.blocks,
+            prepared_tasks,
+            sched_copy,
+            p1,
+            ScheduleController.compute_schedule_insights(prof_copy, sched_copy),
         )
 
-        insights = ScheduleController.compute_schedule_insights(prof_copy, sched_copy)
-        diagnostics = build_auxiliary_diagnostics(base_grid, sched_copy.blocks, prepared_tasks, sched_copy, p1, insights)
+        verdict, reasons_vi, crit_breaches, mod_warnings, critiques = evaluate_verdict_and_critiques(
+            gates=gates,
+            p1=p1,
+            p2=p2,
+            p3=p3,
+            p4=p4,
+            config=cfg,
+            exec_ms=diagnostics.execution_time_ms,
+        )
 
         return EvaluationReport(
             solver_used=sched_copy.solver_used,
@@ -123,8 +135,10 @@ class ScheduleEvaluator:
         )
 
     @staticmethod
-    def compare_solvers(reports: Dict[str, EvaluationReport]) -> List[CrossSolverEntry]:
-        return rank_cross_solver_reports(reports)
+    def compare_solvers(
+        reports: Dict[str, EvaluationReport], config: Optional[EvaluationConfig] = None
+    ) -> List[CrossSolverEntry]:
+        return rank_cross_solver_reports(reports, config=config)
 
 
 def _make_block(task: Task, planned_min: int, start_slot: int, chunk_idx: int = 1, total_chunks: int = 1) -> ScheduleBlock:

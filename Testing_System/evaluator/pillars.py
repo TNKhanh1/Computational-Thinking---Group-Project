@@ -364,14 +364,44 @@ def _circular_median_minute(slot_hist: List[int]) -> float:
     return (math.degrees(math.atan2(s, c)) / 360.0 * 1440.0) % 1440.0
 
 
+def _has_contiguous_peak_slot(
+    grid: TimeGridManager, energy_prof: CircadianEnergyProfile, ready_slot: int, limit_slot: int, span: int
+) -> bool:
+    """Return True iff grid has >=1 contiguous free span inside [ready_slot, limit_slot) with energy==3 everywhere."""
+    for iv_start, iv_len in grid.get_free_intervals(start_from=ready_slot, up_to=limit_slot):
+        if iv_len < span:
+            continue
+        run = 0
+        for s in range(iv_start, iv_start + iv_len):
+            run = run + 1 if energy_prof.level_for_slot(s) == 3 else 0
+            if run >= span:
+                return True
+    return False
+
+
+def _has_better_energy_window(
+    grid: TimeGridManager, energy_prof: CircadianEnergyProfile, ready_slot: int, limit_slot: int, span: int
+) -> bool:
+    """Return True iff grid has >=1 contiguous free span inside [ready_slot, limit_slot) with avg energy >= 2.0."""
+    for iv_start, iv_len in grid.get_free_intervals(start_from=ready_slot, up_to=limit_slot):
+        if iv_len < span:
+            continue
+        for cand_s in range(iv_start, iv_start + iv_len - span + 1):
+            if _avg_energy_over_span(energy_prof, cand_s, span) >= 2.0:
+                return True
+    return False
+
+
 def evaluate_p2(
     profile: CommitmentsProfile,
     prepared_tasks: List[Task],
     schedule: ScheduleOutput,
     gates: GateContextMetrics,
     base_grid: TimeGridManager,
+    config: Optional[EvaluationConfig] = None,
 ) -> Pillar2CognitiveBiology:
-    """Compute P2.1 Circadian Alignment, P2.2 Recovery (>10m), P2.3 Circular SJL & Phase Stability."""
+    """Compute P2.1 Circadian Alignment, P2.2 Recovery (>10m & Streak), P2.3 Circular SJL & Phase Stability."""
+    cfg = config or EvaluationConfig()
     week_start_iso = profile.planning_week_start
     now_slot = gates.now_slot
     horizon_slots = gates.horizon_slots
@@ -382,9 +412,14 @@ def evaluate_p2(
     for b in blocks:
         task_last_end[b.task_id] = max(task_last_end.get(b.task_id, 0), b.end_slot)
 
-    # P2.1: Heavy peak alignment strictly for load == 3 + Preferred window + Forced Phase Advance
+    class_instances = _resolve_fixed_event_ranges(profile, horizon_slots, categories=CLASS_CATEGORIES)
+    long_class_ends = {ce for cs, ce, _ in class_instances if (ce - cs) >= cfg.post_class_min_class_slots}
+
+    # P2.1: Heavy peak alignment + v2.1 Achievable Peak + 2-Way Synchrony Off-Peak Mismatch
     heavy_slots = 0
     heavy_peak_slots = 0
+    achievable_heavy_slots = 0
+    achievable_peak_slots = 0
     pref_slots = 0
     pref_matched_slots = 0
 
@@ -394,6 +429,8 @@ def evaluate_p2(
     )
     forced_advance_blocks: List[str] = []
     forced_advance_task_ids: List[str] = []
+    off_peak_blocks: List[str] = []
+    off_peak_task_ids: List[str] = []
 
     for b in blocks:
         span = max(1, b.end_slot - b.start_slot)
@@ -402,58 +439,51 @@ def evaluate_p2(
 
         if load == 3:
             heavy_slots += span
-            for s in range(b.start_slot, b.end_slot):
-                if energy_prof.level_for_slot(s) == 3:
-                    heavy_peak_slots += 1
+            b_peak_hits = sum(1 for s in range(b.start_slot, b.end_slot) if energy_prof.level_for_slot(s) == 3)
+            heavy_peak_slots += b_peak_hits
 
-            # Check forced phase advance (Evening chronotype placed in MORNING [24,48) with energy==1)
-            if is_evening_chrono and b.state not in ("PINNED", "DONE"):
-                overlaps_morning_low = any(
-                    24 <= (s % SLOTS_PER_DAY) < 48 and energy_prof.level_for_slot(s) == 1
-                    for s in range(b.start_slot, b.end_slot)
-                )
-                if overlaps_morning_low and t_obj is not None:
-                    d_slot = t_obj.resolve_deadline_slot(week_start_iso=week_start_iso)
-                    limit_slot = min(horizon_slots, d_slot) if d_slot is not None else horizon_slots
-                    sa_slot = t_obj.resolve_start_after_slot(week_start_iso=week_start_iso)
-                    ready_slot = max(now_slot, sa_slot if sa_slot is not None else 0)
-                    for pid in t_obj.depends_on:
-                        if pid in task_last_end:
-                            ready_slot = max(ready_slot, task_last_end[pid])
+            if b.state not in ("PINNED", "DONE") and t_obj is not None:
+                d_slot = t_obj.resolve_deadline_slot(week_start_iso=week_start_iso)
+                limit_slot = min(horizon_slots, d_slot) if d_slot is not None else horizon_slots
+                sa_slot = t_obj.resolve_start_after_slot(week_start_iso=week_start_iso)
+                ready_slot = max(now_slot, sa_slot if sa_slot is not None else 0)
+                for pid in t_obj.depends_on:
+                    if pid in task_last_end:
+                        ready_slot = max(ready_slot, task_last_end[pid])
 
+                if _has_contiguous_peak_slot(base_grid, energy_prof, ready_slot, limit_slot, span):
+                    achievable_heavy_slots += span
+                    achievable_peak_slots += b_peak_hits
+
+                overlaps_low = any(energy_prof.level_for_slot(s) == 1 for s in range(b.start_slot, b.end_slot))
+                if overlaps_low:
                     cf_grid = _grid_with_block_freed(base_grid, blocks, b)
-                    has_better_later_window = False
-                    for iv_start, iv_len in cf_grid.get_free_intervals(start_from=ready_slot, up_to=limit_slot):
-                        if iv_len < span:
-                            continue
-                        for cand_s in range(iv_start, iv_start + iv_len - span + 1):
-                            if any(energy_prof.level_for_slot(cs) >= 2 for cs in range(cand_s, cand_s + span)):
-                                if _avg_energy_over_span(energy_prof, cand_s, span) >= 2.0:
-                                    has_better_later_window = True
-                                    break
-                        if has_better_later_window:
-                            break
-                    if has_better_later_window:
-                        forced_advance_blocks.append(b.block_id)
-                        if b.task_id not in forced_advance_task_ids:
-                            forced_advance_task_ids.append(b.task_id)
+                    if _has_better_energy_window(cf_grid, energy_prof, ready_slot, limit_slot, span):
+                        off_peak_blocks.append(b.block_id)
+                        if b.task_id not in off_peak_task_ids:
+                            off_peak_task_ids.append(b.task_id)
+                        overlaps_morning_low = any(
+                            24 <= (s % SLOTS_PER_DAY) < 48 for s in range(b.start_slot, b.end_slot)
+                        )
+                        if is_evening_chrono and overlaps_morning_low:
+                            forced_advance_blocks.append(b.block_id)
+                            if b.task_id not in forced_advance_task_ids:
+                                forced_advance_task_ids.append(b.task_id)
 
         if t_obj and t_obj.preferred_window in ("MORNING", "AFTERNOON", "EVENING"):
             pref_slots += span
             pref_matched_slots += int(round(_window_match_fraction(b.start_slot, span, t_obj.preferred_window) * span))
 
     heavy_peak_pct = round(100.0 * heavy_peak_slots / float(heavy_slots), 2) if heavy_slots > 0 else None
+    achievable_peak_pct = (
+        round(100.0 * achievable_peak_slots / float(achievable_heavy_slots), 2)
+        if achievable_heavy_slots > 0
+        else None
+    )
     pref_pct = round(100.0 * pref_matched_slots / float(pref_slots), 2) if pref_slots > 0 else None
 
-    # P2.2: Albulescu et al. (2022) — the null performance effect of <= 10 min breaks was found for
-    # COGNITIVE antecedent tasks only, so sessions are restricted to cognitive_load == 3 (no FLOW / >=90m
-    # triggers, which have no source in the paper). A break is >= 1 slot (15 min > 10 min) right after the
-    # block that carries no work: FREE/REST, MEAL or SLEEP. Classes, other fixed events or another study
-    # block do NOT count as recovery.
-    occupied_study_slots: Set[int] = set()
-    for b in blocks:
-        for s in range(b.start_slot, b.end_slot):
-            occupied_study_slots.add(s)
+    # P2.2: Albulescu et al. (2022) recovery > 10m + v2.1 multi-block L>=2 streak + post-class transition buffer
+    occupied_study_slots: Set[int] = {s for b in blocks for s in range(b.start_slot, b.end_slot)}
     meal_slots: Set[int] = {
         s
         for ms, me, _ in _resolve_fixed_event_ranges(profile, horizon_slots, categories={"MEAL"})
@@ -473,6 +503,7 @@ def evaluate_p2(
     heavy_sessions_total = 0
     heavy_sessions_recovered = 0
     missing_break_block_ids: List[str] = []
+    post_class_block_ids: List[str] = []
     for b in blocks:
         if _effective_load(b, task_map) != 3 or b.state == "DONE":
             continue
@@ -481,19 +512,38 @@ def evaluate_p2(
             heavy_sessions_recovered += 1
         else:
             missing_break_block_ids.append(b.block_id)
+        if b.state != "PINNED" and b.start_slot in long_class_ends:
+            post_class_block_ids.append(b.block_id)
 
-    # Max uninterrupted contiguous study streak (0-gap blocks merged)
+    # Max uninterrupted contiguous study streak (0-gap blocks merged) + >=2-block L>=2 streak (v2.1)
     max_streak_slots = 0
     cur_streak = 0
     prev_end = -1
+    cur_l2_min = 0
+    cur_l2_count = 0
+    prev_l2_end = -1
+    max_multi_l2_min = 0
     for b in blocks:
         span = max(1, b.end_slot - b.start_slot)
-        if b.start_slot == prev_end:
-            cur_streak += span
-        else:
-            cur_streak = span
+        cur_streak = (cur_streak + span) if b.start_slot == prev_end else span
         prev_end = b.end_slot
         max_streak_slots = max(max_streak_slots, cur_streak)
+
+        load = _effective_load(b, task_map)
+        if load is not None and load >= 2:
+            if b.start_slot == prev_l2_end:
+                cur_l2_min += span * MINUTES_PER_SLOT
+                cur_l2_count += 1
+            else:
+                cur_l2_min = span * MINUTES_PER_SLOT
+                cur_l2_count = 1
+            prev_l2_end = b.end_slot
+            if cur_l2_count >= 2:
+                max_multi_l2_min = max(max_multi_l2_min, cur_l2_min)
+        else:
+            cur_l2_min = 0
+            cur_l2_count = 0
+            prev_l2_end = -1
 
     recovery_rate_pct = (
         round(100.0 * heavy_sessions_recovered / float(heavy_sessions_total), 2)
@@ -501,12 +551,7 @@ def evaluate_p2(
         else None
     )
 
-    # P2.3: Social Jetlag exactly as Smarr & Schirmer (2018, Methods tr. 8):
-    #   * activity events = self-study blocks (analogue of LMS logins; fixed classes only define the day type)
-    #   * day type by CALENDAR date: class day = date with >= 1 ACADEMIC_CLASS instance
-    #   * clock time (24h) -> 2*pi radians, circular MEDIAN phase pooled per day type (avoids the 23:59/00:01 artifact)
-    #   * SJL = phase(class days) - phase(non-class days); negative = phase ADVANCE on class days
-    class_instances = _resolve_fixed_event_ranges(profile, horizon_slots, categories=CLASS_CATEGORIES)
+    # P2.3: Circular SJL (Smarr & Schirmer 2018, Methods tr. 8)
     class_days: Set[int] = {cs // SLOTS_PER_DAY for cs, _, _ in class_instances}
 
     class_hist = [0] * SLOTS_PER_DAY
@@ -539,6 +584,31 @@ def evaluate_p2(
             sjl_direction = "PHASE_DELAY"
         sjl_exceeds_30m = sjl_minutes > 30.0
 
+    max_d_slot = max(
+        (
+            _deadline_or_horizon(t, week_start_iso, horizon_slots)
+            for t in prepared_tasks
+            if t.resolve_deadline_slot(week_start_iso=week_start_iso) is not None
+        ),
+        default=horizon_slots,
+    )
+    start_d = now_slot // SLOTS_PER_DAY
+    max_d_day = max(start_d, (min(horizon_slots, max_d_slot) - 1) // SLOTS_PER_DAY)
+    free_days_in_scope = {
+        d
+        for d in range(start_d, max_d_day + 1)
+        if base_grid.count_free_slots_in_range(
+            max(now_slot, d * SLOTS_PER_DAY), min(horizon_slots, (d + 1) * SLOTS_PER_DAY)
+        )
+        >= 4
+    }
+    sjl_neutral_unpaired = (
+        sjl_minutes is None
+        and bool(free_days_in_scope & class_days)
+        and bool(free_days_in_scope - class_days)
+        and len(blocks) >= 3
+    )
+
     # Diagnostic: circular standard deviation of daily median phases (minutes)
     daily_phases = [_circular_median_minute(h) for _, h in sorted(per_day_hist.items())]
     cross_day_std: Optional[float] = None
@@ -570,6 +640,14 @@ def evaluate_p2(
         class_days_count=len(class_days_active),
         non_class_days_count=len(non_class_days_active),
         cross_day_phase_std_min=cross_day_std,
+        achievable_heavy_peak_match_pct=achievable_peak_pct,
+        off_peak_heavy_mismatch_count=len(off_peak_blocks),
+        off_peak_heavy_mismatch_blocks=off_peak_blocks,
+        off_peak_heavy_mismatch_task_ids=off_peak_task_ids,
+        max_multi_block_streak_l2_min=max_multi_l2_min,
+        post_class_buffer_violations=len(post_class_block_ids),
+        post_class_violation_block_ids=post_class_block_ids,
+        sjl_neutral_unpaired=sjl_neutral_unpaired,
     )
 
 
@@ -579,13 +657,16 @@ def evaluate_p3(
     schedule: ScheduleOutput,
     gates: GateContextMetrics,
     base_grid: TimeGridManager,
+    config: Optional[EvaluationConfig] = None,
 ) -> Pillar3SustainablePacing:
     """Compute P3.1 Weekly Load Dispersion / Utilization & P3.2 Corne/Carter/Laporte Clustering & Context Switches."""
+    cfg = config or EvaluationConfig()
     now_slot = gates.now_slot
     horizon_slots = gates.horizon_slots
     week_start_iso = profile.planning_week_start
     blocks = sorted(schedule.blocks, key=lambda b: (b.start_slot, b.end_slot))
     task_map: Dict[str, Task] = {t.task_id: t for t in prepared_tasks}
+    class_instances = _resolve_fixed_event_ranges(profile, horizon_slots, categories=CLASS_CATEGORIES)
 
     # Narrow active days D_active up to max deadline if all tasks are DEADLINE-only
     has_habit = gates.habit_tasks_count > 0
@@ -604,26 +685,30 @@ def evaluate_p3(
 
     daily_load_mins: List[int] = []
     daily_util_pcts: List[float] = []
+    total_daily_mins: List[int] = []
+    base_class_mins: List[int] = []
     for d in range(start_day, end_day + 1):
         d_s = max(now_slot, d * SLOTS_PER_DAY)
         d_e = min(active_end_slot, (d + 1) * SLOTS_PER_DAY)
         if d_e <= d_s:
             continue
         free_slots_day = base_grid.count_free_slots_in_range(start_from=d_s, up_to=d_e)
-        if free_slots_day <= 0:
-            continue
-        l_slots = 0
-        for b in blocks:
-            ov_s = max(d_s, b.start_slot)
-            ov_e = min(d_e, b.end_slot)
-            if ov_e > ov_s:
-                l_slots += ov_e - ov_s
-        l_min = l_slots * MINUTES_PER_SLOT
-        daily_load_mins.append(l_min)
-        daily_util_pcts.append(100.0 * l_min / float(max(15, free_slots_day * MINUTES_PER_SLOT)))
+        l_slots = sum(max(0, min(d_e, b.end_slot) - max(d_s, b.start_slot)) for b in blocks)
+        cls_slots = sum(max(0, min(d_e, ce) - max(d_s, cs)) for cs, ce, _ in class_instances)
+        if free_slots_day > 0:
+            l_min = l_slots * MINUTES_PER_SLOT
+            daily_load_mins.append(l_min)
+            daily_util_pcts.append(100.0 * l_min / float(max(15, free_slots_day * MINUTES_PER_SLOT)))
+        if free_slots_day > 0 or cls_slots > 0:
+            total_daily_mins.append((l_slots + cls_slots) * MINUTES_PER_SLOT)
+            base_class_mins.append(cls_slots * MINUTES_PER_SLOT)
 
     daily_std = round(statistics.pstdev(daily_load_mins), 2) if len(daily_load_mins) >= 2 else 0.0
     daily_util_std = round(statistics.pstdev(daily_util_pcts), 2) if len(daily_util_pcts) >= 2 else 0.0
+    max_daily_total = max(total_daily_mins) if total_daily_mins else 0
+    total_daily_std = round(statistics.pstdev(total_daily_mins), 2) if len(total_daily_mins) >= 2 else 0.0
+    base_class_std = round(statistics.pstdev(base_class_mins), 2) if len(base_class_mins) >= 2 else 0.0
+    eff_std_limit = round(max(cfg.total_daily_std_min_floor, base_class_std + cfg.total_daily_std_class_margin), 2)
 
     # Awake utilization over [now_slot, horizon_slots)
     awake_slots = 0
@@ -637,11 +722,7 @@ def evaluate_p3(
                 busy_slots += 1
     awake_util_pct = round(100.0 * busy_slots / float(max(1, awake_slots)), 2)
 
-    # P3.2: Corne et al. (1993) in Schaerf §4.2 tr. 25 — penalised "in descending order of weight":
-    #   (i) > 2 heavy sessions in the same day, (ii) heavy sessions in consecutive periods,
-    #   (iii) sessions just before AND just after a meal. Schaerf gives no numeric weights, so the three
-    #   counts are kept as a vector compared lexicographically. Context switches (Vieira: setups between
-    #   job classes) are reported separately.
+    # P3.2: Corne et al. (1993) in Schaerf §4.2 tr. 25 + v2.1 load>=2 meal boundary & Leroy Attention Residue switches
     heavy_by_day: Dict[int, List[ScheduleBlock]] = {}
     for b in blocks:
         if _effective_load(b, task_map) == 3:
@@ -667,13 +748,17 @@ def evaluate_p3(
                     if bid not in adjacent_heavy_block_ids:
                         adjacent_heavy_block_ids.append(bid)
 
-    # Meal-boundary offenses: BLOCK ends exactly at meal_start AND BLOCK starts exactly at meal_end
     block_ends = {b.end_slot for b in blocks}
     block_starts = {b.start_slot for b in blocks}
     meal_events = _resolve_fixed_event_ranges(profile, horizon_slots, categories={"MEAL"})
     meal_offenses = sum(1 for ms, me, _ in meal_events if ms in block_ends and me in block_starts)
 
+    l2_ends = {b.end_slot for b in blocks if (_effective_load(b, task_map) or 1) >= 2}
+    l2_starts = {b.start_slot for b in blocks if (_effective_load(b, task_map) or 1) >= 2}
+    meal_offenses_l2 = sum(1 for ms, me, _ in meal_events if ms in l2_ends and me in l2_starts)
+
     context_switches = 0
+    focus_context_switches = 0
     batched_pairs = 0
     for idx in range(1, len(blocks)):
         prev_b = blocks[idx - 1]
@@ -685,8 +770,10 @@ def evaluate_p3(
                 batched_pairs += 1
             else:
                 context_switches += 1
+                if prev_b.task_id != cur_b.task_id:
+                    focus_context_switches += 1
 
-    corne_vector = [heavy_overload_days, adjacent_heavy_pairs, meal_offenses]
+    corne_vector = [heavy_overload_days, adjacent_heavy_pairs, meal_offenses_l2]
 
     return Pillar3SustainablePacing(
         active_days_count=len(daily_load_mins),
@@ -702,6 +789,13 @@ def evaluate_p3(
         corne_lexicographic_vector=corne_vector,
         context_switches=context_switches,
         batched_pairs=batched_pairs,
+        meal_boundary_offenses_l2=meal_offenses_l2,
+        total_daily_load_minutes=total_daily_mins,
+        max_daily_total_min=max_daily_total,
+        total_daily_load_std_min=total_daily_std,
+        base_class_daily_std_min=base_class_std,
+        effective_daily_std_limit_min=eff_std_limit,
+        focus_context_switches=focus_context_switches,
     )
 
 
@@ -771,11 +865,13 @@ def _simulate_shock_survival(
                     failed_task_ids.add(b.task_id)
 
         # Check SLEEP / OCCUPIED / horizon collision
+        # Scan from b.start_slot (monotonic superset across shock levels) so a domino-pushed
+        # block that jumps past an intervening MEAL/CLASS barrier cannot skip collision detection.
         if eff_end > horizon_slots:
             cascade_collisions += 1
             failed_task_ids.add(b.task_id)
         else:
-            for s in range(eff_start, eff_end):
+            for s in range(b.start_slot, eff_end):
                 locked = base_grid._locked_mask[s]
                 if locked == TimeGridManager.STATE_SLEEP or locked.startswith(TimeGridManager.STATE_OCCUPIED):
                     cascade_collisions += 1

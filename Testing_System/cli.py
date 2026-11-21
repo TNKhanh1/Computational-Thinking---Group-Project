@@ -16,21 +16,30 @@ from Testing_System.evaluator import build_contrast_pairs
 from Testing_System.runner import (
     format_vietnamese_summary,
     run_full_benchmark_suite,
+    run_fuzz_benchmark,
     run_single_regime_case,
 )
-from Testing_System.schemas import RegimeName
+from Testing_System.schemas import RegimeName, RegimeRunResult
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Schedule 2-Part Testing & Productivity Evaluation CLI")
     parser.add_argument(
         "--mode",
-        choices=["contrast", "regime", "full", "http"],
+        choices=["contrast", "regime", "full", "http", "fuzz"],
         default="full",
-        help="contrast (evaluator self-test) | regime (one regime) | full (all 6 direct) | http (HTTP API E2E)",
+        help="contrast | regime | full (all 6 direct) | http (HTTP API E2E) | fuzz (procedural infinite random)",
     )
     parser.add_argument("--regime", type=int, choices=[1, 2, 3, 4, 5, 6], default=1, help="Regime index 1..6")
     parser.add_argument("--seeds", type=int, nargs="+", default=[42], help="Deterministic seed list")
+    parser.add_argument("--count", type=int, default=10, help="Number of procedural fuzz seeds (for --mode fuzz)")
+    parser.add_argument("--start-seed", type=int, default=1001, help="Starting seed (for --mode fuzz)")
+    parser.add_argument(
+        "--tier",
+        choices=["auto", "LOOSE", "TIGHT", "OVERLOAD"],
+        default="auto",
+        help="Fuzz tightness tier (for --mode fuzz)",
+    )
     parser.add_argument("--out", type=str, default=None, help="Optional output JSON report path")
     args = parser.parse_args()
 
@@ -51,6 +60,17 @@ def main() -> int:
             ok = ok and r.all_invariants_passed
         return 0 if ok else 1
 
+    if args.mode == "fuzz":
+        tier_arg = None if args.tier == "auto" else args.tier
+        fuzz_seeds = args.seeds if args.seeds != [42] else list(range(args.start_seed, args.start_seed + args.count))
+        summary = run_fuzz_benchmark(seeds=fuzz_seeds, tier=tier_arg, output_json_path=args.out)
+        for raw_run in summary["fuzz_runs"]:
+            rr = RegimeRunResult.model_validate(raw_run)
+            print(format_vietnamese_summary(rr))
+            print("-" * 100)
+        print(f"\nOVERALL FUZZ RESULT ({len(fuzz_seeds)} seeds): {'ALL PASS' if summary['overall_passed'] else 'FAILED'}")
+        return 0 if summary["overall_passed"] else 1
+
     use_http = args.mode == "http"
     summary = run_full_benchmark_suite(seeds=args.seeds, use_http_e2e=use_http, output_json_path=args.out)
 
@@ -59,8 +79,6 @@ def main() -> int:
     for chk in contrast["assertions"]:
         print(f"  [{'PASS' if chk['passed'] else 'FAIL'}] {chk['name']}")
     print()
-
-    from Testing_System.schemas import RegimeRunResult
 
     for raw_run in summary["regime_runs"]:
         rr = RegimeRunResult.model_validate(raw_run)
