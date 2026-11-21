@@ -26,7 +26,7 @@
    - Lists the 5 intentional developmental gap tests tracking upcoming sprint deliverables.
 
 4. **[`verification_and_benchmarks.md`](verification_and_benchmarks.md)**
-   - Complete inventory and architecture of the automated verification suite (scaled to **142 `pytest` tests** (`136` `--pass` + `1` resolved `Q9` Sprint Option A + `5` `--gaps`) plus **200 Hybrid NL Parser YAML cases**).
+   - Complete inventory and architecture of the automated verification suite (now scaled to **`193 / 193` `clean_runner.py --all` tests** across `ui_tests/`, `architecture_tests/`, `logical_tests/`, `benchmark_tests/`, and `development_gap_tests/`, plus **`39 / 39` `Testing_System/tests`** and **200 Hybrid NL Parser YAML cases** — see [`agents/commit_changes.md`](../commit_changes.md) `Entry 020` for the latest test file additions).
    - Explains the 60% average passing cases / 40% edge cases & developmental failures matrix.
    - Documents the Interpretable Test Runner (`clean_runner.py`), the GUI Test Studio (`test_studio.py`), and CLI execution batch files.
 

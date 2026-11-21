@@ -20,7 +20,9 @@ def test_inv1_domain_evaluator_has_no_web_imports():
         "bad = [m for m in sys.modules if any(k in m for k in ('fastapi', 'starlette', 'uvicorn', 'web.api'))]; "
         "assert not bad, f'Domain evaluator imported web modules: {bad}'"
     )
-    proc = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=False)
+    from pathlib import Path
+    plan_or_root = str(Path(__file__).resolve().parents[2])
+    proc = subprocess.run([sys.executable, "-c", code], cwd=plan_or_root, capture_output=True, text=True, check=False)
     assert proc.returncode == 0, proc.stderr + proc.stdout
 
 

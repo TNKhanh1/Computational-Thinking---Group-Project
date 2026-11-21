@@ -5,6 +5,9 @@
 **Người thực hiện:** Đức Minh (Tuần 4)  
 **Trạng thái:** Đã tích hợp trực tiếp trên giao diện web `http://127.0.0.1:8000`  
 
+> [!NOTE]
+> **Cập nhật kiến trúc `UI v3` (`2026-11-21`, xem [`docs/commit_changes.md`](../commit_changes.md) `Lần cập nhật 019–020`):** Giao diện nút chuyển 2 chế độ `#studentAppLayout` / `#labWorkbenchLayout` cũ dưới đây đã được nâng cấp lên kiến trúc **UI v3** ES module tách gọn (`web/index.html`, `web/app.js`, `web/js/*.js`, `web/css/*`) với thanh điều hướng Lịch / Danh sách / Bảng Dev thu gọn (`#devSidePanel`), Bảng so sánh 7 bộ test Showcase và bộ chọn `Regime`/`Fuzz v2`.
+
 ---
 
 ## 1. Tại Sao Lại Có Giao Diện Này?

@@ -13,9 +13,10 @@ from pathlib import Path
 import sys
 from typing import Any, Dict, List, Optional, Tuple
 
-_BASELINE_ROOT = str(Path(__file__).resolve().parents[1])
-_REPO_ROOT = str(Path(__file__).resolve().parents[2])
-for _p in (_REPO_ROOT, _BASELINE_ROOT):
+_BASELINE_ROOT = Path(__file__).resolve().parents[1]
+_REPO_ROOT = _BASELINE_ROOT.parent
+_PLAN_ROOT = _REPO_ROOT / "v1.0-alpha-plan"
+for _p in (str(_REPO_ROOT), str(_PLAN_ROOT), str(_BASELINE_ROOT)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 

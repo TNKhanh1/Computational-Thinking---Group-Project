@@ -19,8 +19,10 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 REPO_ROOT = BASE_DIR.parent
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+PLAN_ROOT = REPO_ROOT / "v1.0-alpha-plan"
+for _p in (str(REPO_ROOT), str(PLAN_ROOT)):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 from src import config as app_config
 from src.controller import ScheduleController

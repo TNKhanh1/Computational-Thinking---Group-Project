@@ -24,7 +24,7 @@
    - 5 bài test mục tiêu đang chờ cài đặt mã nguồn.
 
 4. **[`kiem_thu_va_benchmark.md`](kiem_thu_va_benchmark.md)**
-   - Hướng dẫn chạy và theo dõi hệ thống kiểm thử tự động (đã mở rộng lên **142 bài test `pytest` đạt 100%**, gồm `136 --pass`, `5 --gaps`, `1` ca `Q9` Phương án A, và **200 ca YAML Hybrid NL Parser**).
+   - Hướng dẫn chạy và theo dõi hệ thống kiểm thử tự động (hiện đã mở rộng lên **`193 / 193` bài test `clean_runner.py --all` xanh 100%**, cộng thêm **`39 / 39` bài `Testing_System/tests`** và **200 ca YAML Hybrid NL Parser** — xem [`docs/commit_changes.md`](../commit_changes.md) `Lần cập nhật 020` cho danh sách test mới nhất).
    - Hướng dẫn dùng ứng dụng đồ họa Test Studio (`run_test_studio.bat`) và dòng lệnh batch.
    - Cách đọc màn hình console chẩn đoán lỗi mới (rõ ràng, không rác terminal).
 

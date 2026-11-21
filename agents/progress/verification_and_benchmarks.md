@@ -9,6 +9,9 @@
 
 ## 1. Overview & Test Suite Philosophy
 
+> [!NOTE]
+> **Latest Verified Totals (`2026-11-21`, see [`agents/commit_changes.md`](../commit_changes.md) `Entry 020`):** The baseline matrix below (`89 tests`) has since expanded to **`193 / 193` passing tests** in `clean_runner.py --all` (adding UI v3, V3 ergonomic solvers `test_ergonomic_solvers_v3.py`, `member_eval/`, P1 `v2.1`, P2 EWMA calibration, P3 SaaS, 7-case Showcase, and view-only week navigation tests) plus **`39 / 39` passed** in `pytest Testing_System/tests`.
+
 The SmartSchedule verification testing suite serves as the **production verification gate** for our 10-week development arc. It tests not just typical happy-path executions, but systematically probes memory boundaries, AST architectural compliance, mathematical unsolvability, circular DAG traps, and developmental feature gaps.
 
 ### 1.1. The 60/40 Verification Matrix

@@ -15,7 +15,8 @@ import sys
 import tempfile
 from typing import Any, Dict, List, Optional, Tuple
 
-_WORKSPACE_ROOT = Path(__file__).resolve().parent.parent
+_PARENT_DIR = Path(__file__).resolve().parent.parent
+_WORKSPACE_ROOT = _PARENT_DIR if (_PARENT_DIR / "group03-smartschedule-baseline").is_dir() else _PARENT_DIR.parent
 _BASELINE_ROOT = _WORKSPACE_ROOT / "group03-smartschedule-baseline"
 
 if str(_BASELINE_ROOT) not in sys.path:

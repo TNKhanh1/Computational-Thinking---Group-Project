@@ -1,6 +1,6 @@
 # SmartSchedule Production Container (Web Workbench Port 8000 + Optional member_eval Port 8010)
 # Build from repository root:
-#   docker build -f group03-smartschedule-baseline/Dockerfile -t smartschedule:latest .
+#   docker build -f group03-smartschedule-baseline/docker/Dockerfile -t smartschedule:latest .
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -17,7 +17,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
 
 # Copy baseline application and read-only Testing_System (needed for live v2.1 health API)
 COPY group03-smartschedule-baseline /app/group03-smartschedule-baseline
-COPY Testing_System /app/Testing_System
+COPY v1.0-alpha-plan/Testing_System /app/Testing_System
 
 WORKDIR /app/group03-smartschedule-baseline
 

@@ -18,7 +18,9 @@ from fastapi.testclient import TestClient
 
 BASELINE_ROOT = Path(__file__).resolve().parents[2]
 REPO_ROOT = BASELINE_ROOT.parent
-for p in (str(REPO_ROOT), str(BASELINE_ROOT)):
+PLAN_ROOT = REPO_ROOT / "v1.0-alpha-plan"
+TESTING_SYS_DIR = (REPO_ROOT / "Testing_System") if (REPO_ROOT / "Testing_System").is_dir() else (PLAN_ROOT / "Testing_System")
+for p in (str(REPO_ROOT), str(PLAN_ROOT), str(BASELINE_ROOT)):
     if p not in sys.path:
         sys.path.insert(0, p)
 
@@ -44,7 +46,7 @@ def _imports_in_file(py_file: Path) -> set[str]:
 
 def test_member_eval_architecture_isolation() -> None:
     """Neither `src/` nor `Testing_System/` may import `member_eval`."""
-    for folder in (BASELINE_ROOT / "src", REPO_ROOT / "Testing_System"):
+    for folder in (BASELINE_ROOT / "src", TESTING_SYS_DIR):
         for py_file in folder.rglob("*.py"):
             imps = _imports_in_file(py_file)
             for mod in imps:

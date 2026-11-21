@@ -7,6 +7,9 @@
 **Target Repository:** `group03-smartschedule-baseline`  
 **Files Modified:** `web/index.html`, `web/app.js`  
 
+> [!NOTE]
+> **UI v3 Architecture Update (`2026-11-21`, see [`agents/commit_changes.md`](../commit_changes.md) `Entry 019–020`):** The earlier dual `#studentAppLayout` / `#labWorkbenchLayout` shell described below has been superseded by the modular **UI v3** ES-module architecture (`web/index.html`, `web/app.js`, `web/js/*.js`, `web/css/*`) with Calendar / List / Weights / Benchmark / Showcase views and a collapsible Dev Side Panel (`#devSidePanel`). Keep this document as historical design rationale for Student UX principles.
+
 ---
 
 ## 1. Motivation & Context

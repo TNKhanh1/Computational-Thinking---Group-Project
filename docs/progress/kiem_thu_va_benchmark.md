@@ -9,6 +9,9 @@
 
 ## 1. Tổng Quan: Ma Trận Kiểm Thử 60/40
 
+> [!NOTE]
+> **Số liệu xác nhận mới nhất (`2026-11-21`, xem [`docs/commit_changes.md`](../commit_changes.md) `Lần cập nhật 020`):** Hệ thống kiểm thử hiện đã mở rộng từ mốc `89 bài` bên dưới lên **`193 / 193` bài test `clean_runner.py --all` xanh 100%** (bao gồm UI v3, solver V3, `member_eval/`, `P1`–`P3`, 7 bảng Showcase và điều hướng tuần) cùng **`39 / 39` bài `Testing_System/tests`**.
+
 Hệ thống kiểm thử tự động của nhóm hiện đã nâng cấp lên **89 bài test tự động** (trong đó **84 bài test vận hành xanh 100%**):
 
 ```text

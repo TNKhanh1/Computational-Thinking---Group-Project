@@ -28,7 +28,8 @@ from urllib.parse import urlparse
 _THIS_DIR = Path(__file__).resolve().parent
 _BASELINE_ROOT = _THIS_DIR.parent
 _WORKSPACE_ROOT = _BASELINE_ROOT.parent
-for _p in (str(_WORKSPACE_ROOT), str(_BASELINE_ROOT)):
+_PLAN_ROOT = _WORKSPACE_ROOT / "v1.0-alpha-plan"
+for _p in (str(_WORKSPACE_ROOT), str(_PLAN_ROOT), str(_BASELINE_ROOT)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 

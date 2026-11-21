@@ -22,9 +22,10 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 
 def _ensure_paths() -> None:
-    baseline_root = str(Path(__file__).resolve().parents[1])
-    repo_root = str(Path(__file__).resolve().parents[2])
-    for p in (repo_root, baseline_root):
+    baseline_root = Path(__file__).resolve().parents[1]
+    repo_root = baseline_root.parent
+    plan_root = repo_root / "v1.0-alpha-plan"
+    for p in (str(repo_root), str(plan_root), str(baseline_root)):
         if p not in sys.path:
             sys.path.insert(0, p)
 
