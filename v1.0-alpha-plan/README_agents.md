@@ -2,7 +2,9 @@
 
 > [!IMPORTANT]
 > **MANDATORY AGENT HUB (`v1.0-alpha/ui-ux-chat`):**
-> After reading [`agents/README.md`](../agents/README.md), read this document completely before planning edits. It unifies all four `v1.0-alpha` workstreams — **Modular Directory Rebase**, **Ultra-Minimal Chat-First UI/UX**, **Algorithmic Engine & Dominant Subset Design**, and **Merged Online Lightweight Context Parsing** — with exact module paths and checkable `[x]`/`[ ]` progress trackers.
+> After reading [`agents/README.md`](../agents/README.md), read this document completely before planning edits. It unifies all four `v1.0-alpha` workstreams — **Modular Directory Rebase**, **Ultra-Minimal Chat-First UI/UX**, **Algorithmic Engine & Dominant Subset Design**, and **Efficient Free Context-Parsing Model Upgrade** — with exact module paths and checkable `[x]`/`[ ]` progress trackers.
+>
+> **Open Contribution Note:** If you (or any teammate / AI agent) identify a cleaner architecture, faster context-parsing model, or better UX idea for `v1.0-alpha`, feel free to propose and update [`README.md`](README.md) and [`README_agents.md`](README_agents.md) directly!
 
 ---
 
@@ -34,10 +36,13 @@ Legacy `group03-smartschedule-baseline/` has been permanently replaced at reposi
 - **Behavioral Modules:** `estimate_buffer.py` (`RARELY`/`SOMETIMES`/`OFTEN` + `COGNITIVE_LOAD` `1.20/1.35`), `calibration.py` (M7 EWMA), `task_tracer.py` (deterministic stdlib SHA-256 keyword fingerprinting), and `edge_cases.py` (`DEADLOCK` red recovery vs `DENSE_WARNING` yellow warning).
 - **Non-Negotiable Invariants (`INV-1..6`):** Never import `smartschedule.api`, `smartschedule.nlp`, `fastapi`, or `google-genai` into `smartschedule/core/`; never mutate solver outputs or introduce memory growth (`< 350 KB` over 50 runs); keep end-to-end chat turn SLA `< 10,000 ms` (`< 1s` local).
 
-### 1.4. Merged Online Lightweight Context-Parsing Model (`smartschedule/nlp/`)
-- **Layer A (`< 2 ms`, local):** [`clause_condenser.py`](../smartschedule/nlp/clause_condenser.py) splits clauses on commas, extracts cross-day windows (`start_after` + `deadline`), total duration, and atomic continuity (`"liên tục"` -> `is_splittable=False`), preventing multi-day single-task prompts from splitting into multiple tasks.
-- **Layer B (`220–550 ms`, `0 MB` local RAM):** [`context_router.py`](../smartschedule/nlp/context_router.py) invokes `gemini-2.5-flash-lite` / `gemini-2.5-flash` (when `GEMINI_API_KEY` exists in `environments/.env` / env) enforcing `ChatContextExtractionSchema` to summarize titles concisely (e.g. `"Làm bài tập Computational Thinking"`) and return a humanized thinking summary.
-- **Layer C (`< 1 ms`, offline safety net):** Syntactic subject title condenser strips temporal/duration clauses and filler nouns (`"môn"`, `"học phần"`) when offline/CI so behavior stays deterministic.
+### 1.4. Context-Parsing Upgrade: Efficient Free Models (`smartschedule/nlp/`)
+- **Current Layer 4 Baseline:** [`clause_condenser.py`](../smartschedule/nlp/clause_condenser.py) (`< 2 ms`, deterministic cross-day bounds & Vietnamese subject-title condensation such as `"Làm bài tập Computational Thinking"`) + [`context_router.py`](../smartschedule/nlp/context_router.py) (optional Gemini call via `environments/.env` `GEMINI_API_KEY`).
+- **Open-Source / Free Efficiency Upgrade Candidates (Layer 4 Lazy-Loaded ONLY — never violate `INV-5` `< 350 KB` solver heap delta):**
+  - **Transformer Encoder Models (Hugging Face):** `DeBERTa`, `RoBERTa`, `BERT`, and `StructBERT` for deep bidirectional context (NER, QA, contextual classification), plus polarity/nuance encoders such as `cardiffnlp/twitter-roberta-base-sentiment-latest` to handle negation and stress nuance better than rule lexicons.
+  - **spaCy Pipelines (MIT license, free):** Fast dependency parsing, POS tagging, NER, and transformer backbones across 75+ languages for lightweight clause & action-title separation.
+  - **Stanza & Stanford CoreNLP:** Open-source syntactic dependency parsing, constituency parsing, and multilingual linguistic analysis.
+  - **Vision-Language & Document Parsers (`Qwen2-VL`, `Docling`):** Local structured parsing for layout-heavy syllabi or multi-page assignment attachments in chat.
 
 ---
 
@@ -78,12 +83,14 @@ python -B -m uvicorn tools.member_eval.app:app --port 8010     # Blind Eval :801
 - [x] Overhaul `agents/README.md` (single AI entrypoint), `docs/README.md`, `agents/requirements.md`, `docs/requirements.md`, `progress/README.md`, archive Entries `001–015`, and commit modular division (`e56ab06`) + `Project_Drafts/` (`5a96211`).
 - [ ] Final pre-merge branch review on `v1.0-alpha/ui-ux-chat` once team validation completes.
 
-### Phase 2 — Chat-First UI/UX & Online Context Parsing (`UI_Rebuild_Plan/`)
+### Phase 2 — Chat-First UI/UX & Context-Parsing Model Upgrade (`smartschedule/nlp/`)
 - [x] Implement Revision 2–4 ultra-minimal UI rules (`#viewChat` entry, `#btnBrandHome`, clean Settings, full left sidebar collapse, in-place right copilot collapse + strictly hidden `#btnExpandCopilotDrawer`, aligned `"Hôm nay"`).
-- [x] Implement 3-layer Merged Context Parser (Layer A pre-parser + Layer B `gemini-2.5-flash-lite` online model + Layer C `clause_condenser.py` offline safety net) & Developer Mode `💭` Thinking Stage.
+- [x] Implement cross-day single-task condenser (`clause_condenser.py`), initial `context_router.py` hook, multi-turn clarification, and Developer Mode `💭` Thinking Stage.
 - [x] Add automated verification in `tests/logical/test_chat_first_ui_and_task_tracer.py` (`7/7` passed).
-- [ ] Perform live interactive browser verification (Chrome/Edge desktop & mobile widths) after server startup and inspect visual screenshots.
-- [ ] Test live Gemini context extraction (`environments/.env` `GEMINI_API_KEY`) end-to-end against noisy student phrasing and refine academic title stop-words if needed.
+- [ ] Benchmark & integrate free memory/latency-efficient context models (Hugging Face `DeBERTa`/`RoBERTa`/`BERT`/`StructBERT` & `cardiffnlp/twitter-roberta-base-sentiment-latest`, MIT `spaCy` pipelines, or `Stanza`/`CoreNLP`) strictly lazy-loaded in Layer 4 (`smartschedule/nlp/`) while preserving `INV-5`.
+- [ ] Evaluate local document/attachment parsing via `Docling` / `Qwen2-VL` for multi-page PDF syllabi or assignment uploads.
+- [ ] Perform live interactive browser verification (Chrome/Edge desktop & mobile widths) after server startup.
+- [ ] Open suggestions: teammates & AI agents may append improved model benchmarks or architecture refinements directly here.
 
 ### Phase 3 — Algorithmic & Evaluation Milestones
 - [x] Keep `INV-1..6`, 6 solvers (`EDF`..`HYBRID_ALNS`), `DEADLOCK`/`DENSE_WARNING` chat reporting, and `Testing_System v2.1` (`39/39`) green.
