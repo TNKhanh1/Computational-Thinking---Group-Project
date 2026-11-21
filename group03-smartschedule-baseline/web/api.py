@@ -19,12 +19,14 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from fastapi import Body, FastAPI, HTTPException
+from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 
+from src.calibration import compute_ewma_calibration, format_pilot_markdown_report
 from src.controller import ScheduleController
 from src.exporter import export_to_csv, export_to_ics, export_to_json
+from src.ics_importer import parse_ics_calendar
 from src.models import (
     CommitmentsProfile,
     DisruptionEvent,
@@ -32,6 +34,7 @@ from src.models import (
     PersonalHabit,
     ScheduleBlock,
     ScheduleOutput,
+    ScheduleSummary,
     SleepSchedule,
     Task,
 )
@@ -39,15 +42,23 @@ from src.nl_parser import parse_natural_language_task
 from src.solvers.local_repair import LocalRepairEngine
 from src.storage import (
     append_completion_log,
+    create_user,
     delete_workspace_state,
+    get_user_by_id,
     list_completion_logs,
     load_workspace_state,
     save_workspace_state,
+    verify_user_credentials,
 )
+from web.auth import (
+    extract_bearer_claims,
+    get_allowed_origins,
+    issue_access_token,
+    resolve_workspace_id,
+)
+from web.health_v21 import evaluate_schedule_v21
 from web.v3_services import (
-    compute_calibration_summary,
     compute_solver_weights,
-    evaluate_single_schedule,
     get_available_solvers,
     get_test_suites_catalog,
     load_test_suite,
@@ -68,7 +79,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=get_allowed_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -138,21 +149,25 @@ def _extract_profile_and_tasks_impl(
     return profile, tasks, algorithm, pinned_blocks
 
 
-def _extract_profile_and_tasks_raw(payload: Dict[str, Any]) -> Tuple[CommitmentsProfile, List[Task], str, List[ScheduleBlock]]:
-    """Parse payload WITHOUT mutating/buffering tasks (required for ScheduleEvaluator P4.1 & solver-weights)."""
-    return _extract_profile_and_tasks_impl(payload, apply_buffer=False)
+def _extract_profile_and_tasks(
+    payload: Dict[str, Any], apply_buffer: bool = True
+) -> Tuple[CommitmentsProfile, List[Task], str, List[ScheduleBlock]]:
+    """Backward-compatible helper delegating to `_extract_profile_and_tasks_impl`."""
+    return _extract_profile_and_tasks_impl(payload, apply_buffer=apply_buffer)
 
 
-def _extract_profile_and_tasks(payload: Dict[str, Any]) -> Tuple[CommitmentsProfile, List[Task], str, List[ScheduleBlock]]:
-    """
-    Parse request payload supporting BOTH Baseline Schema and Improve Plan Contract (§7.3).
-    Applies Feature 001 estimate buffer for legacy endpoints.
-    """
-    return _extract_profile_and_tasks_impl(payload, apply_buffer=True)
+def _extract_raw_tasks(payload: Dict[str, Any]) -> List[Task]:
+    """Parse raw un-expanded/un-buffered Task models for downstream v2.1 evaluation."""
+    return [Task.model_validate(t) for t in (payload.get("tasks") or [])]
 
 
-def _enrich_response(out: ScheduleOutput, profile: Optional[CommitmentsProfile] = None) -> Dict[str, Any]:
-    """Attach Improve Plan §7.3 alias fields and optional Circadian/Batching insights alongside Baseline §6.2 fields."""
+def _enrich_response(
+    out: ScheduleOutput,
+    profile: Optional[CommitmentsProfile] = None,
+    raw_tasks: Optional[List[Task]] = None,
+    pinned_blocks: Optional[List[ScheduleBlock]] = None,
+) -> Dict[str, Any]:
+    """Attach Improve Plan §7.3 alias fields, Circadian/Batching insights, and v2.1 4-pillar health telemetry."""
     data = out.model_dump()
     data["unplaced"] = data["unplaced_tasks"]
     data["experience_rating"] = out.summary.experience_rating
@@ -184,6 +199,14 @@ def _enrich_response(out: ScheduleOutput, profile: Optional[CommitmentsProfile] 
         "context_switches": insights.get("context_switches", 0),
         "batched_pairs": insights.get("batched_pairs", 0),
     }
+
+    if profile is not None and raw_tasks is not None:
+        data["health_v21"] = evaluate_schedule_v21(
+            profile=profile,
+            raw_tasks=raw_tasks,
+            schedule=out,
+            pinned_blocks=pinned_blocks,
+        )
     return data
 
 
@@ -299,19 +322,84 @@ def get_scenario(scenario_id: str):
     raise HTTPException(status_code=404, detail=f"Scenario '{scenario_id}' not found.")
 
 
+@app.get("/api/solvers")
+def api_list_solvers():
+    """Return canonical solver metadata registered in SOLVER_REGISTRY."""
+    return {"solvers": get_available_solvers()}
+
+
+@app.get("/api/test-suites/catalog")
+def api_test_suites_catalog():
+    """Return unified test suite catalog (Presets, Scenarios T01-T10, Regimes R1-R6)."""
+    presets_dict = get_presets()["presets"]
+    scenarios_list = list_scenarios()["scenarios"]
+    return get_test_suites_catalog(presets_dict, scenarios_list)
+
+
+@app.post("/api/test-suites/load")
+def api_test_suites_load(payload: Dict[str, Any] = Body(...)):
+    """Load any preset, T01-T10 scenario, or seeded R1-R6 Testing_System regime."""
+    source = str(payload.get("source") or "preset")
+    suite_id = str(payload.get("id") or "")
+    seed = int(payload.get("seed") or 42)
+    try:
+        presets_dict = get_presets()["presets"]
+        return load_test_suite(
+            source=source,
+            suite_id=suite_id,
+            seed=seed,
+            presets_dict=presets_dict,
+            scenarios_dir=SCENARIOS_DIR,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/api/benchmark-all")
+def api_benchmark_all(payload: Dict[str, Any] = Body(...)):
+    """Run and evaluate every available canonical solver on the same raw input."""
+    try:
+        profile, _, _, pinned_blocks = _extract_profile_and_tasks(payload, apply_buffer=False)
+        raw_tasks = _extract_raw_tasks(payload)
+        return run_benchmark_all(
+            profile=profile,
+            raw_tasks=raw_tasks,
+            pinned_blocks=pinned_blocks,
+            enrich_fn=lambda out, prof=None: _enrich_response(
+                out, profile=prof, raw_tasks=raw_tasks, pinned_blocks=pinned_blocks
+            ),
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/solver-weights")
+def api_solver_weights(payload: Dict[str, Any] = Body(...)):
+    """Inspect per-task weights, circadian energy levels, and config constants."""
+    try:
+        profile, _, _, pinned_blocks = _extract_profile_and_tasks(payload, apply_buffer=False)
+        raw_tasks = _extract_raw_tasks(payload)
+        return compute_solver_weights(profile=profile, raw_tasks=raw_tasks, pinned_blocks=pinned_blocks)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.post("/api/plan")
 @app.post("/api/solve")
 def api_solve_schedule(payload: Dict[str, Any] = Body(...)):
-    """Run the selected Baseline scheduling algorithm on the 672-slot grid."""
+    """Run the selected scheduling algorithm on the discrete 15-min grid and return v2.1 health telemetry."""
     try:
         profile, tasks, algorithm, pinned_blocks = _extract_profile_and_tasks(payload)
+        raw_tasks = _extract_raw_tasks(payload)
         out, _ = ScheduleController.solve_schedule(
             profile=profile,
             tasks=tasks,
             algorithm=algorithm,
             pinned_blocks=pinned_blocks,
         )
-        return JSONResponse(content=_enrich_response(out, profile=profile))
+        return JSONResponse(
+            content=_enrich_response(out, profile=profile, raw_tasks=raw_tasks, pinned_blocks=pinned_blocks)
+        )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -320,7 +408,8 @@ def api_solve_schedule(payload: Dict[str, Any] = Body(...)):
 def api_compare_algorithms(payload: Dict[str, Any] = Body(...)):
     """Run two algorithms side-by-side for Dual-Algorithm Comparative View (baseline_plan.md §7.4 Option 3)."""
     try:
-        profile, tasks, _, _ = _extract_profile_and_tasks(payload)
+        profile, tasks, _, pinned_blocks = _extract_profile_and_tasks(payload)
+        raw_tasks = _extract_raw_tasks(payload)
         algo_left = str(payload.get("algo_left") or "GREEDY_EDF_FIRST_FIT")
         algo_right = str(payload.get("algo_right") or "SCORED_GREEDY")
         res = ScheduleController.compare_algorithms(
@@ -330,10 +419,63 @@ def api_compare_algorithms(payload: Dict[str, Any] = Body(...)):
             algo_right=algo_right,
         )
         return {
-            "left": _enrich_response(res["left"], profile=profile),
-            "right": _enrich_response(res["right"], profile=profile),
+            "left": _enrich_response(res["left"], profile=profile, raw_tasks=raw_tasks, pinned_blocks=pinned_blocks),
+            "right": _enrich_response(res["right"], profile=profile, raw_tasks=raw_tasks, pinned_blocks=pinned_blocks),
             "comparison": res["comparison"],
         }
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/evaluate")
+def api_evaluate_schedule(payload: Dict[str, Any] = Body(...)):
+    """Evaluate a planned or manually adjusted schedule against Checking Engine v2.1 (`G1/G2` + `P1–P4` + `ICEE`)."""
+    try:
+        profile, _buffered_tasks, algorithm, pinned_blocks = _extract_profile_and_tasks(payload)
+        raw_tasks = _extract_raw_tasks(payload)
+
+        if "schedule" in payload and isinstance(payload["schedule"], dict):
+            schedule = ScheduleOutput.model_validate(payload["schedule"])
+        elif "blocks" in payload and isinstance(payload["blocks"], list):
+            blocks = [ScheduleBlock.model_validate(b) for b in payload["blocks"]]
+            placed_ids = {b.task_id for b in blocks}
+            schedule = ScheduleOutput(
+                status="SUCCESS",
+                solver_used=algorithm,
+                execution_time_ms=0.0,
+                summary=ScheduleSummary(
+                    total_tasks_requested=len(raw_tasks),
+                    tasks_placed=len(placed_ids),
+                    tasks_unplaced=max(0, len(raw_tasks) - len(placed_ids)),
+                ),
+                blocks=blocks,
+            )
+        else:
+            schedule, _ = ScheduleController.solve_schedule(
+                profile=profile,
+                tasks=raw_tasks,
+                algorithm=algorithm,
+                pinned_blocks=pinned_blocks,
+            )
+
+        base_sched = None
+        if "baseline_schedule" in payload and isinstance(payload["baseline_schedule"], dict):
+            base_sched = ScheduleOutput.model_validate(payload["baseline_schedule"])
+
+        dis_span = payload.get("disruption_span")
+        span_tuple = (int(dis_span[0]), int(dis_span[1])) if isinstance(dis_span, (list, tuple)) and len(dis_span) == 2 else None
+        repair_now = int(payload["repair_now_slot"]) if payload.get("repair_now_slot") is not None else None
+
+        return evaluate_schedule_v21(
+            profile=profile,
+            raw_tasks=raw_tasks,
+            schedule=schedule,
+            pinned_blocks=pinned_blocks,
+            baseline_schedule=base_sched,
+            disruption_span=span_tuple,
+            repair_now_slot=repair_now,
+            is_overrun_context=bool(payload.get("is_overrun_context", False)),
+        )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -547,7 +689,7 @@ def api_natural_language_add(payload: Dict[str, Any] = Body(...)):
 
 
 @app.post("/api/tasks/complete")
-def api_task_complete(payload: Dict[str, Any] = Body(...)):
+def api_task_complete(payload: Dict[str, Any] = Body(...), request: Request = None):
     """
     M7 Execution Tracking & Feedback Loop:
     Records actual minutes spent on a task/block and recommends estimate-habit calibration
@@ -556,8 +698,13 @@ def api_task_complete(payload: Dict[str, Any] = Body(...)):
     try:
         task_id = str(payload.get("task_id") or "")
         category = str(payload.get("category") or "OTHER").strip().upper()
-        workspace_id = str(payload.get("workspace_id") or "default")
-        estimated_min = int(payload.get("estimated_min") or payload.get("duration_min") or 60)
+        workspace_id = resolve_workspace_id(request, str(payload.get("workspace_id") or "default"))
+        estimated_min = int(
+            payload.get("estimated_duration_min")
+            or payload.get("estimated_min")
+            or payload.get("duration_min")
+            or 60
+        )
         actual_min = int(payload.get("actual_duration_min") or payload.get("actual_min") or estimated_min)
         completed = bool(payload.get("completed", True))
         ratio = round(actual_min / max(1, estimated_min), 2)
@@ -684,15 +831,70 @@ def api_overload_preview(payload: Dict[str, Any] = Body(...)):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@app.get("/api/state")
-def api_get_state(workspace_id: str = "default"):
-    """Load persisted workspace state (commitments, tasks, pins, done blocks, algorithm) from SQLite."""
+@app.post("/api/auth/register")
+def api_auth_register(payload: Dict[str, Any] = Body(...)):
+    """Register a multi-tenant student account and return a signed HS256 Bearer token."""
+    email = str(payload.get("email") or "").strip()
+    password = str(payload.get("password") or "")
+    display_name = str(payload.get("display_name") or "").strip()
     try:
-        record = load_workspace_state(workspace_id=workspace_id)
+        user = create_user(email=email, password=password, display_name=display_name, provider="local")
+    except ValueError as exc:
+        msg = str(exc)
+        status = 409 if "already registered" in msg.lower() else 400
+        raise HTTPException(status_code=status, detail=msg) from exc
+
+    token = issue_access_token(user["user_id"], user["email"], user["display_name"])
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "workspace_id": f"user:{user['user_id']}",
+        "user": user,
+    }
+
+
+@app.post("/api/auth/login")
+def api_auth_login(payload: Dict[str, Any] = Body(...)):
+    """Authenticate an existing account and return a signed HS256 Bearer token."""
+    email = str(payload.get("email") or "").strip()
+    password = str(payload.get("password") or "")
+    user = verify_user_credentials(email=email, password=password)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Invalid email or password.")
+    token = issue_access_token(user["user_id"], user["email"], user["display_name"])
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "workspace_id": f"user:{user['user_id']}",
+        "user": user,
+    }
+
+
+@app.get("/api/auth/me")
+def api_auth_me(request: Request):
+    """Return the authenticated user profile and isolated tenant workspace_id."""
+    claims = extract_bearer_claims(request)
+    if claims is None:
+        raise HTTPException(status_code=401, detail="Missing Bearer token.")
+    user = get_user_by_id(claims["sub"])
+    if user is None:
+        raise HTTPException(status_code=401, detail="User account no longer exists.")
+    return {
+        "workspace_id": f"user:{user['user_id']}",
+        "user": user,
+    }
+
+
+@app.get("/api/state")
+def api_get_state(workspace_id: str = "default", request: Request = None):
+    """Load persisted workspace state (commitments, tasks, pins, done blocks, algorithm) from SQLite."""
+    ws_id = resolve_workspace_id(request, workspace_id)
+    try:
+        record = load_workspace_state(workspace_id=ws_id)
         if record is None:
             return {
                 "exists": False,
-                "workspace_id": (workspace_id or "default").strip() or "default",
+                "workspace_id": ws_id,
                 "state": None,
                 "updated_at": None,
             }
@@ -702,17 +904,17 @@ def api_get_state(workspace_id: str = "default"):
 
 
 @app.put("/api/state")
-def api_put_state(payload: Dict[str, Any] = Body(...)):
+def api_put_state(payload: Dict[str, Any] = Body(...), request: Request = None):
     """Save or overwrite persisted workspace state in SQLite."""
+    ws_id = resolve_workspace_id(request, str(payload.get("workspace_id") or "default"))
     try:
-        workspace_id = str(payload.get("workspace_id") or "default").strip() or "default"
         state_data = payload.get("state")
         if not isinstance(state_data, dict):
             state_data = {k: v for k, v in payload.items() if k != "workspace_id"}
-        updated_at = save_workspace_state(state_data, workspace_id=workspace_id)
+        updated_at = save_workspace_state(state_data, workspace_id=ws_id)
         return {
             "status": "saved",
-            "workspace_id": workspace_id,
+            "workspace_id": ws_id,
             "updated_at": updated_at,
         }
     except Exception as exc:
@@ -720,10 +922,10 @@ def api_put_state(payload: Dict[str, Any] = Body(...)):
 
 
 @app.delete("/api/state")
-def api_delete_state(workspace_id: str = "default"):
+def api_delete_state(workspace_id: str = "default", request: Request = None):
     """Reset/delete persisted workspace state in SQLite."""
+    ws_id = resolve_workspace_id(request, workspace_id)
     try:
-        ws_id = (workspace_id or "default").strip() or "default"
         removed = delete_workspace_state(workspace_id=ws_id)
         return {
             "status": "deleted",
@@ -735,10 +937,10 @@ def api_delete_state(workspace_id: str = "default"):
 
 
 @app.get("/api/tasks/completions")
-def api_list_completions(workspace_id: str = "default", limit: int = 200):
+def api_list_completions(workspace_id: str = "default", limit: int = 200, request: Request = None):
     """Retrieve historical M7 actual duration completion logs from SQLite."""
+    ws_id = resolve_workspace_id(request, workspace_id)
     try:
-        ws_id = (workspace_id or "default").strip() or "default"
         rows = list_completion_logs(workspace_id=ws_id, limit=limit)
         return {
             "workspace_id": ws_id,
@@ -748,116 +950,70 @@ def api_list_completions(workspace_id: str = "default", limit: int = 200):
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-# ---------------------------------------------------------------------------
-# SmartSchedule UI v3 Endpoints (Benchmark All, Solver Weights, Unified Suites, ICS Import, Calibration)
-# ---------------------------------------------------------------------------
-
-
-@app.get("/api/solvers")
-def api_list_solvers():
-    """Return canonical scheduling algorithms currently registered in SOLVER_REGISTRY."""
-    return {"solvers": get_available_solvers()}
-
-
-@app.post("/api/evaluate")
-def api_evaluate_schedule(payload: Dict[str, Any] = Body(...)):
-    """Evaluate a schedule via Testing_System ScheduleEvaluator using raw (unbuffered) tasks."""
+@app.get("/api/tasks/calibration")
+def api_tasks_calibration(
+    workspace_id: str = "default",
+    limit: int = 200,
+    lambda_ewma: float = 0.25,
+    min_samples: int = 5,
+    include_markdown: bool = False,
+    request: Request = None,
+):
+    """Compute M7 empirical Actual/Estimated ratios and EWMA personal alpha recommendations (LoA-4)."""
+    ws_id = resolve_workspace_id(request, workspace_id)
     try:
-        profile, raw_tasks, algorithm, pinned_blocks = _extract_profile_and_tasks_raw(payload)
-        raw_sched = payload.get("schedule")
-        if isinstance(raw_sched, dict) and "blocks" in raw_sched and "summary" in raw_sched:
-            schedule = ScheduleOutput.model_validate(raw_sched)
-        else:
-            schedule, _ = ScheduleController.solve_schedule(
-                profile=profile,
-                tasks=raw_tasks,
-                algorithm=algorithm,
-                pinned_blocks=pinned_blocks,
-            )
-        return evaluate_single_schedule(
-            profile=profile,
-            raw_tasks=raw_tasks,
-            schedule=schedule,
-            pinned_blocks=pinned_blocks,
+        rows = list_completion_logs(workspace_id=ws_id, limit=limit)
+        cal = compute_ewma_calibration(
+            rows,
+            lambda_ewma=lambda_ewma,
+            min_samples=min_samples,
         )
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@app.post("/api/benchmark-all")
-def api_benchmark_all(payload: Dict[str, Any] = Body(...)):
-    """Run and evaluate all registered canonical solvers on identical input, ranked lexicographically."""
-    try:
-        profile, raw_tasks, _, pinned_blocks = _extract_profile_and_tasks_raw(payload)
-        return run_benchmark_all(
-            profile=profile,
-            raw_tasks=raw_tasks,
-            pinned_blocks=pinned_blocks,
-            enrich_fn=_enrich_response,
+        rec_alpha = cal.get("recommended_alpha_heavy")
+        rec_habit = (
+            "OFTEN"
+            if isinstance(rec_alpha, (int, float)) and rec_alpha >= 1.25
+            else ("SOMETIMES" if isinstance(rec_alpha, (int, float)) and rec_alpha >= 1.10 else "RARELY")
         )
+        resp: Dict[str, Any] = {
+            "workspace_id": ws_id,
+            "sample_count": cal["sample_count"],
+            "ready_for_calibration": cal["ready_to_apply"],
+            "ewma_ratio": cal.get("ewma_overall") or cal.get("mean_ratio"),
+            "mean_ratio": cal.get("mean_ratio"),
+            "recommended_alpha": rec_alpha,
+            "recommended_habit": rec_habit,
+            "calibration": cal,
+        }
+        if include_markdown:
+            resp["markdown"] = format_pilot_markdown_report(cal, workspace_id=ws_id)
+        return resp
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@app.post("/api/solver-weights")
-def api_solver_weights(payload: Dict[str, Any] = Body(...)):
-    """Return transparent per-task solver weights, grid tightness, circadian profile, config constants & glossary."""
-    try:
-        profile, raw_tasks, _, pinned_blocks = _extract_profile_and_tasks_raw(payload)
-        return compute_solver_weights(
-            profile=profile,
-            raw_tasks=raw_tasks,
-            pinned_blocks=pinned_blocks,
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@app.get("/api/test-suites/catalog")
-def api_test_suites_catalog():
-    """Return unified catalog across Presets, Scenarios T01-T10, and Testing_System Regimes R1-R6."""
-    presets_dict = get_presets()["presets"]
-    scenarios_list = list_scenarios()["scenarios"]
-    return get_test_suites_catalog(presets_dict, scenarios_list)
-
-
-@app.post("/api/test-suites/load")
-def api_test_suites_load(payload: Dict[str, Any] = Body(...)):
-    """Load any test suite from Presets, Scenarios T01-T10, or Regimes R1-R6 with optional seed."""
-    try:
-        source = str(payload.get("source") or "preset")
-        suite_id = str(payload.get("id") or "minh")
-        seed = int(payload.get("seed") if payload.get("seed") is not None else 42)
-        presets_dict = get_presets()["presets"]
-        return load_test_suite(
-            source=source,
-            suite_id=suite_id,
-            seed=seed,
-            presets_dict=presets_dict,
-            scenarios_dir=SCENARIOS_DIR,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @app.post("/api/import/ics")
 def api_import_ics(payload: Dict[str, Any] = Body(...)):
-    """Parse an uploaded .ics calendar payload into previewable FixedEvents and deadline Tasks."""
-    try:
-        ics_text = str(payload.get("content") or payload.get("ics") or "")
-        return parse_ics_content(ics_text)
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    """
+    Parse an uploaded `.ics` timetable or Moodle/Canvas LMS calendar feed into
+    preview drafts of FixedEvents and Tasks.
+    """
+    if "content" in payload and "ics_content" not in payload:
+        ics_raw = str(payload.get("content") or "").strip()
+        if not ics_raw:
+            raise HTTPException(status_code=400, detail="Field 'content' cannot be empty.")
+        try:
+            return parse_ics_content(ics_raw)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-
-@app.get("/api/tasks/calibration")
-def api_tasks_calibration(workspace_id: str = "default"):
-    """Compute EWMA calibration suggestion from M7 historical completion logs."""
-    try:
-        ws_id = (workspace_id or "default").strip() or "default"
-        return compute_calibration_summary(workspace_id=ws_id)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    ics_text = str(payload.get("ics_content") or payload.get("ics") or "").strip()
+    if not ics_text:
+        raise HTTPException(status_code=400, detail="Field 'ics_content' cannot be empty.")
+    tz_offset = int(payload.get("tz_offset_hours", 7))
+    default_dur = int(payload.get("default_task_duration_min", 90))
+    return parse_ics_calendar(
+        ics_text=ics_text,
+        tz_offset_hours=tz_offset,
+        default_task_duration_min=default_dur,
+    )
 
