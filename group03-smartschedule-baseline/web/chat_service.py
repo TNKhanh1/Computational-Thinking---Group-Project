@@ -1,30 +1,33 @@
 """
-Conversational Scheduling Service for Chat-First UI/UX (Layer 4 — Revision 2).
+Conversational Scheduling Service for Chat-First UI/UX (Layer 4 — Merged Pipeline).
 
-Handles:
-  1. Multi-turn slot filling for recurring schedules (FixedEvent) and one-off tasks (Task)
-     when title or start/end time is missing.
-  2. Context-aware cross-day window parsing (e.g. "từ 19h ngày thứ 3, tới 21h ngày thứ 5,
-     cần thực hiện trong 2 tiếng" -> 1 single task with start_after=Tuesday 19:00,
-     deadline=Thursday 21:00, duration=120m).
-  3. SHA-256 task traceability + hidden criteria tuning.
-  4. Deadline adjustment & remaining-duration estimation using user habit + M7 EWMA calibration.
-  5. Dominant Algorithm Subset selection (`SCORED_GREEDY` / `HYBRID_ALNS`, pruning dominated
-     energy-blind `EDF`/`WSPT`/`LST`) + Antigravity-style humanized Thinking Summary for Developer Mode.
+Combines:
+  1. Layer A (Deterministic Clause & Cross-Day Window Pre-Parser): Multi-turn slot filling,
+     cross-day bounds ("từ 19h tối thứ 3, đến 21h tối thứ 5"), and flexible duration/continuity extraction.
+  2. Layer B (Online Lightweight Context-Parsing Model Upgrade): Google Gemini (`gemini-2.5-flash-lite` /
+     `gemini-2.5-flash` with `thinking_budget=0` and `ChatContextExtractionSchema`) when `GEMINI_API_KEY`
+     is configured, giving 0 MB local RAM, ~250-550 ms title/context summarization.
+  3. Layer C (Vietnamese Subject Title Condenser Fallback): Exact clause-boundary decomposition and
+     classifier stripping ("Làm bài tập môn Computational Thinking" -> "Làm bài tập Computational Thinking").
+  4. SHA-256 task traceability + hidden criteria tuning, M7 EWMA remaining-time buffering, and
+     Dominant Algorithm Subset Selection (`SCORED_GREEDY` / `HYBRID_ALNS`) + Developer Thinking Stage.
 """
 
 from __future__ import annotations
 
+import os
 import re
 import time
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple
+
+from pydantic import BaseModel, Field
 
 from src.calibration import compute_ewma_calibration
 from src.controller import ScheduleController
 from src.estimate_buffer import multiplier_for_habit, multiplier_for_load
 from src.models import CommitmentsProfile, FixedEvent, ScheduleBlock, ScheduleOutput, Task
-from src.nl_parser import OfflineNLParser, WEEKDAYS, _strip_accents
+from src.nl_parser import OfflineNLParser, WEEKDAYS, _load_local_env, _strip_accents, genai, genai_types
 from src.storage import list_completion_logs, load_workspace_state, save_workspace_state
 from src.task_tracer import (
     enrich_task_trace_metadata,
@@ -34,6 +37,46 @@ from src.task_tracer import (
 from src.utils import SLOTS_PER_DAY, round_up_to_15
 
 _OFFLINE_NL = OfflineNLParser()
+_ONLINE_CONTEXT_MODELS = (
+    "gemini-2.5-flash-lite",
+    "gemini-2.5-flash",
+    "gemini-2.0-flash-lite",
+    "gemini-3-flash-preview",
+)
+_UNAVAILABLE_CONTEXT_MODELS: set[str] = set()
+
+
+class ChatContextExtractionSchema(BaseModel):
+    """Structured JSON schema returned by the online lightweight context-parsing model."""
+
+    intent: Literal["ADD_TASK", "ADD_RECURRING", "MODIFY_HIDDEN", "ADJUST_DEADLINE"] = "ADD_TASK"
+    is_single_task: bool = Field(
+        default=True,
+        description="True when the prompt describes 1 single task with a start bound, deadline bound, and duration.",
+    )
+    concise_title: str = Field(
+        default="",
+        description=(
+            "Clean, concise 3-7 word Vietnamese/English task title stripped of all time bounds, durations, "
+            "and filler words like 'môn', 'học phần', 'cần hoàn thành trong tổng thời gian'. "
+            "Example: 'Làm bài tập Computational Thinking'."
+        ),
+    )
+    start_after_day: Optional[str] = Field(default=None, description="Monday..Sunday if start bound is stated.")
+    start_after_time: Optional[str] = Field(default=None, description="HH:MM (24h) earliest start time.")
+    deadline_day: Optional[str] = Field(default=None, description="Monday..Sunday (or Next Monday) deadline day.")
+    deadline_time: Optional[str] = Field(default=None, description="HH:MM (24h) deadline time.")
+    duration_min: Optional[int] = Field(default=None, description="Total work duration in minutes (e.g. 2 tiếng -> 120).")
+    is_splittable: Optional[bool] = Field(
+        default=None,
+        description="False when user states 'liên tục', 'liền mạch', or 'không chia nhỏ'; True if 'chia nhỏ'.",
+    )
+    cognitive_load: Optional[int] = Field(default=None, ge=1, le=3)
+    preferred_window: Optional[Literal["MORNING", "AFTERNOON", "EVENING", "ANYTIME"]] = None
+    human_thinking_summary_vi: str = Field(
+        default="",
+        description="1 short natural Vietnamese sentence explaining how context and hidden criteria were parsed.",
+    )
 
 _WEEKDAY_VI_MAP = {
     "Monday": "Thứ Hai",
@@ -218,14 +261,90 @@ def _extract_recurring_days(norm_text: str) -> Optional[Any]:
     return found[0] if len(found) == 1 else found
 
 
-def _clean_conversational_title(raw_text: str) -> str:
-    """Strip temporal clauses, duration expressions, and command prefixes while preserving the subject title."""
-    work = raw_text.split("\n")[0]
+def _extract_flexible_duration_min(norm_text: str) -> Tuple[Optional[int], bool]:
+    """
+    Extract explicit task duration even when qualifiers like "tổng thời gian" or
+    "thời lượng" appear between "trong" and the number (e.g., "cần hoàn thành trong tổng thời gian 2 tiếng liên tục").
+    """
+    dur_val, dur_inferred = _OFFLINE_NL.extract_duration_min(norm_text)
+    if not dur_inferred and dur_val is not None:
+        return dur_val, False
 
-    # Strip cross-day & temporal clauses first before OfflineNLParser touches them
+    m = re.search(
+        r"\b(?:trong(?:\s+vong|\s+khoang)?\s+)?"
+        r"(?:tong\s+)?(?:thoi\s*gian(?:\s+la)?\s+|thoi\s*luong\s+|khoang\s+|tam\s+|mat\s+|keo\s*dai\s+)"
+        r"(\d+(?:[.,]\d+)?)\s*(tieng|gio|h|hours?|hrs?|phut|p|m|mins?|minutes?)\b",
+        norm_text,
+    )
+    if m:
+        raw_num = float(m.group(1).replace(",", "."))
+        unit = m.group(2).lower()
+        mins = int(round(raw_num * 60)) if unit.startswith(("t", "g", "h")) else int(round(raw_num))
+        if mins >= 15:
+            return mins, False
+    return dur_val, dur_inferred
+
+
+def _is_temporal_or_constraint_clause(clause_norm: str) -> bool:
+    """Identify secondary comma-clauses describing time windows, duration bounds, or pacing constraints."""
+    c = clause_norm.strip(" ,;:-.")
+    if not c:
+        return True
+    has_day_or_clock = bool(
+        re.search(
+            r"\b(?:\d{1,2}\s*(?::|h|gio)|thu\s*(?:[2-7]|hai|ba|tu|nam|sau|bay)|t[2-7]|chu\s*nhat|cn|hom\s*nay|ngay\s*mai|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b",
+            c,
+        )
+    )
+    if re.match(r"^(?:tu|from|toi|den|truoc|to|until|deadline|han\s*chot|han\s*nop|vao|luc)\b", c) and (
+        has_day_or_clock or re.search(r"\b(?:sang|trua|chieu|toi|dem)\b", c)
+    ):
+        return True
+    if re.search(
+        r"\b(?:tong\s*thoi\s*gian|thoi\s*luong|thuc\s*hien\s+trong|hoan\s*thanh\s+trong|lam\s+trong|keo\s*dai(?:\s+trong)?|trong\s+khoang)\b",
+        c,
+    ) and re.search(r"\b\d+(?:[.,]\d+)?\s*(?:tieng|gio|h|phut|p|m|mins?|hours?)\b", c):
+        return True
+    if re.match(
+        r"^(?:trong(?:\s+vong|\s+khoang)?\s+)?\d+(?:[.,]\d+)?\s*(?:tieng|gio|h|phut|p|m|mins?|hours?)(?:\s+(?:lien\s*tuc|lien\s*mach))?$",
+        c,
+    ):
+        return True
+    if re.match(
+        r"^(?:lam\s+)?(?:lien\s*tuc|lien\s*mach|lien\s*1\s*mach|khong\s*(?:the\s*)?chia\s*nho|hang\s*ngay|moi\s*ngay|hang\s*tuan)$",
+        c,
+    ):
+        return True
+    if re.match(r"^[2-7]$", c):
+        return True
+    return False
+
+
+def _clean_conversational_title(raw_text: str) -> str:
+    """
+    Clause-Level Subject Title Condenser:
+      1. Decomposes multi-clause prompts (e.g. '..., từ 19h tối thứ 3, đến 21h tối thứ 5, cần hoàn thành trong tổng thời gian 2 tiếng liên tục')
+      2. Drops temporal bound & execution-duration clauses cleanly
+      3. Strips redundant classifier words ('môn', 'học phần') -> 'Làm bài tập Computational Thinking'.
+    """
+    first_line = str(raw_text or "").split("\n")[0].strip()
+    if not first_line:
+        return ""
+
+    raw_clauses = [c.strip() for c in re.split(r"[,;]+", first_line) if c.strip()]
+    kept_clauses: List[str] = []
+    for cl in raw_clauses:
+        cl_norm = _strip_accents(cl).lower().strip()
+        if len(raw_clauses) > 1 and _is_temporal_or_constraint_clause(cl_norm):
+            continue
+        kept_clauses.append(cl)
+
+    work = ", ".join(kept_clauses) if kept_clauses else first_line
+
     clause_patterns = (
-        r"(?:,\s*)?\b(?:từ|tu|from)\s+[^,\n]*?\b(?:tới|toi|đến|den|trước|truoc|to|until)\s+[^,\n]+",
-        r"(?:,\s*)?\b(?:cần\s*)?(?:thực\s*hiện|thuc\s*hien|làm|lam|hoàn\s*thành|hoan\s*thanh)?\s*(?:trong(?:\s*vòng|\s*khoảng)?|khoảng|khoang|mất|mat|tầm|tam)\s+\d+(?:\.\d+)?\s*(?:tiếng|tieng|giờ|gio|h|phút|phut|p|m|mins?|hours?)\b",
+        r"(?:,\s*)?\b(?:từ|tu|from)\s+(?:(?!(?:tới|đến|trước|\bto\b|\buntil\b))[^;\n]){1,55}?\b(?:tới|toi|đến|den|trước|truoc|to|until)\s+[^,\n]+",
+        r"(?:,\s*)?\b(?:cần\s*|can\s*|phải\s*|phai\s*)?(?:thực\s*hiện|thuc\s*hien|làm|lam|hoàn\s*thành|hoan\s*thanh|học|hoc|kéo\s*dài|keo\s*dai)?\s*(?:trong(?:\s*vòng|\s*khoảng|\s*tổng\s*thời\s*gian|\s*thời\s*gian)?|tổng\s*thời\s*gian|tong\s*thoi\s*gian|thời\s*gian|thoi\s*gian|thời\s*lượng|thoi\s*luong|khoảng|khoang|mất|mat|tầm|tam)\s+\d+(?:[.,]\d+)?\s*(?:tiếng|tieng|giờ|gio|h|phút|phut|p|m|mins?|hours?)(?:\s+(?:liên\s*tục|lien\s*tuc|liền\s*mạch|lien\s*mach|liền|lien|không\s*chia\s*nhỏ|khong\s*chia\s*nho))?\b",
+        r"(?:,\s*)?\b(?:làm\s+|lam\s+)?(?:liên\s*tục|lien\s*tuc|liền\s*mạch|lien\s*mach|liền\s*1\s*mạch|lien\s*1\s*mach|không\s*thể\s*chia\s*nhỏ|khong\s*the\s*chia\s*nho|không\s*chia\s*nhỏ|khong\s*chia\s*nho)\b",
         r"(?:,\s*)?\b(?:từ\s+)?\d{1,2}\s*(?::|h|giờ|gio)\s*(?:\d{1,2}|rưỡi|ruoi)?\s*(?:am|pm|sáng|sang|trưa|trua|chiều|chieu|tối|toi|đêm|dem)?\s*(?:-|–|—|đến|den|tới|toi|to)\s*\d{1,2}\s*(?::|h|giờ|gio)\s*(?:\d{1,2}|rưỡi|ruoi)?\s*(?:am|pm|sáng|sang|trưa|trua|chiều|chieu|tối|toi|đêm|dem)?\b",
         r"\b(?:hằng\s*ngày|hàng\s*ngày|mỗi\s*ngày|lặp\s*lại|cố\s*định|mỗi\s*tuần|hằng\s*tuần|daily|weekly)\b",
     )
@@ -249,10 +368,16 @@ def _clean_conversational_title(raw_text: str) -> str:
         if cleaned == prev:
             break
 
-    # Clean trailing filler verbs left after stripping duration (e.g. ", cần thực hiện")
+    # Clean trailing filler verbs & academic classifier fillers ("môn", "học phần", etc.)
     cleaned = re.sub(
-        r"(?:,\s*)?\b(?:cần\s*thực\s*hiện|can\s*thuc\s*hien|thực\s*hiện|thuc\s*hien|cần\s*làm|can\s*lam|trong|từ|tu|tới|toi|đến|den)\s*$",
+        r"(?:,\s*)?\b(?:cần\s*hoàn\s*thành|can\s*hoan\s*thanh|hoàn\s*thành|hoan\s*thanh|cần\s*thực\s*hiện|can\s*thuc\s*hien|thực\s*hiện|thuc\s*hien|cần\s*làm|can\s*lam|trong\s+tổng\s+thời\s+gian|tong\s+thoi\s+gian|liên\s*tục|lien\s*tuc|trong|từ|tu|tới|toi|đến|den)\s*$",
         "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(
+        r"\b((?:làm|lam)\s+(?:bài|bai)\s+(?:tập|tap)|(?:bài|bai)\s+(?:tập|tap)|(?:ôn|on)\s+(?:thi|tập|tap)|(?:đồ|do)\s+(?:án|an)|(?:báo|bao)\s+(?:cáo|cao)|(?:thực|thuc)\s+(?:hành|hanh)|học|hoc|lab)\s+(?:môn\s+học|mon\s+hoc|môn|mon|học\s+phần|hoc\s+phan|bộ\s+môn|bo\s+mon)\s+(?=\S)",
+        r"\1 ",
         cleaned,
         flags=re.IGNORECASE,
     )
@@ -261,6 +386,85 @@ def _clean_conversational_title(raw_text: str) -> str:
     if work_norm in _GENERIC_TITLES or len(work_norm) < 2 or cleaned_norm in _GENERIC_TITLES:
         return ""
     return cleaned[0].upper() + cleaned[1:]
+
+
+def _parse_context_with_online_model(
+    prompt: str,
+    now_day: str,
+    api_key_override: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    Layer B: Online Lightweight Context-Parsing Model (Gemini 2.5 Flash-Lite / Flash).
+    Uses structured JSON output with thinking_budget=0 for ~250-550ms latency and 0 MB local RAM,
+    falling back seamlessly to the local Clause-Level Condenser when offline or in unit tests.
+    """
+    _load_local_env()
+    if os.getenv("PYTEST_CURRENT_TEST") and os.getenv("ENABLE_ONLINE_CONTEXT_MODEL_IN_TESTS") != "1":
+        return None
+
+    api_key = (api_key_override or os.getenv("GEMINI_API_KEY") or "").strip()
+    if not api_key or genai is None or genai_types is None:
+        return None
+
+    sys_prompt = (
+        "You are SmartSchedule's fast context extraction engine for Vietnamese & English student scheduling.\n"
+        f"Reference current weekday: {now_day}.\n"
+        f'User prompt: "{prompt}"\n\n'
+        "Rules:\n"
+        "1. Treat the prompt as 1 single task (`is_single_task=true`) when a start bound, deadline bound, and work duration describe one assignment.\n"
+        "2. Summarize `concise_title` into a natural 3-7 word action phrase in the prompt's language, stripping ALL dates, times, durations, and filler words like 'môn', 'học phần', 'cần hoàn thành trong tổng thời gian', 'liên tục'. "
+        "For example, 'Làm bài tập môn Computational Thinking, từ 19h tối thứ 3, đến 21h tối thứ 5, cần hoàn thành trong tổng thời gian 2 tiếng liên tục' -> concise_title='Làm bài tập Computational Thinking'.\n"
+        "3. Map weekdays to Monday..Sunday (thứ 2=Monday, thứ 3=Tuesday, thứ 4=Wednesday, thứ 5=Thursday, thứ 6=Friday, thứ 7=Saturday, chủ nhật=Sunday) and 24h times ('19h tối'->'19:00', '21h tối'->'21:00').\n"
+        "4. Set `is_splittable=false` if user specifies 'liên tục', 'liền mạch', 'không chia nhỏ'.\n"
+        "5. Provide a 1-sentence Vietnamese `human_thinking_summary_vi` explaining what you understood."
+    )
+
+    try:
+        client = genai.Client(api_key=api_key)
+    except Exception:
+        return None
+
+    cfg_kwargs: Dict[str, Any] = {
+        "response_mime_type": "application/json",
+        "response_schema": ChatContextExtractionSchema,
+        "temperature": 0.0,
+    }
+    if hasattr(genai_types, "ThinkingConfig"):
+        cfg_kwargs["thinking_config"] = genai_types.ThinkingConfig(thinking_budget=0)
+
+    try:
+        gen_config = genai_types.GenerateContentConfig(**cfg_kwargs)
+    except Exception:
+        return None
+
+    for model_name in _ONLINE_CONTEXT_MODELS:
+        if model_name in _UNAVAILABLE_CONTEXT_MODELS:
+            continue
+        try:
+            resp = client.models.generate_content(
+                model=model_name,
+                contents=sys_prompt,
+                config=gen_config,
+            )
+            parsed = getattr(resp, "parsed", None)
+            if parsed is None and getattr(resp, "text", None):
+                parsed = ChatContextExtractionSchema.model_validate_json(resp.text)
+            if parsed is None:
+                continue
+
+            data = parsed.model_dump()
+            raw_title = str(data.get("concise_title") or "").strip()
+            if raw_title:
+                data["concise_title"] = _clean_conversational_title(raw_title) or raw_title
+            data["model_used"] = model_name
+            return data
+        except Exception as exc:
+            err_msg = str(exc).lower()
+            if "404" in err_msg or "not_found" in err_msg or "no longer available" in err_msg:
+                _UNAVAILABLE_CONTEXT_MODELS.add(model_name)
+            continue
+
+    return None
 
 
 def _infer_fixed_category(norm_text: str) -> str:
@@ -337,7 +541,7 @@ def _detect_intent(
     # 3. If the prompt states a cross-day window or duration + deadline without an explicit edit verb, it's a NEW task!
     now_day = _resolve_now_weekday(profile)
     has_cross_window = _extract_cross_day_window(norm, now_day) is not None
-    dur_val, dur_inferred = _OFFLINE_NL.extract_duration_min(norm)
+    dur_val, dur_inferred = _extract_flexible_duration_min(norm)
     has_explicit_dur = not dur_inferred and dur_val is not None
     has_add_verb = bool(re.match(r"^\s*(?:them|tao|add|create|len\s*lich|lam|hoc|on|viet|code|doc|chuan\s*bi|nop)\b", norm))
     has_modify_verb = bool(re.search(r"\b(?:sua|chinh|cap\s*nhat|dieu\s*chinh|tach|chia\s*nho|gop|nang\s*qua|qua\s*nang)\b", norm))
@@ -495,7 +699,7 @@ def _compute_remaining_and_habit_buffer(
     and the user's stated estimation habit / task cognitive load.
     """
     norm = _strip_accents(prompt).lower()
-    explicit_rem_min, dur_inferred = _OFFLINE_NL.extract_duration_min(norm)
+    explicit_rem_min, dur_inferred = _extract_flexible_duration_min(norm)
     old_duration = int(task_dict.get("duration_min") or 60)
 
     if not dur_inferred and explicit_rem_min is not None:
@@ -966,19 +1170,54 @@ def process_chat_turn(payload: Dict[str, Any]) -> Dict[str, Any]:
         )
 
     # ------------------------------------------------------------------
-    # BRANCH 4: ADD / ADJUST SPECIFIC TASK (WITH CROSS-DAY WINDOW SUPPORT)
+    # BRANCH 4: ADD / ADJUST SPECIFIC TASK (MERGED ONLINE MODEL + CLAUSE CONDENSER)
     # ------------------------------------------------------------------
     draft = dict(pending_draft or {"intent": "ADD_TASK"})
     cross_win = _extract_cross_day_window(norm_prompt, now_day)
     s_time, e_time = (None, None) if cross_win else _extract_time_range(norm_prompt)
-    dur_min, dur_inferred = _OFFLINE_NL.extract_duration_min(norm_prompt)
+    dur_min, dur_inferred = _extract_flexible_duration_min(norm_prompt)
     dl_day, day_inferred = _OFFLINE_NL.extract_deadline_day(norm_prompt, now_day)
     dl_time, time_inferred, _, _ = _OFFLINE_NL.extract_clock_time(norm_prompt)
     title_parsed = _clean_conversational_title(prompt)
     cat, prio, cog_load = _OFFLINE_NL.extract_category_priority_load(prompt.lower(), norm_prompt)
     hidden = extract_hidden_criteria_updates(prompt, focus_preference=profile.focus_preference)
 
-    if title_parsed and not draft.get("title"):
+    online_ctx = (
+        _parse_context_with_online_model(
+            prompt,
+            now_day,
+            api_key_override=str(payload.get("gemini_api_key") or "").strip() or None,
+        )
+        if not pending_draft
+        else None
+    )
+
+    if online_ctx:
+        if online_ctx.get("concise_title"):
+            title_parsed = str(online_ctx["concise_title"]).strip()
+        if dur_inferred and online_ctx.get("duration_min"):
+            dur_min = int(online_ctx["duration_min"])
+            dur_inferred = False
+        if day_inferred and online_ctx.get("deadline_day") in WEEKDAYS:
+            dl_day = str(online_ctx["deadline_day"])
+            day_inferred = False
+        if time_inferred and online_ctx.get("deadline_time"):
+            dl_time = str(online_ctx["deadline_time"])
+            time_inferred = False
+        if not cross_win and online_ctx.get("start_after_day") in WEEKDAYS:
+            draft["start_after_day"] = str(online_ctx["start_after_day"])
+            if online_ctx.get("start_after_time"):
+                draft["start_after_time"] = str(online_ctx["start_after_time"])
+        if "is_splittable" not in hidden["updates"] and online_ctx.get("is_splittable") is not None:
+            draft["is_splittable"] = bool(online_ctx["is_splittable"])
+            if not draft["is_splittable"]:
+                draft["work_rhythm"] = "FLOW"
+        if "cognitive_load" not in hidden["updates"] and online_ctx.get("cognitive_load"):
+            cog_load = int(online_ctx["cognitive_load"])
+        if "preferred_window" not in hidden["updates"] and online_ctx.get("preferred_window"):
+            draft["preferred_window"] = str(online_ctx["preferred_window"])
+
+    if title_parsed and (online_ctx and online_ctx.get("concise_title") or not draft.get("title")):
         draft["title"] = title_parsed
 
     if cross_win:
@@ -1110,7 +1349,12 @@ def process_chat_turn(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     # Keep a single task as 1 single contiguous block unless the user asked to split or duration > 180m
     explicit_split_req = "is_splittable" in hidden["updates"]
-    is_split = bool(draft["is_splittable"]) if explicit_split_req else (final_dur > 180)
+    if explicit_split_req:
+        is_split = bool(draft["is_splittable"])
+    elif online_ctx and online_ctx.get("is_splittable") is not None:
+        is_split = bool(online_ctx["is_splittable"])
+    else:
+        is_split = final_dur > 180
     min_c = int(draft.get("min_chunk_min") or (45 if is_split else final_dur))
     max_c = int(draft.get("max_chunk_min") or (90 if is_split else max(180, final_dur)))
 
@@ -1147,12 +1391,22 @@ def process_chat_turn(payload: Dict[str, Any]) -> Dict[str, Any]:
     else:
         time_desc = f"{task_obj.duration_min} phút, hạn {task_obj.deadline_time} {day_vi}"
 
+    parser_tag = (
+        f"Online AI ({online_ctx.get('model_used', 'gemini')})"
+        if online_ctx
+        else "Hybrid Clause Condenser"
+    )
+    ai_note = (
+        f" · {online_ctx['human_thinking_summary_vi']}"
+        if online_ctx and online_ctx.get("human_thinking_summary_vi")
+        else ""
+    )
     context_note = (
-        f"Nhận diện 1 công việc duy nhất: **{task_obj.title}** (SHA-256 `#{enriched_new['trace_hash'][:8]}`) · "
-        f"Thời gian: `{time_desc}` · Giữ nguyên 1 khối liền mạch để tránh chia vụn."
+        f"[{parser_tag}] Tóm tắt thành 1 công việc duy nhất: **{task_obj.title}** (SHA-256 `#{enriched_new['trace_hash'][:8]}`) · "
+        f"Thời gian: `{time_desc}` · Giữ liền 1 khối liên tục (không chia nhỏ){ai_note}."
         if not is_split
-        else f"Nhận diện 1 công việc: **{task_obj.title}** (SHA-256 `#{enriched_new['trace_hash'][:8]}`) · "
-        f"Thời gian: `{time_desc}` · Cho phép chia thành các phiên `{min_c}–{max_c}p`."
+        else f"[{parser_tag}] Tóm tắt thành 1 công việc: **{task_obj.title}** (SHA-256 `#{enriched_new['trace_hash'][:8]}`) · "
+        f"Thời gian: `{time_desc}` · Cho phép chia thành các phiên `{min_c}–{max_c}p`{ai_note}."
     )
 
     return _finalize_solve_and_package(
