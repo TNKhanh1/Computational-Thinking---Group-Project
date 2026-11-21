@@ -1,10 +1,5 @@
 """
-Read-only adapter bridging `Testing_System` to the untouched `group03-smartschedule-baseline` project.
-
-Supports:
-  1. Preprocessing helpers (`expand_personal_habits`, `apply_estimate_buffer`) & grid reconstruction.
-  2. Direct Domain Controller execution across all 5 solvers + Local/Ripple/FullRebuild/Overrun repairs.
-  3. HTTP API End-to-End execution via FastAPI TestClient using an isolated SQLite DB path so production state is untouched.
+Read-only adapter bridging `Testing_System` to the `smartschedule` core/api package.
 """
 
 from __future__ import annotations
@@ -15,25 +10,25 @@ import sys
 import tempfile
 from typing import Any, Dict, List, Optional, Tuple
 
-_PARENT_DIR = Path(__file__).resolve().parent.parent
-_WORKSPACE_ROOT = _PARENT_DIR if (_PARENT_DIR / "group03-smartschedule-baseline").is_dir() else _PARENT_DIR.parent
-_BASELINE_ROOT = _WORKSPACE_ROOT / "group03-smartschedule-baseline"
+_THIS_FILE = Path(__file__).resolve()
+_PLAN_DIR = _THIS_FILE.parents[1]
+_REPO_ROOT = _PLAN_DIR.parent
+for _p in (str(_REPO_ROOT), str(_PLAN_DIR)):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
-if str(_BASELINE_ROOT) not in sys.path:
-    sys.path.insert(0, str(_BASELINE_ROOT))
-
-# Ensure SQLite writes from API calls never mutate baseline data/local_state.db
+# Ensure SQLite writes from API calls never mutate runtime data/runtime/local_state.db
 _ISOLATED_DB_PATH = str(Path(tempfile.gettempdir()) / "smartschedule_testing_isolated.db")
 os.environ.setdefault("SMARTSCHEDULE_DB_PATH", _ISOLATED_DB_PATH)
 
-from src.controller import ScheduleController  # noqa: E402
-from src.grid_manager import TimeGridManager  # noqa: E402
-from src.metrics import (  # noqa: E402
+from smartschedule.core.controller import ScheduleController  # noqa: E402
+from smartschedule.core.grid_manager import TimeGridManager  # noqa: E402
+from smartschedule.core.metrics import (  # noqa: E402
     audit_hard_constraint_violations,
     calculate_fragmentation_index,
     calculate_schedule_stability,
 )
-from src.models import (  # noqa: E402
+from smartschedule.core.models import (  # noqa: E402
     CircadianEnergyProfile,
     CommitmentsProfile,
     DisruptionEvent,
@@ -46,9 +41,9 @@ from src.models import (  # noqa: E402
     SleepSchedule,
     Task,
 )
-from src.solvers.base_solver import BaseScheduler  # noqa: E402
-from src.solvers.local_repair import LocalRepairEngine  # noqa: E402
-from src.utils import (  # noqa: E402
+from smartschedule.core.solvers.base_solver import BaseScheduler  # noqa: E402
+from smartschedule.core.solvers.local_repair import LocalRepairEngine  # noqa: E402
+from smartschedule.core.utils import (  # noqa: E402
     MINUTES_PER_SLOT,
     SLOTS_PER_DAY,
     SLOTS_PER_WEEK,
@@ -214,7 +209,7 @@ class InProcessFastAPIClient:
         import json as _json
         from fastapi import HTTPException  # noqa: E402
         from fastapi.responses import JSONResponse  # noqa: E402
-        from web import api as web_api  # noqa: E402
+        from smartschedule.api import app as web_api  # noqa: E402
 
         payload = _json.loads(_json.dumps(json))
         routes = {
@@ -239,7 +234,7 @@ class InProcessFastAPIClient:
     def get(self, path: str, params: Optional[Dict[str, Any]] = None) -> _InProcessResponse:
         import json as _json
         from fastapi import HTTPException  # noqa: E402
-        from web import api as web_api  # noqa: E402
+        from smartschedule.api import app as web_api  # noqa: E402
 
         q = params or {}
         try:
@@ -266,7 +261,7 @@ def create_isolated_http_client(db_path: Optional[str] = None, transport: str = 
         os.environ["SMARTSCHEDULE_DB_PATH"] = _ISOLATED_DB_PATH
     if transport == "testclient":
         from fastapi.testclient import TestClient  # noqa: E402
-        from web.api import app  # noqa: E402
+        from smartschedule.api.app import app  # noqa: E402
 
         return TestClient(app)
     return InProcessFastAPIClient()

@@ -1,0 +1,5 @@
+/* Modular CSS Entrypoint — SmartSchedule UI */
+@import url("./shell.css");
+@import url("./dev-panel.css");
+@import url("./calendar.css");
+@import url("./chat.css");
