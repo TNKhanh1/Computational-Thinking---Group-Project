@@ -20,6 +20,8 @@
   3. **Tập 3 — Tập kiểm chứng mù chưa từng chạm khi tinh chỉnh (`Held-Out Unseen Fuzz v2`, `50 seeds: 5001..5050`, `300` lượt chạy):** `EXAM_PREP_WEEK` (`14`), `HIGH_SCHOOL_STUDENT` (`14`), `UNI_BUSY_WEEK` (`11`), `UNI_ASYMMETRIC` (`11`); `7 ngày` (`34`), `14 ngày` (`16`); `LOOSE` (`25`), `TIGHT` (`15`), `OVERLOAD` (`10`); `witness_verified = 40/40`.
      * Invariants PASS: **`50 / 50`** | Lỗi cứng `INVALID`: **`0 / 300`** | `SUBOPT`: **`0 / 300`** | Nghịch lý xếp hạng: **`0 / 50`**.
 
+* **Đợt chạy bổ sung `2026-11-21` — chọn đề cho tab *Bảng so sánh trên 7 bộ test nổi bật* (Web UI):** quét `60` đề (`R1–R6 × seeds 1,2,3,42,101` = `30` + Fuzz `RANDOM 1001..1030` = `30`) × `6` thuật toán = `360` lượt giải & chấm, chế độ `DIRECT_CONTROLLER` (`v2.1`), cùng `ScheduleEvaluator` + `rank_cross_solver_reports`; sau đó `verification_tests` **`190 / 190`** passed (gồm `4` test mới `test_showcase_and_fuzz_suites.py`). Kết quả chi tiết ở mục **2.6**.
+
 ---
 
 ## II. Bảng Thống Kê Bộ Thuật Toán Theo Tiêu Chí `v2.1` & Phân Bố `Verdict`
@@ -103,6 +105,29 @@
 * `#3 EDF`: `G1=0, P1.1=100.0%, Shk25=21.28%, Rec/Stk/PCl=100/345/0, OffP/APk%=5/48, <10h=0.0%, Crn/MaxD=6/14/1/765m, Ctx=18, Hab/Prf=-/30, SJL/TStd=82/259` (`64.9ms`)
 * `#4 WSPT`, `#5 LST`, `#6 SCORED_GREEDY`: `G1=0, P1.1=100.0%, Shk25=12.77%, Rec/Stk/PCl=21/360/0, OffP/APk%=7/42, <10h=0.0%, Crn/MaxD=5/14/2/795m, Ctx=23, Hab/Prf=-/31, SJL/TStd=105/312` (`539.2ms` / `316.2ms` / `512.4ms`) — **toàn bộ `6/6` solver đạt `100%` deadline thay vì `42.5% SUBOPT` (`LST`) hay `1.1–6.4%` (`SCORED_GREEDY`/`WSPT`)**.
 
+
+### 2.6. Bảy Bộ Test Nổi Bật Đưa Lên Web UI (`2026-11-21`, đợt quét đơn luồng)
+
+Chọn từ đợt quét `60` đề theo **kiểu khác biệt** giữa các thuật toán (mỗi đề làm nổi một cấp khác nhau của thứ tự từ điển). Chỉ lấy đề `7 ngày` có thuật toán chậm nhất `< 700ms` để không chạm cổng trần `1000ms`. Trên UI, mỗi bảng được giải & chấm trực tiếp và có phần giải thích sinh tự động từ số liệu ([test_showcase.py](../group03-smartschedule-baseline/web/test_showcase.py)).
+
+| # | Đề (`source / id / seed`) | Thông số đề | Thứ hạng `#1 → #6` *(Verdict)* | Cấp quyết định thứ hạng |
+| :---: | :--- | :--- | :--- | :--- |
+| 1 | `regime / R1 / 3` | `7 ngày`, `EVENING`, $
+ho = 0.37$ | `HYBRID_ALNS`, `BACKTRACK`, `SCORED_GREEDY` *(HIGH)* → `WSPT`, `LST`, `EDF` *(LOW)* | `#1`, `#4`, `#5` |
+| 2 | `regime / R3 / 1` | `7 ngày`, `EVENING`, $
+ho = 0.11$ | `SCORED_GREEDY`, `BACKTRACK`, `HYBRID_ALNS`, `LST` *(HIGH)* → `WSPT`, `EDF` *(LOW)* | `#1`, `#5` |
+| 3 | `regime / R2 / 101` | `7 ngày`, `MORNING`, $
+ho = 0.77$ | `BACKTRACK`, `SCORED_GREEDY`, `EDF`, `HYBRID_ALNS`, `WSPT`, `LST` *(tất cả LOW)* | `#3`, `#4` |
+| 4 | `regime / R5 / 42` | `7 ngày`, `EVENING`, quá tải | `HYBRID_ALNS`, `SCORED_GREEDY`, `BACKTRACK`, `WSPT` *(P1.1 `74.1%`)* → `LST` *(`66.7%`)* → `EDF` *(`63.0%`)*, tất cả `OVLD` | `#2`, `#4`, `#10` |
+| 5 | `fuzz / RANDOM / 1001` | `TIGHT`, Học sinh cấp 3, $
+ho = 0.79$ | `SCORED_GREEDY`, `HYBRID_ALNS`, `LST` *(Shk25 `94.9%`)* → `EDF` *(`86.4%`)* → `WSPT` *(`71.2%`)* → `BACKTRACK` *(`67.8%`)*, tất cả LOW | `#3`, `#5`, `#7` |
+| 6 | `fuzz / RANDOM / 1007` | `OVERLOAD`, SV lịch lệch, $
+ho = 1.23$ | `EDF` *(P1.1 `78.3%`)* → `HYBRID_ALNS` *(`75.3%`)* → `BACKTRACK`, `SCORED_GREEDY` *(`72.2%`)* → `WSPT`, `LST` *(`71.1%`)*, tất cả `OVLD` | `#2`, `#4` |
+| 7 | `fuzz / RANDOM / 1015` | `LOOSE`, SV tuần bận, $
+ho = 0.38$ | `SCORED_GREEDY`, `HYBRID_ALNS`, `BACKTRACK`, `LST`, `WSPT` *(HIGH)* → `EDF` *(LOW)* | `#1`, `#5`, `#6`, `#8`, `#10` |
+
+* **Phát hiện về độ ổn định (đo lại cùng đề Fuzz `1001`):** trong đợt quét (đơn luồng) `BACKTRACK` đạt Shk25 `67.8%` như bảng trên, nhưng `3/3` lần đo lại đơn luồng sau đó `SCORED_GREEDY`, `BACKTRACK`, `HYBRID_ALNS`, `LST` đều đạt `94.9%` — tức kết quả V3 dao động ngay cả khi không chạy song song; khi có `2` luồng khác giải lịch song song trong cùng tiến trình, `SCORED_GREEDY`/`BACKTRACK`/`HYBRID_ALNS` tụt còn `67.8%` (`3/3` lần) và `WSPT` dao động `71.2–84.8%`, còn `LST` và `EDF` giữ nguyên. Nguyên nhân là bước tối ưu V3 bị giới hạn theo **thời gian thực** (`time_budget_sec` trong [backtracking.py](../group03-smartschedule-baseline/src/solvers/backtracking.py), `deadline_ts` trong [ergonomic_engine.py](../group03-smartschedule-baseline/src/solvers/ergonomic_engine.py)): khi CPU bị chia, số vòng tối ưu giảm. Đề `1001` ở bảng trên lệch vị trí `BACKTRACK` so với Ví dụ 1 (mục 2.5) cũng vì lý do này. Vì vậy chữ mô tả viết tay trên UI không khẳng định kết quả, và mỗi bảng có nút *Chạy lại*.
+
 ---
 
 ## III. Thứ Tự Ưu Tiên Xếp Hạng `v2.1` (Cổng `#0` + 10 Cấp Từ Điển Có Dung Sai)
@@ -163,3 +188,4 @@ Tại [verdict_and_icee.py#L538-L630](../Testing_System/evaluator/verdict_and_ic
 2. **Đề xuất chọn thuật toán chính thức cho SmartSchedule:**
    * **Thuật toán mặc định cho Web UI & API thời gian thực (`<= 1000 ms`):** **`SCORED_GREEDY`** — giữ hạng TB tốt nhất trên Regimes (`2.22`, `#1` `57/120` và `73/120` ở mode 5 thuật) lẫn Unseen (`2.48`), nhanh nhất trong nhóm Energy-Aware (`263.1ms` Regimes, `396.5ms` Fuzz, `22.41ms` T01), giữ vững ngôi `#1` trên `Regime 3` & `T09 Ablation`, đạt `22/24` Fuzz `LOOSE` & `25/25` Unseen `LOOSE`.
    * **Thuật toán cao cấp thiên về chất lượng tối đa (`Higher-End Design`):** **`HYBRID_ALNS`** (thuật thứ 6, alias `ALNS`/`ULTIMATE`) — đứng đầu tổng số ca **`HIGH_PRODUCTIVITY` toàn bộ `220` đề (`79/120` Regimes gồm `19/20 R1`, `22/24` Fuzz `LOOSE`, `25/25` Unseen `LOOSE`)**, dẫn đầu `APk%` (`84.1%` / `71.9%`), giảm nhẹ `TStd` xuống `61p` trên tập ẩn và khống chế `max_ms <= 774.8ms`; song hành cùng **`BACKTRACK`** (`AvgRk 2.30` trên Fuzz, `23/24 LOOSE HIGH`) làm đối chứng nhánh-cận trạng thái sống.
+3. **Lưu ý tái lập kết quả cho nhóm (`2026-11-21`):** số liệu của `SCORED_GREEDY`, `BACKTRACK`, `HYBRID_ALNS` phụ thuộc lượng CPU rảnh trong ngân sách thời gian (mục 2.6: Shk25 `94.9% → 67.8%` khi có luồng giải song song). Khi chạy benchmark nên chạy đơn luồng trên máy rảnh; về lâu dài nên chuyển giới hạn của bước tối ưu sang số vòng/số node cố định để kết quả tất định bất kể tải máy.

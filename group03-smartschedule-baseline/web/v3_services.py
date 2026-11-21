@@ -37,6 +37,7 @@ from src.utils import MINUTES_PER_SLOT
 from Testing_System.evaluator import ScheduleEvaluator
 from Testing_System.evaluator.verdict_and_icee import rank_cross_solver_reports
 from Testing_System.generator import InputGenerator
+from Testing_System.generator.fuzz_generator import FuzzGenerator
 from Testing_System.schemas import EvaluationConfig, EvaluationReport, RegimeName
 
 
@@ -93,6 +94,65 @@ REGIME_CATALOG: List[Dict[str, Any]] = [
         "description": "Kèm sự cố đột xuất & tràn thời lượng (A/B/C), kiểm tra ổn định sửa lịch & bảo toàn PINNED.",
     },
 ]
+
+FUZZ_TIER_CATALOG: List[Dict[str, Any]] = [
+    {
+        "id": "RANDOM",
+        "name": "Fuzz · Ngẫu nhiên theo seed",
+        "tag": "RANDOM",
+        "rho_range": "LOOSE 45% · TIGHT 35% · OVERLOAD 20%",
+        "description": "Seed tự bốc mức tải theo phân phối gốc — tái lập đúng các seed 1001–1050 / 5001–5050 trong Solver_Benchmark_Report.",
+    },
+    {
+        "id": "LOOSE",
+        "name": "Fuzz · LOOSE (Dư sức chứa)",
+        "tag": "LOOSE",
+        "rho_range": "ρ ≈ 0.25–0.56",
+        "description": "Hồ sơ ngẫu nhiên + lời giải mẫu (Witness) gieo sẵn: luôn khả thi, đo chất lượng sinh học & nhịp tuần.",
+    },
+    {
+        "id": "TIGHT",
+        "name": "Fuzz · TIGHT (Sát sức chứa)",
+        "tag": "TIGHT",
+        "rho_range": "ρ ≈ 0.65–0.90",
+        "description": "Vẫn khả thi nhờ Witness nhưng rất chật: kiểm tra giữ đủ hạn chót và đệm chịu sốc +25%.",
+    },
+    {
+        "id": "OVERLOAD",
+        "name": "Fuzz · OVERLOAD (Quá tải thật)",
+        "tag": "OVERLOAD",
+        "rho_range": "ρ_deadline ≈ 1.22–1.55",
+        "description": "Nhu cầu vượt sức chứa: đo khả năng triage — giữ lại việc có priority cao nhất.",
+    },
+]
+
+FUZZ_ARCHETYPE_VI: Dict[str, str] = {
+    "HIGH_SCHOOL_STUDENT": "Học sinh cấp 3",
+    "UNI_ASYMMETRIC": "Sinh viên lịch lệch",
+    "UNI_BUSY_WEEK": "Sinh viên tuần bận",
+    "EXAM_PREP_WEEK": "Tuần ôn thi",
+}
+
+
+def generate_testing_bundle(source: str, suite_id: str, seed: int, horizon_days: Optional[int] = None):
+    """Generate one Testing_System input bundle: regime R1..R6 (+horizon) or FuzzGenerator v2 tier."""
+    src = (source or "").strip().lower()
+    sid = (suite_id or "").strip().upper()
+    if src == "regime":
+        regime_enum: Optional[RegimeName] = None
+        for entry in REGIME_CATALOG:
+            if sid in (entry["id"], entry["regime"]):
+                regime_enum = RegimeName(entry["regime"])
+                break
+        if regime_enum is None:
+            raise ValueError(f"Unknown regime '{suite_id}'. Use R1..R6.")
+        h = int(horizon_days) if str(horizon_days) in ("7", "14") else None
+        return InputGenerator.generate(regime_enum, seed=int(seed), horizon_days=h)
+    if src == "fuzz":
+        if sid not in {t["id"] for t in FUZZ_TIER_CATALOG}:
+            raise ValueError(f"Unknown fuzz tier '{suite_id}'. Use RANDOM / LOOSE / TIGHT / OVERLOAD.")
+        return FuzzGenerator.generate(seed=int(seed), tier=None if sid == "RANDOM" else sid)
+    raise ValueError(f"Unsupported generated source '{source}'.")
 
 
 def get_available_solvers() -> List[Dict[str, str]]:
@@ -604,6 +664,8 @@ def get_test_suites_catalog(presets_dict: Dict[str, Any], scenarios_list: List[D
         "presets": presets,
         "scenarios": scenarios_list,
         "regimes": REGIME_CATALOG,
+        "fuzz_tiers": FUZZ_TIER_CATALOG,
+        "horizon_options": [None, 7, 14],
     }
 
 
@@ -613,8 +675,9 @@ def load_test_suite(
     seed: int,
     presets_dict: Dict[str, Any],
     scenarios_dir: Path,
+    horizon_days: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """Load any test suite from Preset, Scenario T01-T10, or Testing_System Regime R1-R6."""
+    """Load any test suite: Preset, Scenario T01-T10, Testing_System Regime R1-R6 (+horizon) or Fuzz v2 tier."""
     src_clean = (source or "preset").strip().lower()
     sid = (suite_id or "").strip()
 
@@ -661,17 +724,9 @@ def load_test_suite(
                     }
         raise ValueError(f"Scenario '{suite_id}' not found.")
 
-    if src_clean == "regime":
-        # Match R1..R6 or full RegimeName value
-        regime_enum: Optional[RegimeName] = None
-        for entry in REGIME_CATALOG:
-            if sid.upper() in (entry["id"], entry["regime"]):
-                regime_enum = RegimeName(entry["regime"])
-                break
-        if regime_enum is None:
-            raise ValueError(f"Unknown regime '{suite_id}'. Use R1..R6.")
-
-        bundle = InputGenerator.generate(regime_enum, seed=int(seed))
+    if src_clean in ("regime", "fuzz"):
+        bundle = generate_testing_bundle(src_clean, sid, int(seed), horizon_days)
+        meta = bundle.metadata
         disruption_dict = None
         overrun_dict = None
         if bundle.regime6_suite is not None:
@@ -680,17 +735,28 @@ def load_test_suite(
                 "task_id": bundle.regime6_suite.level_b_overrun_task_id,
                 "overrun_pct": bundle.regime6_suite.level_b_overrun_pct,
             }
+        if src_clean == "fuzz":
+            arch = FUZZ_ARCHETYPE_VI.get(meta.persona_archetype or "", meta.persona_archetype or "?")
+            name = f"FUZZ[{meta.fuzz_tier} · {arch}] seed={seed} · {meta.horizon_days} ngày"
+            desc = (
+                f"FuzzGenerator v2 · {arch} · ρ={meta.tightness_rho:.2f} · {meta.task_count} việc, "
+                f"{meta.habit_count} thói quen, {meta.pinned_count} ghim"
+                + (" · có lời giải mẫu (Witness)" if meta.witness_verified else "")
+            )
+        else:
+            name = f"{sid} (seed={seed}) · {meta.horizon_days} ngày · {meta.chronotype}"
+            desc = meta.notes or f"Sinh tự động từ Testing_System InputGenerator ({meta.regime.value})."
         return {
-            "source": "regime",
+            "source": src_clean,
             "id": sid.upper(),
-            "name": f"{sid.upper()} (seed={seed}) · {bundle.metadata.chronotype}",
-            "description": bundle.metadata.notes or f"Sinh tự động từ Testing_System InputGenerator ({regime_enum.value}).",
+            "name": name,
+            "description": desc,
             "commitments": bundle.profile.model_dump(),
             "tasks": [t.model_dump() for t in bundle.tasks],
             "pinned_blocks": [b.model_dump() for b in bundle.pinned_blocks],
             "disruption": disruption_dict,
             "overrun_config": overrun_dict,
-            "metadata": bundle.metadata.model_dump(),
+            "metadata": meta.model_dump(),
         }
 
     raise ValueError(f"Unsupported test suite source '{source}'.")

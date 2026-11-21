@@ -57,6 +57,7 @@ from web.auth import (
     resolve_workspace_id,
 )
 from web.health_v21 import evaluate_schedule_v21
+from web.test_showcase import get_showcase_case, list_showcase
 from web.v3_services import (
     compute_solver_weights,
     get_available_solvers,
@@ -343,10 +344,12 @@ def api_test_suites_catalog():
 
 @app.post("/api/test-suites/load")
 def api_test_suites_load(payload: Dict[str, Any] = Body(...)):
-    """Load any preset, T01-T10 scenario, or seeded R1-R6 Testing_System regime."""
+    """Load a preset, T01-T10 scenario, seeded R1-R6 regime (optional horizon 7/14) or FuzzGenerator v2 tier."""
     source = str(payload.get("source") or "preset")
     suite_id = str(payload.get("id") or "")
     seed = int(payload.get("seed") or 42)
+    horizon_raw = payload.get("horizon_days")
+    horizon = int(horizon_raw) if str(horizon_raw) in ("7", "14") else None
     try:
         presets_dict = get_presets()["presets"]
         return load_test_suite(
@@ -355,7 +358,23 @@ def api_test_suites_load(payload: Dict[str, Any] = Body(...)):
             seed=seed,
             presets_dict=presets_dict,
             scenarios_dir=SCENARIOS_DIR,
+            horizon_days=horizon,
         )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/test-showcase")
+def api_test_showcase_list():
+    """List curated Testing_System cases where the 6 solvers diverge (no solving; instant)."""
+    return list_showcase()
+
+
+@app.get("/api/test-showcase/{index}")
+def api_test_showcase_case(index: int, refresh: bool = False):
+    """Solve + evaluate + rank one showcase case and return its table with a data-driven explanation."""
+    try:
+        return get_showcase_case(index, force=refresh)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

@@ -19,6 +19,7 @@ import {
 import { renderBenchmarkView } from "./js/render-benchmark.js";
 import { renderCalendarView } from "./js/render-calendar.js";
 import { renderListView } from "./js/render-list.js";
+import { renderShowcaseView } from "./js/render-showcase.js";
 import { renderWeightsView } from "./js/render-weights.js";
 import { buildApiPayload, invalidateSolverCaches, state } from "./js/state.js";
 import {
@@ -212,11 +213,11 @@ async function fetchSolverWeights(switchToView = false) {
   }
 }
 
-async function loadSuite(source, id, seed = 42, notify = true) {
+async function loadSuite(source, id, seed = 42, notify = true, horizonDays = null) {
   closeAllPopovers();
   setBusyState(true);
   try {
-    const res = await api.loadSuite(source, id, seed);
+    const res = await api.loadSuite(source, id, seed, horizonDays);
     state.commitments = res.commitments || state.commitments;
     state.tasks = res.tasks || [];
     state.pinnedBlocks = res.pinned_blocks || [];
@@ -243,6 +244,18 @@ async function loadSuite(source, id, seed = 42, notify = true) {
 // ============================================================================
 // INTERACTIVE ACTIONS (Drag/Drop, Pin, Check-in, Overrun, Repair, Overload, Export)
 // ============================================================================
+
+/** Move the planning week (and simulated NOW) by `deltaDays`; task deadlines keep their absolute dates. */
+async function shiftWeek(deltaDays) {
+  const ws = parseWeekStartDate(state.commitments.planning_week_start);
+  const nextWs = addDays(ws, deltaDays);
+  state.commitments.planning_week_start = `${fmtISODate(nextWs)}T00:00:00+07:00`;
+  state.commitments.now = `${fmtISODate(nextWs)}T08:00:00+07:00`;
+  state.scrubberStartDay = 0;
+  invalidateSolverCaches();
+  await solveActiveSolver(true);
+  await persistWorkspace(true);
+}
 
 async function handleDropMoveBlock(blockId, newStartSlot, dayLabel, timeLabel) {
   const blocks = state.currentSchedule?.blocks || [];
@@ -457,6 +470,7 @@ function setActiveView(viewName) {
     list: "viewList",
     weights: "viewWeights",
     benchmark: "viewBenchmark",
+    showcase: "viewShowcase",
   };
   Object.entries(map).forEach(([k, id]) => {
     document.getElementById(id)?.classList.toggle("active", k === viewName);
@@ -495,6 +509,11 @@ function renderAll() {
     },
     onSyncRangeLabel: () => renderCalendarRangeLabel(),
     onBackToCalendar: () => setActiveView("calendar"),
+    onShiftWeek: (deltaDays) => shiftWeek(deltaDays),
+    onLoadSuite: async (src, id, seed, horizon = null) => {
+      await loadSuite(src, id, seed, true, horizon);
+      setActiveView("calendar");
+    },
   };
 
   if (state.activeView === "calendar") {
@@ -505,6 +524,8 @@ function renderAll() {
     renderWeightsView(document.getElementById("viewWeights"), sharedCallbacks);
   } else if (state.activeView === "benchmark") {
     renderBenchmarkView(document.getElementById("viewBenchmark"), sharedCallbacks);
+  } else if (state.activeView === "showcase") {
+    renderShowcaseView(document.getElementById("viewShowcase"), sharedCallbacks);
   }
 }
 
@@ -1173,18 +1194,13 @@ function wireStaticListeners() {
     closeAllPopovers();
     runBenchmarkAll(true);
   });
+  document.getElementById("btnTopShowcase")?.addEventListener("click", () => {
+    closeAllPopovers();
+    setActiveView("showcase");
+  });
   document.getElementById("btnOpenDisruption").addEventListener("click", () => openDisruptionModal());
 
   // Week navigation & 7d/14d horizon
-  const shiftWeek = async (deltaDays) => {
-    const ws = parseWeekStartDate(state.commitments.planning_week_start);
-    const nextWs = addDays(ws, deltaDays);
-    state.commitments.planning_week_start = `${fmtISODate(nextWs)}T00:00:00+07:00`;
-    state.commitments.now = `${fmtISODate(nextWs)}T08:00:00+07:00`;
-    invalidateSolverCaches();
-    await solveActiveSolver(true);
-    await persistWorkspace(true);
-  };
   document.getElementById("btnWeekPrev").addEventListener("click", () => shiftWeek(-7));
   document.getElementById("btnWeekNext").addEventListener("click", () => shiftWeek(7));
   document.getElementById("btnWeekToday").addEventListener("click", () => {
@@ -1210,7 +1226,11 @@ function wireStaticListeners() {
     closeAllPopovers();
     if (willOpen) {
       renderTestSuitePopover(pop, {
-        onLoadSuite: (src, id, seed) => loadSuite(src, id, seed, true),
+        onLoadSuite: (src, id, seed, horizon = null) => loadSuite(src, id, seed, true, horizon),
+        onOpenShowcase: () => {
+          closeAllPopovers();
+          setActiveView("showcase");
+        },
       });
       pop.classList.add("open");
       e.currentTarget.setAttribute("aria-expanded", "true");

@@ -26,11 +26,13 @@ async function request(url, options = {}) {
 export const api = {
   getSolvers: () => request("/api/solvers"),
   getCatalog: () => request("/api/test-suites/catalog"),
-  loadSuite: (source, id, seed = 42) =>
+  loadSuite: (source, id, seed = 42, horizonDays = null) =>
     request("/api/test-suites/load", {
       method: "POST",
-      body: JSON.stringify({ source, id, seed }),
+      body: JSON.stringify({ source, id, seed, horizon_days: horizonDays }),
     }),
+  getShowcaseList: () => request("/api/test-showcase"),
+  getShowcaseCase: (index, refresh = false) => request(`/api/test-showcase/${index}${refresh ? "?refresh=true" : ""}`),
 
   plan: (payload) =>
     request("/api/plan", {

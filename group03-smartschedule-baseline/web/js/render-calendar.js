@@ -86,10 +86,62 @@ export function renderCalendarView(container, callbacks) {
       </div>`;
   }
 
-  // Unplaced strip
+  // Unplaced strip — split genuine "no valid slot" failures from tasks whose deadline is already
+  // before the planning week (backend reason DEADLINE_IN_PAST / code PAST_DUE). The latter happen
+  // when the user navigates to a later week: they are not a scheduling failure nor an overload.
+  const isPastDue = (u) =>
+    u.reason_code === "PAST_DUE" || u.reason_code === "DEADLINE_IN_PAST" || String(u.reason || "").includes("DEADLINE_IN_PAST");
+  const pastDue = unplaced.filter(isPastDue);
+  const genuineUnplaced = unplaced.filter((u) => !isPastDue(u));
+  const taskById = new Map((state.tasks || []).map((t) => [t.task_id, t]));
+  const dueOf = (u) => {
+    const m = String(taskById.get(u.task_id)?.due || "").match(/^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?/);
+    return m ? { date: new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])), time: m[4] ? `${m[4]}:${m[5]}` : "" } : null;
+  };
+
+  let pastDueHtml = "";
+  if (pastDue.length > 0) {
+    const dues = pastDue.map(dueOf).filter(Boolean);
+    const latest = dues.length ? new Date(Math.max(...dues.map((d) => d.date.getTime()))) : null;
+    // Shift by whole weeks so the planning week keeps its weekday alignment and contains `latest`.
+    const weeksBack = latest ? Math.floor((latest.getTime() - wsDate.getTime()) / (7 * 86400000)) : 0;
+    const targetWs = addDays(wsDate, weeksBack * 7);
+    const nothingElse =
+      genuineUnplaced.length === 0 && !blocks.some((b) => !["HABIT", "FIXED", "SLEEP", "MEAL"].includes(String(b.category || "").toUpperCase()));
+    const chips = pastDue
+      .map((u) => {
+        const d = dueOf(u);
+        return `<div class="unplaced-chip past-due-chip">
+          <strong>${esc(u.title || u.task_id)}</strong>
+          <span class="mono">${u.duration_min}p</span>
+          <span style="color:var(--p-muted)">· hạn ${d ? `${fmtDDMM(d.date)}${d.time ? ` ${d.time}` : ""}` : esc(u.deadline || "trước tuần này")}</span>
+        </div>`;
+      })
+      .join("");
+    pastDueHtml = `
+      <div class="card unplaced-strip past-due-strip">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0;">
+            <span class="badge badge-info">Đã quá hạn trước tuần này (${pastDue.length})</span>
+            <span style="font-size:12.5px;color:var(--p-muted)">
+              Hạn chót của các việc này nằm trước ${fmtDDMM(wsDate)} nên không xếp vào tuần đang xem — không phải lỗi xếp lịch hay quá tải.${
+                nothingElse ? " <strong>Tuần này không có việc có hạn nào cần xếp.</strong>" : ""
+              }
+            </span>
+          </div>
+          ${
+            latest && weeksBack < 0
+              ? `<button type="button" class="btn btn-sm" id="btnJumpToDueWeek" data-week-shift="${weeksBack * 7}">← Về tuần có hạn (${fmtDDMM(targetWs)} – ${fmtDDMM(addDays(targetWs, 6))})</button>`
+              : ""
+          }
+        </div>
+        <div class="unplaced-list">${chips}</div>
+      </div>`;
+  }
+
   let unplacedHtml = "";
-  if (unplaced.length > 0) {
-    const chips = unplaced
+  if (genuineUnplaced.length > 0) {
+    const chips = genuineUnplaced
       .map(
         (u) => `<div class="unplaced-chip">
           <strong>${esc(u.title || u.task_id)}</strong>
@@ -102,7 +154,7 @@ export function renderCalendarView(container, callbacks) {
       <div class="card unplaced-strip">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
           <div style="display:flex;align-items:center;gap:8px;">
-            <span class="badge badge-danger">Chưa xếp được (${unplaced.length})</span>
+            <span class="badge badge-danger">Chưa xếp được (${genuineUnplaced.length})</span>
             <span style="font-size:12.5px;color:var(--p-muted)">Không đủ khe trống hợp lệ trước hạn chót hoặc vi phạm phụ thuộc.</span>
           </div>
           <button type="button" class="btn btn-sm btn-primary" id="btnOpenOverloadRescue">Gợi ý giải cứu quá tải (O1–O4)</button>
@@ -291,6 +343,7 @@ export function renderCalendarView(container, callbacks) {
   container.innerHTML = `
     ${previewBannerHtml}
     ${unplacedHtml}
+    ${pastDueHtml}
 
     <div class="calendar-sheet">
       <div class="scrubber-bar">
@@ -367,6 +420,9 @@ export function renderCalendarView(container, callbacks) {
   });
 
   container.querySelector("#btnOpenOverloadRescue")?.addEventListener("click", () => callbacks.onOpenOverloadRescue());
+  container.querySelector("#btnJumpToDueWeek")?.addEventListener("click", (e) => {
+    callbacks.onShiftWeek?.(Number(e.currentTarget.getAttribute("data-week-shift")));
+  });
   container.querySelector("#btnApplyOverloadPreview")?.addEventListener("click", () => callbacks.onApplyOverloadPreview());
   container.querySelector("#btnCancelOverloadPreview")?.addEventListener("click", () => callbacks.onCancelOverloadPreview());
 

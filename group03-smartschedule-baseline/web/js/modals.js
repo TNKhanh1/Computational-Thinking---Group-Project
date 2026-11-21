@@ -1,6 +1,6 @@
 /**
  * Interactive Popovers & Modals:
- *  - Test Suite Popover (Presets, Scenarios T01-T10, Regimes R1-R6 + Seed)
+ *  - Test Suite Popover (Presets, Regimes R1-R6 + Seed + 7/14 ngày, Fuzz v2 tiers + Seed, Scenarios T01-T10)
  *  - Block Inspector Modal ("Tại sao xếp giờ này?", Pin, Focus Timer 25/45/90p, Check-in M7, Overrun)
  *  - Disruption / Local Repair Modal
  *  - Overload Rescue Modal (O1-O4 Preview & Apply)
@@ -59,6 +59,7 @@ export function renderTestSuitePopover(popoverEl, callbacks) {
     })
     .join("");
 
+  const picker = state.suitePicker;
   const regimesHtml = (cat.regimes || [])
     .map(
       (r) => `
@@ -72,7 +73,36 @@ export function renderTestSuitePopover(popoverEl, callbacks) {
     )
     .join("");
 
+  const fuzzHtml = (cat.fuzz_tiers || [])
+    .map(
+      (f) => `
+      <button type="button" class="suite-item" data-load-source="fuzz" data-load-id="${esc(f.id)}">
+        <div style="min-width:0;">
+          <strong style="font-size:12.5px;">${esc(f.name)}</strong>
+          <div style="font-size:11.5px;color:var(--p-muted);">${esc(f.description)}</div>
+          <div class="mono" style="font-size:11px;color:var(--p-muted);margin-top:2px;">${esc(f.rho_range)}</div>
+        </div>
+        <span class="badge ${f.id === "OVERLOAD" ? "badge-warn" : f.id === "TIGHT" ? "badge-info" : "badge-dark"} mono">${esc(f.tag)}</span>
+      </button>`
+    )
+    .join("");
+
+  const seedControls = (idPrefix, value) => `
+    <div style="display:inline-flex;align-items:center;gap:6px;">
+      <label for="${idPrefix}Seed" style="font-size:11.5px;color:var(--p-muted);">Seed:</label>
+      <input type="number" id="${idPrefix}Seed" class="input mono" value="${esc(value)}" style="width:80px;min-height:28px;padding:3px 6px;" />
+      <button type="button" class="btn btn-sm" data-random-seed="${idPrefix}Seed" title="Sinh seed ngẫu nhiên">🎲</button>
+    </div>`;
+
   popoverEl.innerHTML = `
+    <button type="button" class="suite-item suite-showcase" id="btnSuiteOpenShowcase">
+      <div>
+        <strong style="font-size:12.5px;">📊 Bảng so sánh 6 thuật toán trên 7 bộ test nổi bật</strong>
+        <div style="font-size:11.5px;color:var(--p-muted);">Các đề Testing_System mà kết quả thuật toán khác nhau rõ — kèm giải thích dưới mỗi bảng.</div>
+      </div>
+      <span class="badge badge-ok">Xem</span>
+    </button>
+
     <div>
       <div class="popover-section-title">1. Mẫu thực tế (Presets)</div>
       <div style="display:flex;flex-direction:column;gap:6px;">${presetsHtml}</div>
@@ -80,34 +110,67 @@ export function renderTestSuitePopover(popoverEl, callbacks) {
 
     <div>
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;flex-wrap:wrap;">
-        <div class="popover-section-title" style="margin:0;">2. 6 Regimes chuẩn (Testing_System InputGenerator)</div>
-        <div style="display:inline-flex;align-items:center;gap:6px;">
-          <label for="inpRegimeSeed" style="font-size:11.5px;color:var(--p-muted);">Seed:</label>
-          <input type="number" id="inpRegimeSeed" class="input mono" value="42" style="width:76px;min-height:28px;padding:3px 6px;" />
-          <button type="button" class="btn btn-sm" id="btnRandomSeed" title="Sinh seed ngẫu nhiên">🎲</button>
+        <div class="popover-section-title" style="margin:0;">2. 6 Regimes chuẩn (InputGenerator)</div>
+        <div style="display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          ${seedControls("inpRegime", picker.regimeSeed)}
+          <select id="inpRegimeHorizon" class="select" style="width:auto;min-height:28px;padding:2px 8px;font-size:11.5px;" aria-label="Số ngày lập lịch">
+            <option value="" ${picker.regimeHorizon === "" ? "selected" : ""}>Số ngày: mặc định</option>
+            <option value="7" ${picker.regimeHorizon === "7" ? "selected" : ""}>7 ngày</option>
+            <option value="14" ${picker.regimeHorizon === "14" ? "selected" : ""}>14 ngày</option>
+          </select>
         </div>
       </div>
       <div style="display:flex;flex-direction:column;gap:6px;">${regimesHtml}</div>
     </div>
 
     <div>
-      <div class="popover-section-title">3. Kịch bản đồ án (T01 – T10)</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;flex-wrap:wrap;">
+        <div class="popover-section-title" style="margin:0;">3. Fuzz v2 — đề ngẫu nhiên vô hạn (FuzzGenerator)</div>
+        ${seedControls("inpFuzz", picker.fuzzSeed)}
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px;">${fuzzHtml}</div>
+    </div>
+
+    <div>
+      <div class="popover-section-title">4. Kịch bản đồ án (T01 – T10)</div>
       <div style="display:flex;flex-direction:column;gap:6px;">${scenariosHtml}</div>
     </div>
   `;
 
-  popoverEl.querySelector("#btnRandomSeed")?.addEventListener("click", (e) => {
-    e.stopPropagation();
-    const inp = popoverEl.querySelector("#inpRegimeSeed");
-    if (inp) inp.value = String(Math.floor(Math.random() * 9000) + 100);
+  const readSeed = (id, fallback) => {
+    const v = parseInt(popoverEl.querySelector(`#${id}`)?.value ?? "", 10);
+    return Number.isFinite(v) ? v : fallback;
+  };
+  const syncPicker = () => {
+    picker.regimeSeed = readSeed("inpRegimeSeed", 42);
+    picker.fuzzSeed = readSeed("inpFuzzSeed", 1001);
+    picker.regimeHorizon = popoverEl.querySelector("#inpRegimeHorizon")?.value || "";
+  };
+  popoverEl.querySelectorAll("input, select").forEach((el) => el.addEventListener("change", syncPicker));
+
+  popoverEl.querySelectorAll("[data-random-seed]").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const inp = popoverEl.querySelector(`#${btn.getAttribute("data-random-seed")}`);
+      if (inp) inp.value = String(Math.floor(Math.random() * 9000) + 100);
+      syncPicker();
+    });
   });
+
+  popoverEl.querySelector("#btnSuiteOpenShowcase")?.addEventListener("click", () => callbacks.onOpenShowcase?.());
 
   popoverEl.querySelectorAll("[data-load-source]").forEach((btn) => {
     btn.addEventListener("click", () => {
+      syncPicker();
       const source = btn.getAttribute("data-load-source");
       const id = btn.getAttribute("data-load-id");
-      const seed = Number(popoverEl.querySelector("#inpRegimeSeed")?.value || 42);
-      callbacks.onLoadSuite(source, id, seed);
+      if (source === "fuzz") {
+        callbacks.onLoadSuite(source, id, picker.fuzzSeed, null);
+      } else if (source === "regime") {
+        callbacks.onLoadSuite(source, id, picker.regimeSeed, picker.regimeHorizon ? Number(picker.regimeHorizon) : null);
+      } else {
+        callbacks.onLoadSuite(source, id, 42, null);
+      }
     });
   });
 }

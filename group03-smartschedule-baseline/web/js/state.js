@@ -45,7 +45,11 @@ export const state = {
   calibration: null,
 
   // UI view & theme state
-  activeView: "calendar", // calendar | list | weights | benchmark
+  activeView: "calendar", // calendar | list | weights | benchmark | showcase
+  // Test-suite picker inputs (kept while the popover is closed/reopened)
+  suitePicker: { regimeSeed: 42, regimeHorizon: "", fuzzSeed: 1001 },
+  // "Bộ test so sánh" view: list + per-case results from /api/test-showcase
+  showcase: { list: null, cases: {}, errors: {}, rerunning: {}, loading: false, listError: null },
   theme: localStorage.getItem("smartschedule_theme") || "botanical", // botanical | light | dark
   devPanelOpen: false,
   inputTab: "tasks", // tasks | commitments | profile
