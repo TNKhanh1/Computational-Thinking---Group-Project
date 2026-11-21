@@ -4,7 +4,7 @@
 > **TÀI LIỆU TRỌNG TÂM CHO MỌI THÀNH VIÊN NHÓM 03 (*The Seven Dwarfs*):**
 > File này là **bức tranh tổng hợp đầy đủ nhất của giai đoạn `v1.0-alpha`** (nhánh `v1.0-alpha/ui-ux-chat`), kết nối toàn bộ kế hoạch chia lại thư mục, tái thiết kế giao diện Chat-First, động cơ thuật toán & kiểm thử, và nâng cấp mô hình AI đọc ngữ cảnh online.
 > - **Dành cho AI Agent hỗ trợ bạn:** Yêu cầu Agent đọc [`README_agents.md`](README_agents.md) (và [`agents/README.md`](../agents/README.md)).
-> - **Quy tắc theo dõi chung:** Khi một thành viên hoặc AI Agent hoàn thành hạng mục nào, hãy **đánh dấu `[x]`** trực tiếp vào bảng **Checklist Tiến Độ (Mục 4)** bên dưới để cả nhóm cùng nắm bắt.
+> - **Quy tắc theo dõi & đóng góp ý tưởng:** Khi hoàn thành hạng mục nào, hãy **đánh dấu `[x]`** trực tiếp vào **Checklist Tiến Độ (Mục 4)** bên dưới. **Nếu thành viên nhóm hoặc AI Agent có ý tưởng tốt hơn để cải tiến kế hoạch `v1.0-alpha` (giao diện, thuật toán hay mô hình đọc ngữ cảnh), hãy tự do đề xuất và cập nhật trực tiếp vào tài liệu này!**
 
 ---
 
@@ -33,11 +33,13 @@
 - **Bảo vệ Hành vi Người học:** Bộ đệm Planning Fallacy (`RARELY`/`SOMETIMES`/`OFTEN` + `COGNITIVE_LOAD` $\alpha=1.20/1.35$), tính lại thời gian làm tiếp kết hợp lịch sử M7 EWMA, **truy vết công việc bằng mã vân tay `SHA-256`** (`task_tracer.py`) để chỉnh tiêu chí ngầm bằng câu chat, và xử lý 2 ca biên kẹt lịch (`DEADLOCK` báo đỏ + `DENSE_WARNING` báo vàng).
 - **Máy chấm tự động `Testing_System v2.1` + Chương trình Chấm Mù [`tools/member_eval/`](../tools/member_eval/):** Đánh giá 4 trụ cột + `ICEE` trên `Regimes R1–R6` và `Fuzz v2`.
 
-### Trụ cột 4: Hợp Nhất Mô Hình AI Đọc Ngữ Cảnh Online ([`UI_Rebuild_Plan/agent_pipeline.md`](UI_Rebuild_Plan/agent_pipeline.md))
-- **Pipeline 3 tầng siêu nhẹ, `0 MB` RAM trên máy:**
-  1. **Tầng A (Pre-parser `< 2 ms`):** Tách mệnh đề theo dấu phẩy, bắt chuẩn khung giờ xuyên nhiều ngày (*"từ 19h tối thứ 3, đến 21h tối thứ 5, cần hoàn thành trong tổng thời gian 2 tiếng liên tục"* $\to$ đúng **1 công việc duy nhất**, `120 phút`, không cắt nhỏ).
-  2. **Tầng B (Mô hình Online Siêu Nhẹ `220–550 ms`, `0 MB` RAM):** Gọi `gemini-2.5-flash-lite` / `gemini-2.5-flash` qua `GEMINI_API_KEY` chuẩn `ChatContextExtractionSchema` để rút gọn tiêu đề tự nhiên thành **`"Làm bài tập Computational Thinking"`** và sinh tóm tắt suy nghĩ Developer Mode.
-  3. **Tầng C (Bộ Cô Đọng Tiếng Việt Offline `< 1 ms`):** Khi không có mạng hoặc không cài key, [`clause_condenser.py`](../smartschedule/nlp/clause_condenser.py) vẫn cắt bỏ sạch mệnh đề thời gian và từ đệm `"môn"`/`"học phần"` để ra đúng cùng một tên công việc sạch sẽ.
+### Trụ cột 4: Nâng Cấp Mô Hình Đọc Ngữ Cảnh Hiệu Quả & Miễn Phí (`smartschedule/nlp/`)
+- **Hiện trạng đang chạy (`v1.0-alpha`):** Hợp nhất bộ tách vế & xuyên ngày [`clause_condenser.py`](../smartschedule/nlp/clause_condenser.py) (`< 2 ms`, xử lý chuẩn câu phức thành **1 công việc duy nhất** như **`"Làm bài tập Computational Thinking"`**) + mô hình Gemini qua `GEMINI_API_KEY` (`context_router.py`) và bộ rút gọn ngoại tuyến.
+- **Định hướng nâng cấp bằng các mô hình miễn phí, tối ưu RAM & tốc độ (thuộc Tầng 4 `smartschedule/nlp/`, không ảnh hưởng `INV-5` của Solver):**
+  - **Transformer Encoders (Hugging Face):** `DeBERTa`, `RoBERTa`, `BERT`, `StructBERT` cho bài toán trích xuất thực thể (`NER`), hỏi-đáp (`QA`), phân loại ngữ cảnh & sắc thái/phủ định (như `cardiffnlp/twitter-roberta-base-sentiment-latest`).
+  - **spaCy Pipelines (giấy phép MIT miễn phí):** Tách phụ thuộc cú pháp (dependency parsing), gán nhãn từ loại (`POS`), nhận diện thực thể (`NER`) hỗ trợ >75 ngôn ngữ rất nhẹ và nhanh cho tách tên việc khỏi cụm thời gian.
+  - **Stanza & Stanford CoreNLP:** Phân tích cú pháp phụ thuộc, cú pháp cấu thành và ngôn ngữ học đa ngôn ngữ mã nguồn mở.
+  - **Vision-Language & Document Parsers (`Qwen2-VL`, `Docling`):** Trích xuất cấu trúc tài liệu nhiều trang / file PDF đề bài, đề cương đính kèm mà không cần phụ thuộc API trả phí.
 
 ---
 
@@ -97,12 +99,13 @@ python -B tests/fixtures/nl_cases/verify_hybrid_200.py
 - [x] Hộp **💭 Quá trình suy nghĩ (Thinking Stage)** khi bật Developer Mode giải thích ngữ cảnh & lý do loại tập thuật toán kém.
 - [ ] **Kiểm thử tương tác trực tiếp trên trình duyệt Chrome/Edge** bởi từng thành viên nhóm (xác nhận kéo-thả, thu gọn thanh trái/phải, responsive mobile).
 
-### C. Bộ Đọc Ngữ Cảnh Online & Truy Vết SHA-256 (`smartschedule/nlp/`)
+### C. Nâng Cấp Mô Hình Đọc Ngữ Cảnh & Truy Vết SHA-256 (`smartschedule/nlp/`)
 - [x] Truy vết từ khóa bằng mã vân tay `SHA-256` (`smartschedule/core/task_tracer.py`) cho câu lệnh chỉnh độ nặng, chia nhỏ, nhịp sinh học.
-- [x] Fix lỗi câu 1 việc xuyên nhiều ngày (*"từ 19h thứ 3 tới 21h thứ 5, 2 tiếng liên tục"*) không bị tách nhầm thành 3 việc.
-- [x] Tích hợp **Mô hình Đọc Ngữ Cảnh Online Siêu Nhẹ (`context_router.py` — `gemini-2.5-flash-lite`)** hợp nhất cùng **Bộ Cô Đọng Tiêu Đề Tiếng Việt (`clause_condenser.py`)** rút gọn sạch tiêu đề (VD: `"Làm bài tập Computational Thinking"`).
+- [x] Fix lỗi câu 1 việc xuyên nhiều ngày (*"từ 19h thứ 3 tới 21h thứ 5, 2 tiếng liên tục"*) không bị tách nhầm thành 3 việc và rút gọn sạch tiêu đề (`"Làm bài tập Computational Thinking"`).
 - [x] Bổ sung hộp thoại hỏi lại khi thiếu thông tin (Multi-turn Clarification) & tính lại thời gian làm tiếp có đệm thói quen/M7 EWMA.
-- [ ] **Test thực tế Live API (`GEMINI_API_KEY` thật trong `environments/.env`)** với 10–20 câu tiếng Việt đời thường dài của sinh viên HCMUS để rà soát thêm các từ đệm học vụ (nếu phát sinh).
+- [ ] **Thử nghiệm & tích hợp mô hình đọc ngữ cảnh miễn phí tối ưu RAM/tốc độ:** So sánh thực nghiệm **Transformer Encoders** (`DeBERTa`, `RoBERTa`, `BERT`, `StructBERT`, `cardiffnlp/twitter-roberta-base-sentiment-latest`), **spaCy** (MIT), và **Stanza / CoreNLP** trên Tầng 4 để thay thế/nâng cấp lớp đọc ngữ cảnh mà vẫn giữ ngưỡng bộ nhớ `INV-5` (`< 350 KB` heap ở Solver).
+- [ ] **Thử nghiệm phân tích tài liệu đính kèm cục bộ:** Đánh giá **`Docling`** / **`Qwen2-VL`** cho đề bài, lịch học PDF nhiều trang khi người dùng kéo thả tệp vào khung chat.
+- [ ] **Đề xuất & đóng góp thêm ý tưởng:** Thành viên nhóm hoặc AI Agent có phương án gọn nhẹ hơn có thể ghi thêm thẳng vào mục này.
 
 ### D. Động Cơ Thuật Toán, Benchmark & Đánh Giá Thành Viên
 - [x] Giữ nguyên 6 thuật toán (`EDF`, `LST`, `WSPT`, `SCORED_GREEDY`, `BACKTRACK`, `HYBRID_ALNS`), bất biến kiến trúc `INV-1..6`, và bộ đánh giá `Testing_System v2.1`.
