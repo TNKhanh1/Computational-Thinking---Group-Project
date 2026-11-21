@@ -1,109 +1,103 @@
-# Kế Hoạch Thiết Kế Lại Giao Diện SmartSchedule — Tối Giản, Tinh Tế & Thân Thiện Cho Mọi Người Dùng
+# Kế Hoạch Tổng Thể Thiết Kế Lại Giao Diện & Trí Tuệ Trợ Lý SmartSchedule (Bản Đầy Đủ Hợp Nhất — Ngắn Gọn, Dễ Hiểu)
 
 **Nhánh phát triển (Branch):** `v1.0-alpha/ui-ux-chat`  
-**Mục tiêu cốt lõi:** Xóa bỏ hoàn toàn cảm giác "phần mềm kỹ thuật phức tạp", biến ứng dụng thành một **người trợ lý trò chuyện thông minh, nhẹ nhàng và trực quan** — nơi bất kỳ ai (kể cả người không rành công nghệ) cũng có thể lên lịch học tập, làm việc chỉ bằng vài câu nhắn tự nhiên.
+**Mục tiêu cốt lõi:** Xóa bỏ hoàn toàn cảm giác "phần mềm kỹ thuật rối rắm", biến ứng dụng thành một **người trợ lý xếp lịch thông minh, tối giản tuyệt đối và thân thiện với mọi người dùng** — đồng thời kết hợp **bộ phân tích 2 lớp sẵn có với mô hình AI đọc ngữ cảnh online siêu nhẹ (nhanh, tiết kiệm chi phí, không tốn RAM)** và chế độ **Developer Mode có Hộp Suy Nghĩ (Thinking Stage)** cô đọng như Antigravity.
 
 ---
 
-## 1. Bức Tranh Tổng Thể: Giao Diện Nhìn Sẽ Như Thế Nào?
+## 1. Bức Tranh Tổng Thể: Giao Diện Tối Giản Nhìn Sẽ Như Thế Nào?
 
-Hãy tưởng tượng khi bạn vừa mở ứng dụng lên, thay vì thấy hàng chục bảng biểu, nút bấm hay con số rối mắt, bạn chỉ thấy **một không gian trò chuyện thoáng đãng, sạch sẽ và dịu mắt** (giống như giao diện chat của Antigravity hay ChatGPT), đi kèm một **thanh trượt mảnh nằm dọc bên trái**.
+Khi vừa mở ứng dụng lên, bạn sẽ thấy **một không gian trò chuyện thoáng đãng, sạch sẽ và dịu mắt** (giống giao diện của Antigravity), đi kèm **thanh điều hướng dọc bên trái** có thể bật/tắt gọn gàng.
 
 ```mermaid
 flowchart LR
     subgraph ManHinhChinh["Toàn Bộ Màn Hình Ứng Dụng"]
-        ThanhTrai["Thanh Trượt Dọc Bên Trái\n(Đóng / Mở gọn gàng)"]
-        KhungGiua["Không Gian Chính"]
+        Logo["Logo SS SmartSchedule (Góc trên trái)\nBấm vào luôn quay về Trợ lý xếp lịch"]
+        ThanhTrai["Thanh Trượt Dọc Bên Trái\n(Khi đóng sẽ ẩn hoàn toàn 100%)"]
+        KhungGiua["Không Gian Làm Việc Chính"]
     end
 
-    ThanhTrai -->|"1. Mặc định khi mở app"| ManChat["💬 Khung Trò Chuyện Trống Trải\n(Nhập việc tự nhiên như nhắn tin)"]
-    ThanhTrai -->|"2. Khi bấm xem lịch"| ManLich["🗓️ Bảng Lịch Tuần + Trợ Lý Chat Bên Phải\n(Giống Google Docs có AI đi kèm)"]
-    ThanhTrai -->|"3. Công tắc cho nhóm làm app"| CheDoDev["🛠️ Chế Độ Nhà Phát Triển (Developer Mode)\n(Bật lên mới thấy các thông số ẩn)"]
+    Logo --> ManChat
+    ThanhTrai -->|"1. Mặc định khi mở app"| ManChat["💬 Trợ lý xếp lịch\n(Khung chat trống trải + 2 thẻ gợi ý)"]
+    ThanhTrai -->|"2. Khi bấm Kiểm tra lịch trình"| ManLich["🗓️ Bảng Lịch Tuần + Trợ lý tinh chỉnh trực tiếp bên phải\n(Có nút mũi tên ⇥ thu gọn khung chat để mở rộng lịch)"]
+    ThanhTrai -->|"3. Công tắc ở đáy thanh trái"| CheDoDev["🛠️ Developer Mode\n(Hiện hộp 💭 Quá trình suy nghĩ & Thông số ẩn)"]
 ```
 
-### Thanh Trượt Dọc Bên Trái & Nút Trang Chủ SmartSchedule
-- Bấm vào logo **`SS SmartSchedule`** ở góc trên bên trái sẽ luôn đưa bạn quay thẳng về **`Trợ lý xếp lịch`**.
-- Khi bấm đóng thanh trượt bên trái, toàn bộ thanh trượt (kể cả hộp Developer Mode ở dưới cùng) sẽ **ẩn đi hoàn toàn**, trả lại 100% không gian thoáng đãng cho màn hình chính.
-- Đã lược bỏ mục *"Chuyển nhanh tuần"* ở thanh bên trái và bỏ mục *"Nền năng lượng sinh học"* / *"Tiện ích nhanh"* trong nút Cài đặt góc phải trên để giao diện tinh gọn tối đa.
-- Chỉ giữ lại các lựa chọn cốt lõi:
-  1. **💬 Trợ lý xếp lịch (Mặc định):** Quay về màn hình trò chuyện chính.
-  2. **🗓️ Lịch Trình Tuần:** Mở bảng lịch tuần trực quan đi kèm khung **`Trợ lý tinh chỉnh trực tiếp`** ở bên phải (bấm nút mũi tên `⇥` sẽ thu gọn khung chat phải vào trong để bảng lịch mở rộng toàn màn hình).
-  3. **🛠️ Developer Mode:** Khi bật lên, trợ lý sẽ hiển thị thêm hộp **💭 Quá trình suy nghĩ (Thinking Stage)** tóm tắt dễ hiểu cách AI hiểu câu lệnh (kể cả các câu phức hợp như *"từ 19h thứ 3 tới 21h thứ 5, làm trong 2 tiếng"* là 1 việc duy nhất) và lý do AI loại bỏ các thuật toán cơ bản để chọn thuật toán tối ưu theo nhịp sinh học, kèm nút **`🗓️ Kiểm tra lịch trình`** ngay dưới mỗi câu trả lời.
+### Các Tinh Chỉnh Giúp Giao Diện Tối Giản Tuyệt Đối
+1. **Logo `SS SmartSchedule` là nút quay về trang chủ:** Bất cứ lúc nào đang xem lịch mà muốn quay lại khung chat lớn, bạn chỉ cần bấm vào chữ **`SS SmartSchedule`** ở góc trên bên trái.
+2. **Thanh trượt dọc bên trái (`Trợ lý xếp lịch` / `Lịch Trình Tuần` / `Danh Sách Việc`):**
+   - Đổi tên *"Khung Chatbot"* thành **`"Trợ lý xếp lịch"`** thân thiện hơn.
+   - Đã xóa bỏ mục *"Chuyển nhanh tuần"* ở thanh bên trái để không làm rối mắt.
+   - Khi bạn bấm đóng thanh trượt trái, **toàn bộ thanh trượt và cả hộp Developer Mode ở dưới đáy sẽ biến mất hoàn toàn**, không còn bất kỳ khung viền nào bị lệch.
+3. **Nút Cài đặt (⚙️ góc trên bên phải) gọn nhẹ:**
+   - Đã lược bỏ dòng *"Nền năng lượng sinh học"* (vì đây là tiêu chí ngầm trợ lý tự lo cho bạn) và bỏ mục *"Tiện ích nhanh"* (vì mọi việc gấp đều nhắn trực tiếp qua chat được).
 
 ---
 
-## 2. Trải Nghiệm Ở Màn Hình 1: Khung Trò Chuyện Chính (Khi Mới Mở App)
+## 2. Trải Nghiệm Ở Màn Hình 1: "Trợ Lý Xếp Lịch" & Nâng Cấp Mô Hình Đọc Ngữ Cảnh Online
 
-### 2.1. Luôn có gợi ý mở lời thông minh
-Ngay giữa khung chat trống trải, trợ lý AI sẽ chào bạn bằng một câu ngắn gọn kèm **2 nút gợi ý lớn, dễ bấm**:
-- **🔁 "Thêm hoặc đổi lịch lặp lại hằng ngày / hằng tuần"** (ví dụ: lịch đi học trên trường, giờ đi làm thêm, giờ tập thể dục, giờ nghỉ ngơi).
-- **📌 "Thêm hoặc chỉnh sửa một công việc riêng lẻ"** (ví dụ: làm bài tập, viết báo cáo, ôn thi, chuẩn bị thuyết trình).
+### 2.1. Khung nhập chat sạch sẽ, không tự chèn chữ thừa
+- Ngay giữa màn hình là lời chào ngắn gọn cùng **2 thẻ gợi ý lớn**:
+  1. **🔁 Thêm / Đổi lịch lặp hằng ngày** (lớp học, bữa ăn, giờ ngủ, tập thể dục lặp lại theo tuần).
+  2. **📌 Thêm / Chỉnh 1 công việc riêng biệt** (bài tập, ôn thi, đồ án có thời gian bắt đầu – kết thúc hoặc hạn chót).
+- **Không còn hàng nút *"Chỉnh nhanh việc đã lưu"* và không tự chèn chữ vào ô gõ:** Khi bạn bấm vào 1 trong 2 thẻ gợi ý, hệ thống chỉ bật nhãn chế độ nhỏ phía trên và giữ cho ô nhập chữ hoàn toàn trống trải để bạn tự nhiên gõ câu của mình.
+- **Nhập thiếu thông tin? Trợ lý sẽ hỏi lại nhẹ nhàng:** Nếu bạn quên nhập thời gian bắt đầu/kết thúc hoặc nội dung việc cần làm, trợ lý sẽ hỏi lại đúng phần còn thiếu kèm các nút chọn nhanh (`[⏱ 60 phút]`, `[⏱ 2 tiếng]`, `[📅 Thứ Năm 21:00]`).
+- **Một nút bấm duy nhất sau mỗi câu trả lời:** Dưới mỗi phản hồi của trợ lý luôn có nút **`🗓️ Kiểm tra lịch trình`** để bạn bấm mở xem bảng lịch ngay lập tức (đã xóa bỏ các nút phụ rườm rà như *"Chỉnh độ nặng / nhẹ công việc"*).
 
-### 2.2. Nhập thiếu thông tin? Trợ lý sẽ hỏi lại nhẹ nhàng
-Một lịch trình hay công việc chỉ cần 2 thông tin cơ bản:
-1. **Làm việc gì** (nội dung công việc).
-2. **Thời gian** (bắt đầu – kết thúc lúc nào, hoặc cần làm trong bao lâu trước hạn chót nào).
+### 2.2. Hợp Nhất Bộ Phân Tích 2 Lớp Với Mô Hình AI Đọc Ngữ Cảnh Online Siêu Nhẹ
+Để khắc phục triệt để tình trạng tên công việc bị dài dòng khi bạn nhập câu phức hợp như:
+> *"Làm bài tập môn Computational Thinking, từ 19h tối thứ 3, đến 21h tối thứ 5, cần hoàn thành trong tổng thời gian 2 tiếng liên tục"*
 
-Vì hầu hết mọi người chỉ quen gõ ngắn gọn kiểu *"Chiều thứ 5 mình phải nộp bài thuyết trình"* (thiếu mất thời gian cần ngồi làm), trợ lý sẽ **không bắt bạn điền biểu mẫu dài dòng**, mà hỏi lại ngay trong khung chat kèm các nút chọn nhanh:
-> *"Bạn dự kiến cần ngồi chuẩn bị bài thuyết trình này trong khoảng bao lâu?"*  
-> `[⏱ 45 phút]` `[⏱ 1 tiếng]` `[⏱ 2 tiếng]` `[✍️ Tự nhập...]`
+Chúng ta **kết hợp (merge) bộ phân tích 2 lớp trước đó với tầng Mô hình AI Đọc Ngữ Cảnh Online Siêu Nhẹ**:
 
-### 2.3. Hiểu tâm lý người dùng để tự động tinh chỉnh "thông số ngầm"
-Người dùng bình thường sẽ không bao giờ phải tự chỉnh các thanh trượt phức tạp. Bạn chỉ cần nói bằng ngôn ngữ đời thường khi muốn sửa một việc đã tạo:
-- Nếu bạn nhắn: *"Bài tập Toán này nặng đô lắm, đừng xếp liền một mạch mà chia nhỏ ra giúp mình, ưu tiên xếp vào buổi sáng lúc mình tỉnh táo nhất nhé."*
-- **Phía sau hậu trường:** Trợ lý sẽ tự động tìm đúng "Bài tập Toán" bạn đã lưu và âm thầm điều chỉnh các tiêu chí ngầm cho bạn:
-  - Đánh dấu đây là **việc nặng** và cộng thêm **thời gian dự phòng (trừ hao)** rộng rãi hơn để bạn không bị cuống.
-  - Tự động **chia nhỏ** thành các buổi ngắn vừa sức, có giờ nghỉ giải lao ở giữa.
-  - Đưa công việc đó vào đúng **khung giờ vàng trong ngày** mà đầu óc bạn minh mẫn nhất.
+| Tầng xử lý trong hệ thống hợp nhất | Cách hoạt động | Ưu điểm về Tốc độ – Chi phí – Bộ nhớ |
+| :--- | :--- | :--- |
+| **Bước 1: Bộ tách vế câu & khung giờ nhanh** *(Kế thừa & nâng cấp)* | Tách câu của bạn theo dấu phẩy để nhận diện ngay khung giờ跨ngày (*"từ 19h tối thứ 3 đến 21h tối thứ 5"*), thời lượng (*"trong tổng thời gian 2 tiếng"*) và yêu cầu làm *"liên tục"*. | Chạy trong **`0.002 giây`**, tốn **`0 MB` RAM**, hoàn toàn miễn phí. |
+| **Bước 2: Mô hình AI Đọc Ngữ Cảnh Online Siêu Nhẹ** *(Nâng cấp mới)* | Gọi mô hình ngôn ngữ gọn nhẹ trên đám mây (**`Gemini 2.5 Flash-Lite` / `Gemini Flash`** qua API Key của bạn, hoặc mô hình mở **`Qwen 2.5 Instruct`**) để đọc hiểu ngữ cảnh sâu và **tóm tắt tên công việc thật chuẩn xác, tự nhiên**. | • **Bộ nhớ:** **`0 MB` RAM trên máy** (không phải tải mô hình nặng về máy).<br>• **Tốc độ:** **`0.2 – 0.5 giây`**.<br>• **Chi phí:** **Miễn phí (Free Tier)** hoặc gần như bằng 0. |
+| **Bước 3: Bộ cô đọng tiêu đề tiếng Việt dự phòng** *(An toàn tuyệt đối khi mất mạng)* | Kể cả khi không có mạng, bộ lọc mệnh đề nâng cấp vẫn tự động cắt sạch vế *"cần hoàn thành trong tổng thời gian 2 tiếng liên tục"* và bỏ từ đệm *"môn"* để cho ra cùng một tên công việc sạch sẽ. | Đảm bảo ứng dụng hoạt động mượt 100% trong mọi hoàn cảnh. |
 
-### 2.4. Xong một việc, luôn dẫn lối bước tiếp theo
-Ngay sau khi thêm hoặc chỉnh xong một việc, trợ lý sẽ báo kết quả ngắn gọn rồi hỏi bạn:
-> *"Mình đã cập nhật xong! Bạn có muốn thêm hay chỉnh sửa công việc nào nữa không?"*  
-> Đi kèm 2 nút bấm nổi bật: **`[💬 Tiếp tục thêm/sửa việc]`** hoặc **`[🗓️ Mở xem lịch trình mới ngay]`**.
+👉 **Kết quả thu được cho câu lệnh của bạn:**
+- **Tên công việc trên lịch:** **`Làm bài tập Computational Thinking`** (ngắn gọn, súc tích, không còn dính chữ *"môn"* hay *"cần hoàn thành trong tổng thời gian..."*).
+- **Số lượng công việc:** **1 công việc duy nhất** (không bao giờ nhận nhầm thành 3 việc).
+- **Khung giờ & Cách xếp:** Làm trong **2 tiếng liên tục (1 khối liền mạch)** nằm trong khoảng từ **19:00 tối Thứ Ba** đến **21:00 tối Thứ Năm**.
 
----
-
-## 3. Trải Nghiệm Ở Màn Hình 2: Bảng Lịch Tuần + Trợ Lý Chat Bên Phải
-
-Khi bạn bấm mở **Lịch Trình Các Tuần**, màn hình sẽ chia làm 2 phần cực kỳ cân đối (tương tự như khi bạn mở một file văn bản trên Google Docs và có khung trợ lý AI nằm dọc bên tay phải):
-
-1. **Bên Trái (70% màn hình) — Bảng Lịch Tuần Sạch Sẽ & Dịu Mắt:**
-   - Giữ lại đầy đủ các thao tác tiện lợi nhất: xem theo ngày hoặc cả tuần, kéo-thả ô lịch để dời giờ, bấm ghim cố định giờ học yêu thích, hoặc đánh dấu hoàn thành.
-   - **Loại bỏ toàn bộ các con số và ký hiệu kỹ thuật rối mắt:** Trên mỗi ô lịch chỉ hiển thị thanh thoát **Tên công việc**, **Khung giờ (Bắt đầu – Kết thúc)** và màu sắc nhẹ nhàng phân biệt giữa lịch cố định và việc cần làm.
-2. **Bên Phải (30% màn hình) — Khung Chat Trợ Lý Đi Kèm:**
-   - Bạn vừa nhìn lịch, vừa có thể gõ yêu cầu ngay tại khung chat bên phải (ví dụ: *"Dời buổi ôn Tiếng Anh sang tối thứ 6 giúp mình"*).
-   - **Hiệu ứng chuyển động trực tiếp trên lịch:** Ngay khi bạn nhắn xong (chỉ mất chưa tới vài giây), bạn sẽ thấy ô lịch bên trái **tự động lướt mượt mà sang vị trí mới** và sáng nhẹ lên để bạn nhận ra ngay sự thay đổi.
-   - Sau khi lịch đổi xong, trợ lý bên phải sẽ báo rõ ràng: **"✅ Đã hoàn tất và chốt lịch trình mới cho bạn!"**
+### 2.3. Tự động hiểu và chỉnh "tiêu chí ngầm" của công việc đã lưu (Truy vết bằng mã SHA-256)
+- Khi bạn nhắn muốn sửa một việc đã có trong lịch (ví dụ: *"Bài tập Giải tích nặng quá, chia nhỏ ra nhiều buổi ngắn và xếp vào buổi sáng lúc mình tỉnh táo nhé"*), hệ thống dùng mã vân tay từ khóa (`SHA-256`) để tìm đúng công việc đó trong bộ nhớ và âm thầm chỉnh các thông số ngầm (tăng thời gian trừ hao, tách thành các phiên ngắn có nghỉ giải lao, đưa vào khung giờ vàng buổi sáng).
 
 ---
 
-## 4. Xử Lý Tinh Tế Các Tình Huống Thực Tế (Edge Cases)
+## 3. Trải Nghiệm Ở Màn Hình 2: Bảng Lịch Tuần + "Trợ Lý Tinh Chỉnh Trực Tiếp" Bên Phải
 
-### Tình huống 1: Lịch bị kẹt hoặc trùng hạn chót (Không đủ thời gian)
-- **Cách hiển thị:** Trợ lý không báo lỗi máy móc, mà nhắn rõ ràng trong khung chat với tông màu đỏ dịu:
-  > *"🚨 Thứ Sáu này bạn có 2 bài tập lớn cùng hết hạn nhưng quỹ thời gian trống đang thiếu mất khoảng **1 tiếng**."*
-- **Gợi ý giải quyết bằng 1 cú bấm:** Trợ lý đưa ra ngay các hướng gỡ rối nhẹ nhàng để bạn chọn:
-  - `[🌱 Tạm nghỉ 1 buổi thói quen cá nhân (như đọc sách/tập gym) trong tuần này để nhường chỗ]`
-  - `[✂️ Rút gọn bớt thời gian trừ hao của các việc nhẹ hơn]`
-  - `[📅 Dời 1 việc ít quan trọng hơn sang cuối tuần]`
-
-### Tình huống 2: Lịch vẫn xếp vừa hết nhưng quá dày đặc (Dễ gây kiệt sức)
-- **Cách hiển thị:** Bảng lịch vẫn xếp đủ việc cho bạn, nhưng hiện một **thanh cảnh báo màu vàng ấm (Warning vàng)** ở ngày bị nặng kèm lời nhắc ân cần trong khung chat:
-  > *"⚠️ Mình đã xếp kịp toàn bộ bài tập trước hạn cho bạn, nhưng **Thứ Năm đang khá dày (hơn 7 tiếng học và làm việc)**. Để đỡ mệt hơn, bạn có muốn mình san sẻ bớt 1 buổi học sang ngày Thứ Bảy đang rảnh không?"*
-- Bạn có thể bấm **`[🌬️ Giãn lịch giúp mình cho thoáng]`** hoặc **`[👍 Giữ nguyên lịch này]`**.
-
-### Tình huống 3: Đổi hạn chót (Deadline) & Tự động tính thời gian còn lại theo thói quen
-- Khi bạn nhắn: *"Đổi hạn nộp bài Báo cáo sang Chủ nhật giúp mình, mình mới làm được một nửa, ước chừng cần làm tiếp khoảng 2 tiếng nữa."*
-- Trợ lý sẽ dựa trên **phần thời gian còn lại** bạn vừa báo, kết hợp với **thói quen và nhịp độ làm việc thường ngày của riêng bạn** (ví dụ bạn thường cần thêm một chút thời gian trau chuốt ở cuối bài) để tự động cộng thêm một khoảng thời gian dự phòng hợp lý, rồi xếp lại vào lịch ngay lập tức.
+Khi bạn bấm **`🗓️ Kiểm tra lịch trình`** (hoặc chọn **`Lịch Trình Tuần`** ở thanh bên trái):
+1. **Bảng Lịch Tuần Sạch Sẽ (Bên trái) & Sửa lỗi lệch hộp chữ "Hôm nay":**
+   - Trên bảng lịch 7 ngày, ngày hôm nay đã được đánh dấu nổi bật bằng **vòng tròn số ngày tô màu xanh** (chuẩn phong cách Google Calendar). Hệ thống bỏ hộp chữ *"Hôm nay"* thừa ở đầu cột ngày để cả 7 cột ngày luôn thẳng hàng tuyệt đối, đồng thời căn thẳng hàng nút *"Hôm nay"* trên thanh chuyển tuần ở góc trên.
+2. **Khung "Trợ lý tinh chỉnh trực tiếp" (Bên phải) & Sửa lỗi nút "💬 Mở trợ lý":**
+   - Bạn vừa nhìn lịch vừa có thể nhắn chỉnh lịch trực tiếp ở khung chat bên phải; ô lịch bên trái sẽ **chuyển động mượt mà sang vị trí mới** và báo rõ: **`✅ Đã hoàn tất và chốt lịch trình mới!`**.
+   - **Thu gọn / Mở rộng đúng ý bạn:**
+     - Khi khung chat bên phải đang mở: Nút nổi *"💬 Mở trợ lý"* ở góc dưới sẽ **tắt hoàn toàn (ẩn 100%)**.
+     - Khi bạn bấm nút mũi tên **`⇥`** ở góc khung chat bên phải: Khung chat sẽ **thu gọn vào trong** để bảng lịch tuần mở rộng ra toàn màn hình, và lúc này nút **`💬 Mở trợ lý`** mới hiện lên ở góc dưới để bạn bấm mở lại bất cứ lúc nào.
 
 ---
 
-## 5. Tốc Độ & Chế Độ Dành Riêng Cho Nhóm Phát Triển (Developer Mode)
+## 4. Xử Lý Tinh Tế 3 Tình Huống Đặc Biệt (Edge Cases)
 
-1. **Tốc độ phản hồi tức thì (Luôn nhanh dưới 10 giây):**
-   - Mọi thao tác thêm việc, đổi hạn chót hay sắp xếp lại lịch đều diễn ra gần như tức thì (thường dưới 1–2 giây, và cam kết luôn nhanh hơn 10 giây).
-   - Hệ thống luôn ưu tiên giải quyết **những việc có hạn chót gần nhất** và **những việc có thể hoàn thành gọn trong tuần**.
-2. **Công tắc Developer Mode ở thanh trượt trái (Phục vụ giai đoạn phát triển):**
-   - Khi người dùng bình thường sử dụng: Công tắc này **TẮT** — giao diện hoàn toàn tối giản, trừu tượng và đẹp mắt.
-   - Khi thành viên nhóm phát triển bật **Developer Mode = BẬT**:
-     - Ngay trên từng công việc trong khung chat và từng ô trên bảng lịch sẽ hiện thêm **nhãn kiểm tra kỹ thuật (Debug Badge)** cho thấy toàn bộ các thông số ngầm đã được AI gán vào công việc đó: *Mã định danh truy vết (SHA-256), Nhịp độ sinh học (Sáng/Chiều/Tối), Độ nặng công việc, Thời gian gốc vs. Thời gian đã cộng đệm trừ hao, Chế độ tách nhỏ hay giữ nguyên khối*, cùng bảng công cụ chấm điểm thuật toán chi tiết.
+1. **Lịch bị kẹt hoặc trùng hạn chót (Không đủ giờ trống):**
+   - Báo thẻ cảnh báo đỏ dịu trong khung chat và trên đầu lịch, giải thích rõ đang thiếu bao nhiêu phút trước hạn chót và đưa ra các nút gợi ý gỡ kẹt bằng 1 cú bấm (tạm nghỉ 1 thói quen không gấp trong tuần, rút gọn thời gian trừ hao của việc nhẹ, hoặc dời 1 việc ít gấp sang cuối tuần).
+2. **Lịch vẫn xếp được nhưng quá dày đặc (Cảnh báo màu vàng):**
+   - Khi tất cả công việc đều xếp kịp hạn nhưng có ngày phải học/làm việc quá dày (trên 7 tiếng/ngày), hệ thống hiện **cảnh báo màu vàng (Warning vàng)** và gợi ý giãn bớt buổi học sang ngày còn trống hoặc chia thành các chặng ngắn 45 phút.
+3. **Đổi hạn chót (Deadline) & Tính lại thời gian cần làm tiếp theo thói quen:**
+   - Khi bạn dời hạn chót và báo phần thời gian ước tính cần làm tiếp (ví dụ: *"Dời hạn Đồ án sang Chủ nhật 20h, mình cần làm tiếp khoảng 90 phút"*), trợ lý sẽ lấy thời gian còn lại đó cộng thêm một khoảng dự phòng dựa trên **hiệu năng và thói quen làm việc thường ngày của bạn** rồi xếp lại lịch ngay lập tức (luôn dưới 10 giây).
+
+---
+
+## 5. Chế Độ Nhà Phát Triển (Developer Mode) & Hộp "💭 Quá Trình Suy Nghĩ"
+
+Khi bạn gạt công tắc **Developer Mode = BẬT** ở thanh bên trái, trợ lý sẽ hiển thị thêm hộp **`💭 Quá trình suy nghĩ & chọn thuật toán`** (giống bước *Thinking* của Antigravity nhưng được tóm tắt ngắn gọn, gần gũi như lời người thật):
+
+1. **🧠 Bước 1 — Tóm tắt ngữ cảnh & tiêu chí ẩn:**
+   - Cho biết mô hình đọc ngữ cảnh đã rút gọn câu lệnh thành **`"Làm bài tập Computational Thinking"`** (1 việc duy nhất), khung giờ **19:00 Thứ Ba → 21:00 Thứ Năm**, thời lượng **120 phút liên tục (cộng đệm trừ hao → 150 phút, giữ liền 1 khối)**.
+2. **⚡ Bước 2 — Sàng lọc tập thuật toán tối ưu:**
+   - Giải thích vì sao trợ lý chỉ chọn một tập con thuật toán vượt trội:
+     > *"Loại bỏ 3 thuật toán cơ bản (EDF, WSPT, LST) vì hoàn toàn không tính đến nhịp độ sinh học — kết quả kiểm định cho thấy trường hợp tốt nhất của nhóm này vẫn tệ hơn trường hợp xấu nhất của nhóm có nhịp sinh học. Giữa nhóm thuật toán vượt trội (SCORED_GREEDY, HYBRID_ALNS), trợ lý chọn **SCORED_GREEDY** (hoặc tự động nâng lên **HYBRID_ALNS** khi lịch quá dày) để đặt bài tập vào đúng khung giờ bạn tập trung tốt nhất trước hạn chót gần nhất."*
+3. **🎯 Bước 3 — Kết quả & Thẻ thông số ẩn:**
+   - Hiển thị khung giờ đã chốt, tốc độ giải (chỉ vài phần nghìn giây), cùng thẻ thông số ẩn (`Mã SHA-256`, `Nhịp sinh học`, `Cường độ công việc`, `Fallacy Buffer`, `Tách task hay giữ liền khối`).
