@@ -1,160 +1,61 @@
-# SmartSchedule — Environment & Dependency Specifications
+# SmartSchedule — Project Dependencies, Architecture Boundaries & AI Workspace Rules (`agents/requirements.md`)
 
-**Project:** SmartSchedule — Personal Productivity Assistant  
-**Target Audience:** AI Coding Assistants & System Engineers  
-**Location:** `agents/requirements.md`  
-**Reference File:** `group03-smartschedule-baseline/requirements.txt`  
-
----
+**Project:** SmartSchedule (`v1.0-alpha` Modular Layout)  
+**Dependency Source Files:** [`environments/requirements.txt`](../environments/requirements.txt) & [`environments/requirements-nllb.txt`](../environments/requirements-nllb.txt) (inside [`environments/`](../environments/); [`environments/pyproject.toml`](../environments/pyproject.toml) defines packages `smartschedule*` and `tools*`)  
+**Audience:** Developers & All AI Coding Assistants
 
 > [!IMPORTANT]
-> ## 🚨 MANDATORY DEPENDENCY & DOCUMENTATION SYNC RULE
-> Whenever any AI agent or team member introduces, updates, or removes an external Python package:
-> 1. Update `group03-smartschedule-baseline/requirements.txt` with pinned or minimum version constraints.
-> 2. **Simultaneously update both:**
->    - `agents/requirements.md` (this file, in English)
->    - `docs/requirements.md` (the companion file, in Vietnamese)
-> 3. Document the rationale for the dependency, which architectural layer it belongs to, and record the change in `agents/commit_changes.md` and `docs/commit_changes.md`.
+> **MANDATORY AGENT RULES (`v1.0-alpha`):**
+> 1. **Single Onboarding Rule:** Agents must start by reading [`agents/README.md`](README.md) and **MUST read [`v1.0-alpha-plan/README_agents.md`](../v1.0-alpha-plan/README_agents.md)** before modifying any source file.
+> 2. **Token Efficiency Rule:** Respect [`environments/.agentignore`](../environments/.agentignore) and consult [`environments/CODEBASE_INDEX.md`](../environments/CODEBASE_INDEX.md) before scanning files. Do **not** load large benchmark JSON/YAML corpora (`data/scenarios/`, `data/calibration/`, `tests/fixtures/`) or `Project_Drafts/` PDFs unless specifically needed.
+> 3. **Clean Root & Legacy Folder Ban:** Only `.gitignore` and `README.md` live as loose files at repo root; all environment/config files belong in [`environments/`](../environments/), historical course drafts belong in [`Project_Drafts/`](../Project_Drafts/), and never recreate `group03-smartschedule-baseline/`, `src/`, `web/`, or `verification_tests/`.
+> 4. **Simultaneous Dependency Sync Rule:** Whenever you add, update, or remove a library in [`environments/requirements.txt`](../environments/requirements.txt) or [`environments/requirements-nllb.txt`](../environments/requirements-nllb.txt), **simultaneously update both [`agents/requirements.md`](requirements.md) and [`docs/requirements.md`](../docs/requirements.md)** with its version, purpose, and allowed architectural layer.
 
 ---
 
-## 1. Runtime Environment Specifications
+## 1. Production Dependencies ([`environments/requirements.txt`](../environments/requirements.txt))
 
-| Component | Minimum Version | Recommended Version | Notes |
-| :--- | :--- | :--- | :--- |
-| **Python** | `Python >= 3.10` | `Python 3.12+` (or 3.14) | Tested on CPython 3.12 and 3.14 (Win32 / x64). |
-| **Operating System** | Cross-platform | Windows 10/11, macOS, Linux | All paths use `pathlib.Path` for cross-platform safety. |
-| **GUI Framework** | Tkinter | Python standard `tkinter` | Native desktop UI for `test_studio.py` (comes bundled with standard Python on Windows/macOS). |
-
----
-
-## 2. External Package Inventory (`requirements.txt` + Optional `requirements-nllb.txt`)
-
-Below are the core packages specified in [`requirements.txt`](../group03-smartschedule-baseline/requirements.txt):
-
-```text
-fastapi>=0.100.0
-uvicorn>=0.23.0
-pydantic>=2.0.0
-pytest>=7.4.0
-httpx>=0.24.0
-python-dateutil>=2.8.2
-google-genai>=0.1.0
-python-dotenv>=1.0.0
-PyYAML>=6.0
-```
-
-Optional neural machine translation packages were split into [`requirements-nllb.txt`](../group03-smartschedule-baseline/requirements-nllb.txt) so standard installs stay fast and lightweight (~<50MB instead of heavyweight NMT weights/runtimes):
-
-```text
-ctranslate2>=4.5.0
-sentencepiece>=0.2.0
-huggingface-hub>=0.25.0
-```
-
-### Detailed Breakdown & Architectural Layer Scoping
-
-#### 1. `fastapi>=0.100.0`
-- **Purpose:** High-performance, modern web framework for building REST APIs with standard Python type hints.
-- **Architectural Scope:** **Layer 4: Delivery / Interface ONLY** (`web/api.py`).
-- **Used For:** Exposing HTTP endpoints (`/api/solve`, `/api/presets`, `/api/validate-move`, `/api/export/{fmt}`).
-- **Strict Constraint:** **NEVER** import into Layer 1 (`src/models.py`) or Layer 2 (`src/solvers/`). Violating this triggers an instant architectural failure in `test_system_architecture.py`.
-
-#### 2. `uvicorn>=0.23.0`
-- **Purpose:** Lightning-fast ASGI (Asynchronous Server Gateway Interface) web server implementation for Python.
-- **Architectural Scope:** **Layer 4: Server Runtime** (`web/` and CLI startup scripts).
-- **Used For:** Hosting the FastAPI web application and serving the Dual-Mode Web Workbench (`web/index.html`, `web/app.js`).
-- **Standard Command:** `uvicorn web.api:app --host 127.0.0.1 --port 8000`.
-
-#### 3. `pydantic>=2.0.0`
-- **Purpose:** Data validation and data transformation library using Python type annotations.
-- **Architectural Scope:** **Layer 1: Pure Data Models** (`src/models.py`) and API schemas.
-- **Used For:**
-  - Defining `CommitmentsProfile`, `Task`, `FixedEvent`, `SleepSchedule`, and `ScheduleOutput`.
-  - Automatic validation of field constraints (e.g. `duration_min > 0`, `1 <= priority <= 5`).
-  - Serializing and deserializing JSON payloads compliant with the ISO-8601 Data Contract (Improve Plan §7.3).
-
-#### 4. `pytest>=7.4.0`
-- **Purpose:** Scalable testing framework for unit, integration, invariant, and benchmark testing.
-- **Architectural Scope:** **Layer 5: Verification Infrastructure** (`verification_tests/`).
-- **Used For:**
-  - Running **141 pytest verification tests** (`136` `--pass` operational including M1 Hybrid NL & unbiased generalization + `5` `--gaps` Improve Plan feature tests) across `ui_tests/`, `architecture_tests/`, `logical_tests/`, `benchmark_tests/`, and `development_gap_tests/`.
-  - Driven cleanly via `verification_tests/clean_runner.py` with custom plugin hooks (`InterpretableConsolePlugin`).
-
-#### 5. `httpx>=0.24.0`
-- **Purpose:** Fully featured HTTP client library for Python.
-- **Architectural Scope:** **Layer 5: Verification & Contract Testing** (`verification_tests/ui_tests/`).
-- **Used For:**
-  - Underpins FastAPI's `TestClient` (`from fastapi.testclient import TestClient`).
-  - Enables in-memory, zero-network HTTP testing of all REST API endpoints without needing to launch a background server process.
-
-#### 6. `python-dateutil>=2.8.2`
-- **Purpose:** Robust extensions to the standard Python `datetime` module.
-- **Architectural Scope:** **Layer 1 & Layer 4** (`src/utils.py`, `src/models.py`, `web/api.py`, `NL_Parser_Package/`).
-- **Used For:**
-  - Parsing ISO-8601 timestamps and calendar date strings (`dateutil.parser.isoparse`).
-  - Calculating relative week start dates (`datetime + timedelta`) and timezone offset calculations (`+07:00`).
-
-#### 7. `google-genai>=0.1.0` & `python-dotenv>=1.0.0` (Optional Cloud LLM NL Mode)
-- **Purpose:** Google Gemini structured JSON extraction SDK and `.env` loader (`GEMINI_API_KEY`).
-- **Architectural Scope:** **Layer 4: NL Adapter (`src/nl_parser.py`)**.
-- **Used For:** Powering optional `AI_GEMINI` extraction in `NLParserController` while automatically falling back to zero-network `OFFLINE_DETERMINISTIC` + Hybrid 6-Stage parsing when offline or unconfigured.
-
-#### 8. `ctranslate2>=4.5.0`, `sentencepiece>=0.2.0` & `huggingface-hub>=0.25.0` (Optional Offline Neural VI→EN Translation — `requirements-nllb.txt`)
-- **Purpose:** Fast quantized neural machine translation runtime (`NLLB-200` / `Opus-MT`), subword tokenizer, and local model hub downloader.
-- **Architectural Scope:** **Layer 4: NL Package (`NL_Parser_Package/translator.py`)**.
-- **Used For:** Translating Vietnamese prompts into structured English inside `NL_Parser_Package/hybrid_parser.py` (`backend="nllb"` / `"opus_mt"`), with instant stdlib `backend="rule"` fallback if `requirements-nllb.txt` is not installed.
-
-#### 9. `sqlite3` (Python Standard Library — `src/storage.py`)
-- **Purpose:** Embedded relational persistence for user workspace state (`commitments`, `tasks`, `pinned_blocks`, `done_blocks`, `actual_durations`, `algorithm`) and M7 task completion logs (`data/local_state.db`, overridable via `SMARTSCHEDULE_DB_PATH`).
-- **Architectural Scope:** **Layer 1 / Storage Leaf (`src/storage.py`)**, consumed by **Layer 4 (`web/api.py`)**; zero solver/web dependencies (`INV-1..6` compliant).
-
-#### 9. `PyYAML>=6.0`
-- **Purpose:** YAML parser for loading structured NLP verification datasets.
-- **Architectural Scope:** **Layer 5: Verification (`verification_tests/NL_Parser_test_cases/`)**.
-- **Used For:** Parsing the 200-case hybrid NLP evaluation suite (`validate_cases.py`, `verify_hybrid_200.py`).
+| Package | Version | Architectural Layer | Permitted Scope & Purpose |
+| :--- | :---: | :--- | :--- |
+| **`fastapi`** | `>=0.115.0` | **Layer 4 (`smartschedule/api/`, `tools/member_eval/`)** | REST API routing, request/response serialization, OpenAPI docs, static UI mount. **Strictly forbidden in `smartschedule/core/` (`INV-1`).** |
+| **`uvicorn[standard]`** | `>=0.30.0` | **Layer 4 (CLI / Server)** | High-speed ASGI server invoked by `python -B -m smartschedule.main --serve` and `tools/scripts/run_app.bat`. |
+| **`pydantic`** | `>=2.8.0` | **Layer 1 & 4** | Strictly typed domain contracts in [`smartschedule/core/models.py`](../smartschedule/core/models.py) and structured online LLM schemas in [`smartschedule/nlp/`](../smartschedule/nlp/). |
+| **`httpx`** | `>=0.27.0` | **Layer 4 & 5 (`tests/`, `smartschedule/nlp/`)** | FastAPI `TestClient` backend + optional async/sync HTTPS calls to online Open-Weights context-parsing endpoints (`CONTEXT_MODEL_URL`). **Forbidden in `smartschedule/core/` (`INV-1`).** |
+| **`python-dateutil`** | `>=2.9.0` | **Layer 1 / 3 / 4** | ISO-8601 datetime & timezone arithmetic. |
+| **`pytest`** | `>=8.0.0` | **Layer 5 (`tests/`, `v1.0-alpha-plan/Testing_System/tests/`)** | Automated verification runner orchestrated by [`tests/clean_runner.py`](../tests/clean_runner.py). |
+| **`PyYAML`** | `>=6.0` | **Layer 4 & 5** | Loads the 200-case bilingual NL corpus in `tests/fixtures/nl_cases/` (`verify_hybrid_200.py`). |
+| **`google-genai`** | `>=1.0.0` | **Layer 4 (`smartschedule/nlp/` ONLY)** | Calls Google Gemini structured JSON extraction (`GEMINI_API_KEY`) for **NL Task Parsing (`gemini-3-flash-preview`)** and the **`v1.0-alpha` Online Lightweight Context-Parsing Model (`gemini-2.5-flash-lite` / `gemini-2.5-flash`, `0 MB` local RAM, `thinking_budget=0`)**. Never imported in `smartschedule/core/`. |
+| **`python-dotenv`** | `>=1.0.0` | **Layer 4 (`smartschedule/nlp/parser_controller.py`)** | Automatically loads `environments/.env` (`GEMINI_API_KEY`) in local development while keeping `.env` gitignored. |
 
 ---
 
-## 3. Standard Library Modules Utilized (Zero-Install)
+## 2. Optional Heavy Offline Translation Dependencies ([`environments/requirements-nllb.txt`](../environments/requirements-nllb.txt))
 
-The project leverages Python's standard library extensively to minimize external attack surface:
-- **`ast`:** Abstract Syntax Tree parsing for architectural boundary enforcement (`test_system_architecture.py`).
-- **`tracemalloc`:** Deterministic heap allocation profiler for memory leak detection (`test_memory_leaks.py`).
-- **`threading`:** Used in `test_studio.py` for background test execution and `test_production_failures.py` for multi-threaded concurrency safety.
-- **`argparse`:** CLI parameter parsing for `clean_runner.py` and `main.py`.
-- **`pathlib`:** Object-oriented cross-platform filesystem path manipulation.
-- **`hashlib`:** Cryptographic SHA-256 schedule hashing for determinism proofs.
-- **`tkinter`:** Native GUI desktop interface for `test_studio.py`.
+Only required if explicitly running offline CTranslate2 neural translation (`backend="nllb"` / `"opus_mt"`). Kept out of [`environments/requirements.txt`](../environments/requirements.txt) to avoid ~2 GB downloads and preserve the **zero-RAM default**.
+
+| Package | Version | Architectural Layer | Purpose |
+| :--- | :---: | :--- | :--- |
+| **`ctranslate2`** | `>=4.5.0` | Layer 4 Lazy Import (`smartschedule/nlp/hybrid_pipeline/translator.py`) | Quantized offline NLLB/Marian inference. |
+| **`sentencepiece`** | `>=0.2.0` | Layer 4 Lazy Import | Subword tokenizer for CTranslate2 models. |
+| **`huggingface-hub`** | `>=0.25.0` | Layer 4 Lazy Import | Downloads NLLB-200 / Opus-MT weights when explicitly requested. |
 
 ---
 
-## 4. Environment Setup Instructions
+## 3. Zero-Dependency Standard Library Core (`INV-1` & `INV-5` Compliance)
 
-### 4.1. Automatic Setup (Windows)
-Double-click `group03-smartschedule-baseline/setup_env.bat` or run:
-```bat
-cd group03-smartschedule-baseline
-setup_env.bat
+`smartschedule/core/` and verification/developer utilities rely purely on Python 3.10+ stdlib:
+- **`sqlite3`** (`smartschedule/core/storage.py` $\to$ `data/runtime/local_state.db`)
+- **`hashlib`** (`smartschedule/core/task_tracer.py` SHA-256 keyword fingerprinting, solver determinism hashes)
+- **`ast` / `tracemalloc` / `threading`** (`tests/architecture/` invariant & memory leak checks `< 350 KB`)
+- **`tkinter`** (`tests/test_studio.py`)
+
+---
+
+## 4. Environment & Quick Installation
+
+```powershell
+# From repository root:
+.\tools\scripts\setup_env.bat                         # Creates .venv and installs environments/requirements.txt
+Copy-Item environments/.env.example environments/.env  # Optional: add GEMINI_API_KEY for online context model
+python -B -m smartschedule.main --serve
 ```
-
-### 4.2. Manual Installation
-```bash
-cd group03-smartschedule-baseline
-
-# 1. Create virtual environment
-python -m venv .venv
-
-# 2. Activate virtual environment
-# Windows (PowerShell):
-.venv\Scripts\Activate.ps1
-# Windows (CMD):
-.venv\Scripts\activate.bat
-# Linux / macOS:
-source .venv/bin/activate
-
-# 3. Upgrade pip and install
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-```
-

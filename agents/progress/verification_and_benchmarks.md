@@ -1,155 +1,66 @@
-# SmartSchedule — Verification Testing & Benchmark Architecture
+# Verification, Benchmarks & Evaluation Infrastructure (`agents/progress/verification_and_benchmarks.md`)
 
-**Project:** SmartSchedule — Verification & Production Readiness  
-**Author / Lead:** Builder 3 (System Architecture & Testing)  
-**Location:** `group03-smartschedule-baseline/verification_tests/`  
-**Target Audience:** AI Coding Assistants, QA Engineers & Testers  
+**Owner:** Builder 3 (System Architecture & Verification)  
+**Test Suite Location:** [`tests/`](../../tests/) · **Automated Judge:** [`v1.0-alpha-plan/Testing_System/`](../../v1.0-alpha-plan/Testing_System/README.md) · **Tools:** [`tools/benchmarks/`](../../tools/benchmarks/)  
+**See Also:** [`v1.0-alpha-plan/README_agents.md`](../../v1.0-alpha-plan/README_agents.md)
 
 ---
 
-## 1. Overview & Test Suite Philosophy
+## 1. Modular Test Directory (`tests/`)
 
-> [!NOTE]
-> **Latest Verified Totals (`2026-11-21`, see [`agents/commit_changes.md`](../commit_changes.md) `Entry 020`):** The baseline matrix below (`89 tests`) has since expanded to **`193 / 193` passing tests** in `clean_runner.py --all` (adding UI v3, V3 ergonomic solvers `test_ergonomic_solvers_v3.py`, `member_eval/`, P1 `v2.1`, P2 EWMA calibration, P3 SaaS, 7-case Showcase, and view-only week navigation tests) plus **`39 / 39` passed** in `pytest Testing_System/tests`.
-
-The SmartSchedule verification testing suite serves as the **production verification gate** for our 10-week development arc. It tests not just typical happy-path executions, but systematically probes memory boundaries, AST architectural compliance, mathematical unsolvability, circular DAG traps, and developmental feature gaps.
-
-### 1.1. The 60/40 Verification Matrix
-To ensure realistic software engineering rigor, our automated suite has grown to **89 automated tests** following the 60/40 operational-to-boundary distribution:
+Reorganized in `v1.0-alpha` from `group03-smartschedule-baseline/verification_tests/` into clean concise packages wired to `smartschedule.core.config` paths (`PRESETS_DIR`, `SCENARIOS_DIR`, `CORE_DIR`, `UI_DIR`):
 
 ```text
-Total Test Matrix: 89 Automated Tests
-├── Operational Passing Tests (84 tests — 100% GREEN):
-│   ├── Standard feasible scheduling on typical student weeks (Minh & Lan)
-│   ├── 672-slot discrete math calculations (196 SLEEP + 132 OCCUPIED + 344 FREE)
-│   ├── Determinism verification (3x identical SHA-256 hash checks)
-│   ├── UI static workbench delivery & export endpoints (.ics, .csv, .json)
-│   ├── AST architectural boundaries (solvers do not import web/FastAPI)
-│   ├── Heap memory leak checks (< 350 KB growth over 50 solves)
-│   ├── Topo-sort DAG ordering & clean Pydantic schema validation
-│   └── 34 Behavioral Estimation Buffer tests (Feature 001: habit multipliers & rounding)
-│
-└── Edge Cases & Developmental Target Gaps (5 tests):
-    ├── 1 RESOLVED GAP: Planning Fallacy buffer multiplier (AC1–AC7 verified)
-    └── 4 OPEN GAPS: Circadian energy matching, 15m rest breaks, reason codes, habit skipping
+tests/
+├── clean_runner.py         # Interpretable Pytest CLI runner (-p no:terminal)
+├── test_studio.py          # Tkinter Desktop Test Manager GUI
+├── conftest.py             # Adds repo root + v1.0-alpha-plan/ to sys.path
+├── ui/                     # UI DOM/JS contracts & FastAPI endpoints
+├── architecture/           # AST invariants (INV-1..6), tracemalloc (<350 KB), thread safety
+├── logical/                # Determinism, V3 solvers, NL parser, Chat-First, SHA-256 tracer, P1–P3
+├── benchmark/              # 672-slot grid math, H1–H5 constraints, T01–T10, feasibility proofs
+├── gaps/                   # Development gap tracking tests
+└── fixtures/nl_cases/      # 200-case YAML corpus + validate_cases.py + verify_hybrid_200.py
+```
+
+*(Data presets & `T01–T10` JSONs now live in [`data/presets/`](../../data/presets/) and [`data/scenarios/`](../../data/scenarios/), and `Testing_System` papers live in [`v1.0-alpha-plan/Testing_Plan/papers/`](../../v1.0-alpha-plan/Testing_Plan/papers/).)*
+
+---
+
+## 2. How to Run Verification & Benchmarks (From Repo Root)
+
+```powershell
+# 1. Operational Verification Suite (UI, Arch, Logical, Benchmark)
+python -B tests/clean_runner.py --pass
+
+# 2. Specific Layers / Edge Cases
+python -B tests/clean_runner.py --ui
+python -B tests/clean_runner.py --arch
+python -B tests/clean_runner.py --logic
+python -B tests/clean_runner.py --bench
+python -B tests/clean_runner.py --gaps
+
+# 3. Testing_System v2.1 Automated Evaluator & Fuzz Suite
+python -B -m pytest -c environments/pyproject.toml v1.0-alpha-plan/Testing_System/tests -q
+
+# 4. 200-Case Bilingual NL Parser Corpus
+python -B tests/fixtures/nl_cases/validate_cases.py
+python -B tests/fixtures/nl_cases/verify_hybrid_200.py
+
+# 5. Benchmarks & Alpha Grid Calibration
+python -B tools/benchmarks/benchmark_runner.py
+python -B tools/benchmarks/benchmark_alpha_grid.py --include-extreme --save-json
+
+# 6. Windows Quick Wrappers & GUI Studio
+.\tools\scripts\run_verification_tests.bat --pass
+.\tools\scripts\run_test_studio.bat
 ```
 
 ---
 
-## 2. Directory Breakdown & Test Inventory
+## 3. Reading `clean_runner.py` Console Output
 
-All tests are strictly located in `group03-smartschedule-baseline/verification_tests/`:
-
-### 2.1. UI & Delivery Tests (`ui_tests/` — 6 tests)
-- `test_ui_endpoints.py` (5 tests):
-  - `test_workbench_index_html_delivery`: Verifies `/` delivers HTML and contains `#scheduleGrid`.
-  - `test_presets_retrieval`: Validates `/api/presets` returns `minh` and `lan` configurations.
-  - `test_solve_endpoint_standard_payload`: Executes end-to-end `/api/solve` with sample payload.
-  - `test_validate_move_interactive_drag`: Validates manual move collision detection.
-  - `test_calendar_export_endpoints`: Tests export generation for `.json`, `.csv`, and `.ics`.
-- `test_ui_contract_improve_plan.py` (1 test):
-  - `test_ui_contract_fields_compliance`: Enforces ISO-8601 JSON schema matching Improve Plan §7.3.
-
-### 2.2. Architecture & Invariant Tests (`architecture_tests/` — 9 tests)
-- `test_system_architecture.py` (4 tests):
-  - `test_solvers_do_not_import_web`: Statically inspects AST of all solver files; asserts zero imports of `web` or `fastapi`.
-  - `test_models_layer_is_pure`: Asserts `src/models.py` imports neither `solvers` nor `controller`.
-  - `test_solver_statelessness_across_runs`: Asserts solver instances retain no cached state across sequential solves.
-  - `test_cannot_clear_sleep_or_occupied_masks`: Proves `remove_block()` cannot clear locked `SLEEP` or `OCCUPIED` slots.
-- `test_memory_leaks.py` (2 tests):
-  - `test_solver_memory_leak_over_50_iterations`: Uses `tracemalloc` to prove heap growth is $< 350\text{ KB}$ across 50 solves.
-  - `test_solver_peak_memory_bounded`: Asserts single-solve peak memory is $< 10\text{ MB}$.
-- `test_production_failures.py` [Edge Cases] (3 tests):
-  - `test_concurrent_solves_thread_safety`: Multi-threaded simultaneous execution of Student A and Student B; asserts zero block leakage between threads.
-  - `test_scale_50_tasks_latency_sla`: Stresses solver with 50 tasks; asserts solving latency is strictly $< 2000\text{ ms}$.
-  - `test_timezone_offset_handling`: Tests non-local timezone offsets (`-05:00` New York); verifies graceful handling without internal 500 errors.
-
-### 2.3. Logical & Edge Case Tests (`logical_tests/` — 16 tests)
-- `test_circular_dependencies.py` (4 tests):
-  - Traps mutual cycles ($A \leftrightarrow B$), self-loops ($A \to A$), and transitive 3-node cycles ($A \to B \to C \to A$) without infinite recursion.
-- `test_estimate_buffer.py` (34 tests — Added in Feature 001):
-  - Full suite testing habit normalization (`RARELY`, `SOMETIMES`, `OFTEN`), multipliers ($1.0, 1.1, 1.25$), nearest-slot integer rounding, floor bounds, non-compounding overrun simulation, and determinism preservation.
-- `test_undefined_behaviors.py` (4 tests):
-  - Guards against illegal hours (`"25:00"`), slot out-of-bounds queries, negative durations, and clamps priority ($1 \le p \le 5$).
-- `test_generation.py` (4 tests):
-  - Parameterized test generator evaluating random tasks across `EDF`, `LST`, and `WSPT` while verifying $C_{\text{hard}} = 0$ continuously.
-- `test_scheduling_edge_cases.py` (4 tests):
-  - `test_edge_simultaneous_deadline_priority_inversion`: Proves high-priority tasks (P5) are preserved while low-priority tasks (P1) are dropped under tight capacity.
-  - `test_edge_sunday_boundary_overflow_no_wraparound`: Verifies task ending past Sunday midnight never wraps around to Monday slot 0.
-  - `test_edge_extreme_15min_fragmentation`: Partitions 4 hours into sixteen 15m slots; proves atomic 60m task is diagnosed in `unplaced_tasks`.
-  - `test_fail_edge_sprint_mode_compression_recovery` [Target Failure]: Tests sprint mode compression when task misses deadline by $\le 15\text{m}$.
-
-### 2.4. Benchmark Tests (`benchmark_tests/` — 20 tests)
-- `test_time_grid.py` (3 tests): Discrete math and 672-slot allocation verification.
-- `test_constraints.py` (3 tests): Hard constraints $H_1$–$H_5$ on Minh and Lan presets.
-- `test_edf_solver.py` (2 tests): 3x SHA-256 hash equality (determinism) and local repair stability ($S_{\text{stability}} \ge 90\%$).
-- `test_scenarios_t01_t10.py` (7 tests): Integration testing across standardized course scenarios T01–T10.
-- `test_feasibility_benchmarks.py` [Solvability Proofs] (5 tests):
-  - Evaluates possible vs impossible schedules via response retrieval:
-    1. Tight Feasible Single Gap (Possible)
-    2. Capacity Shortage (Impossible — proves 60m shortage retrieval)
-    3. Fragmentation Barrier (Impossible — 150m atomic task vs two 90m gaps)
-    4. Prerequisite Dependency Chain (Possible — $\text{Arch} \to \text{Impl} \to \text{Test}$)
-    5. Deadlocked Zero Free Window (Impossible — preserves sleep $H_2$)
-
-### 2.5. Development Gap Tests (`development_gap_tests/` — 5 tests)
-Intentional target failure tests tracking upcoming features from `Improve_Plan/improve_plan.md`:
-1. `test_fail_circadian_energy_matching` (Improve Plan §3.3) — *OPEN GAP*
-2. `test_fail_rest_break_insertion_after_deep_work` (Decision D2) — *OPEN GAP*
-3. `test_fail_planning_fallacy_buffer_multiplier` (Feature F06) — **✅ GREEN / RESOLVED via Feature 001**
-4. `test_fail_why_popover_structured_reason_codes` (Table §7.3) — *OPEN GAP*
-5. `test_fail_overload_habit_skipping_recommendation` (Feature F15) — *OPEN GAP*
-
----
-
-## 3. Interpretable Test Runner (`clean_runner.py`)
-
-To eliminate confusing terminal clutter, test execution is managed by [`clean_runner.py`](../../group03-smartschedule-baseline/verification_tests/clean_runner.py), which outputs a structured, human-readable format:
-
-```text
-========================================================================
-[RUNNING] Verification Test Engine Active...
-Target:   Operational Verification Suite (Passing Baseline Tests)
-Time:     2026-11-04 16:39:33
-========================================================================
-
-[PHASE 1/4] UI & Frontend Contract Tests (verification_tests/ui_tests)
-  [FILE] test_ui_contract_improve_plan.py ...................... PASSED (1/1 tests)
-  [FILE] test_ui_endpoints.py .................................. PASSED (5/5 tests)
-
-[PHASE 2/4] System Architecture & Invariant Tests (verification_tests/architecture_tests)
-  [FILE] test_memory_leaks.py .................................. PASSED (2/2 tests)
-  [FILE] test_production_failures.py ........................... PASSED (3/3 tests)
-  [FILE] test_system_architecture.py ........................... PASSED (4/4 tests)
-...
-========================================================================
-[FINAL SUMMARY] 50 Passed | 0 Failed | Total: 50 Tests
-Execution Time: 3.42s | Status: ALL PASSED
-========================================================================
-```
-
----
-
-## 4. How to Execute Tests
-
-### 4.1. Via Batch Scripts (Recommended)
-- **Run all operational passing tests:**
-  ```powershell
-  .\group03-smartschedule-baseline\verification_tests\run_verification_tests.bat --pass
-  ```
-- **Track developmental feature gaps (expected failures):**
-  ```powershell
-  .\group03-smartschedule-baseline\verification_tests\run_verification_tests.bat --gaps
-  ```
-- **Run the full 60/40 matrix (all 56 tests):**
-  ```powershell
-  .\group03-smartschedule-baseline\verification_tests\run_verification_tests.bat --all
-  ```
-- **Run only the 40% edge cases:**
-  ```powershell
-  .\group03-smartschedule-baseline\verification_tests\run_verification_tests.bat --edge
-  ```
-
-### 4.2. Via Minimal GUI Studio
-Double-click `group03-smartschedule-baseline/verification_tests/run_test_studio.bat` to launch the native desktop GUI for point-and-click test editing and execution.
-
+`clean_runner.py` suppresses noisy Pytest warnings (`-p no:terminal`) and prints 3 structured sections:
+1. **`[RUNNING]` Signal:** Target suite & start timestamp.
+2. **`[PHASE i/N]` Groups:** Files grouped by `tests/ui`, `tests/architecture`, `tests/logical`, `tests/benchmark`.
+3. **`[FINAL SUMMARY]`:** Exact pass/fail counts, elapsed seconds, and on failure exact `Point to:` + `Details:` diagnostics.

@@ -3,9 +3,9 @@
 **Course:** CS252 — Computational Thinking · FIT-HCMUS  
 **Team:** Group 03 (*The Seven Dwarfs*)  
 **Feature Lead / Author:** Nguyễn Trọng Tiến (Thinker 3 — Abstraction & Algorithmic Design)  
-**Status:** Implemented and Verified (84/84 operational tests passing)  
+**Status:** Implemented and Verified (included cleanly inside `tests/clean_runner.py --pass`)  
 **Source Origin:** `Improve_Plan/improve_plan.md` §6.2 (TaskSheet "planned 75 min"), §7.3 (`profile.estimate_habit`), Feature F04 & F06  
-**Target Repository:** `group03-smartschedule-baseline`  
+**Target Module:** [`smartschedule/core/estimate_buffer.py`](../../smartschedule/core/estimate_buffer.py)  
 
 ---
 
@@ -66,51 +66,51 @@ $$\text{Planned}(T_{\text{est}}, m) = \max\left( \text{round\_up\_to\_15}(T_{\te
 
 ```mermaid
 flowchart LR
-    subgraph L4[Layer 4 — Web]
-        UI[web/index.html + app.js<br/>habit selector, preview, column]
-        API[web/api.py<br/>parse habit, new_estimate_min]
+    subgraph L4[Layer 4 — Web & API]
+        UI[smartschedule/ui/index.html + js/ + app.js<br/>habit selector, preview, column]
+        API[smartschedule/api/app.py<br/>parse habit, new_estimate_min]
     end
     subgraph L3[Layer 3 — Orchestration]
-        CTRL[src/controller.py<br/>apply_estimate_buffer, annotate]
+        CTRL[smartschedule/core/controller.py<br/>apply_estimate_buffer, annotate]
     end
     subgraph L2[Layer 2 — Solvers]
-        SOLV[src/solvers/*<br/>UNCHANGED — 100% Stateless]
+        SOLV[smartschedule/core/solvers/*<br/>UNCHANGED — 100% Stateless]
     end
     subgraph L1[Layer 1 — Models]
-        MOD[src/models.py<br/>estimate_habit, buffer_multiplier]
-        EB[src/estimate_buffer.py<br/>Pure mathematical functions]
+        MOD[smartschedule/core/models.py<br/>estimate_habit, buffer_multiplier]
+        EB[smartschedule/core/estimate_buffer.py<br/>Pure mathematical functions]
     end
     UI --> API --> CTRL --> SOLV --> MOD --> EB
     CTRL --> EB
 ```
 
-### Layer 1: Models (`src/estimate_buffer.py` & `src/models.py`)
-- **`src/estimate_buffer.py`:** Pure mathematical library containing:
+### Layer 1: Models (`smartschedule/core/estimate_buffer.py` & `models.py`)
+- **`smartschedule/core/estimate_buffer.py`:** Pure mathematical library containing:
   - `normalize_habit(raw)`: Validates and sanitizes input.
   - `multiplier_for_habit(habit)`: Returns float multiplier ($1.0, 1.1, 1.25$).
   - `planned_duration_min(estimate_min, multiplier)`: Deterministic integer calculation.
   - `buffer_reason(estimate_min, planned_min, multiplier)`: Formats structured explanation dict.
-- **`src/models.py`:**
+- **`smartschedule/core/models.py`:**
   - `CommitmentsProfile`: Added optional field `estimate_habit: Optional[str] = None`.
   - `Task`: Added `buffer_multiplier: float = 1.0`. Method `get_planned_duration_min()` calls `planned_duration_min(self.duration_min, self.buffer_multiplier)`.
 
-### Layer 3: Controller (`src/controller.py`)
+### Layer 3: Controller (`smartschedule/core/controller.py`)
 - `apply_estimate_buffer(profile, tasks)`: Creates clean, non-mutating copies of task models with scaled `buffer_multiplier`.
 - `solve_schedule(...)`: Invokes `apply_estimate_buffer`, executes solver, and annotates blocks whose duration increased with the structured reason code `ESTIMATE_BUFFER`.
 - `handle_task_overrun(...)`: Adds overrun duration to the **raw estimate** rather than the planned duration, then re-buffers. Returns `new_estimate_min` to prevent compounding buffer inflation.
 
-### Layer 4: Web API & Frontend (`web/api.py`, `web/index.html`, `web/app.js`)
-- `web/api.py`: Reads `estimate_habit` from payload across 3 valid schema shapes (`commitments.estimate_habit`, `profile.estimate_habit`, or top-level `estimate_habit`). Returns `new_estimate_min` on progress updates.
-- `web/app.js`: Live preview in the task modal (`planned X min`), habit selector in preferences, and dual-column table display (`Ước lượng → Dự trù`).
+### Layer 4: Web API & Frontend (`smartschedule/api/`, `smartschedule/ui/`)
+- `smartschedule/api/app.py`: Reads `estimate_habit` from payload across 3 valid schema shapes (`commitments.estimate_habit`, `profile.estimate_habit`, or top-level `estimate_habit`). Returns `new_estimate_min` on progress updates.
+- `smartschedule/ui/app.js` (+ `js/` & `api/chat/handlers.py`): Shows remaining-time habit buffering breakdowns directly in chat responses (`⏳ Tính lại thời gian theo thói quen`) and renders buffered planned durations in `Danh Sách Việc` (`Estimate → Planned`).
 
-### Layer 2: Solvers (`src/solvers/*`) — Strict Invariance Preserved
+### Layer 2: Solvers (`smartschedule/core/solvers/*`) — Strict Invariance Preserved
 - **Zero changes made to solver files.** Solvers remain completely stateless and unaware of the buffer mechanism, querying duration via the standard `get_planned_duration_min()` interface.
 
 ---
 
 ## 4. Acceptance Criteria & Test Evidence
 
-Tested and verified via [`test_estimate_buffer.py`](../../group03-smartschedule-baseline/verification_tests/logical_tests/test_estimate_buffer.py) (34 unit tests) and the acceptance test:
+Tested and verified via [`test_estimate_buffer.py`](../../tests/logical/test_estimate_buffer.py) (34 unit tests) and the acceptance test:
 
 | AC | Scenario | Expected Outcome | Status |
 | :---: | :--- | :--- | :---: |

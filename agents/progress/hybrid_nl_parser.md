@@ -1,13 +1,13 @@
 # Hybrid EN/VI Natural Language Parser & Student Modal UX
 
-> **Module:** `NL_Parser_Package/` + `src/nl_parser.py` (M1) + `web/api.py` + `web/index.html` + `web/app.js`  
-> **Status:** Operational — `200/200` YAML benchmark (`rule`, `458.1 ms`), `17/17` pytest integration & unbiased generalization tests passing.
+> **Module:** `smartschedule/nlp/hybrid_pipeline/` + `smartschedule/nlp/parser_controller.py` (M1) + `smartschedule/nlp/{clause_condenser,context_router}.py` + `smartschedule/api/` + `smartschedule/ui/`  
+> **Status:** Operational — `200/200` YAML benchmark (`rule`), `17/17` pytest integration & unbiased generalization tests passing, merged in `v1.0-alpha` with the **Online Lightweight Context Model (`gemini-2.5-flash-lite`)**.
 
 ---
 
 ## 1. Architecture Overview
 
-The SmartSchedule Hybrid EN/VI NL Parser combines a deterministic **6-stage offline pipeline** (`NL_Parser_Package/hybrid_parser.py`) with the M1 SmartSchedule adapter (`src/nl_parser.py`) and an interactive **Student Task Modal** (`web/index.html`, `web/app.js`).
+The SmartSchedule Hybrid EN/VI NL Parser combines the deterministic **6-stage offline pipeline** ([`smartschedule/nlp/hybrid_pipeline/hybrid_parser.py`](../../smartschedule/nlp/hybrid_pipeline/hybrid_parser.py)) with M1 ([`parser_controller.py`](../../smartschedule/nlp/parser_controller.py)), modular Chat-First context routing (`context_router.py` + `clause_condenser.py`), and the Chat-First UI (`smartschedule/ui/`).
 
 ```text
 User Prompt (EN / VI) + UI Metadata (Urgency 1-4, WorkRhythm, Linked Files)
@@ -33,9 +33,9 @@ User Prompt (EN / VI) + UI Metadata (Urgency 1-4, WorkRhythm, Linked Files)
 
 ---
 
-## 2. Core Pipeline Files (`group03-smartschedule-baseline/NL_Parser_Package/`)
+## 2. Core Pipeline Files (`smartschedule/nlp/hybrid_pipeline/`)
 
-The package directory inside `group03-smartschedule-baseline/NL_Parser_Package/` contains only the 7 deployed runtime modules:
+The refactored package directory inside [`smartschedule/nlp/hybrid_pipeline/`](../../smartschedule/nlp/hybrid_pipeline/) contains the 7 core runtime modules (plus `context_router.py` & `clause_condenser.py` in [`smartschedule/nlp/`](../../smartschedule/nlp/) for `v1.0-alpha` chat context parsing):
 
 | File | Responsibility |
 | :--- | :--- |
@@ -49,12 +49,11 @@ The package directory inside `group03-smartschedule-baseline/NL_Parser_Package/`
 
 ---
 
-## 3. UI/UX & Cross-Browser Safety Upgrades (`web/index.html`, `web/app.js`)
+## 3. Chat-First Entry & Cross-Day Context Upgrades (`smartschedule/nlp/` & `smartschedule/ui/`)
 
-- **Expanded Modal & Unsaved Draft Persistence:** `#stTaskModal` uses a wide responsive container (`max-w-3xl lg:max-w-4xl`, `max-h-[90vh]`, scrollable body), top-right `✕` + Esc/backdrop close, and `localStorage` draft auto-save (`saveStudentModalDraft`, `restoreStudentModalDraft`, `clearStudentModalDraft`, `#stModalDraftBadge`, `#btnStClearDraft`).
-- **Chat-Style File Citation & Lossless Linking:** Unified `#stNlPromptBox` and `#stNlFileLinkBox` let users drag files in or insert `[[filename]]` / `@[path]` tokens into the prompt without losing text, displaying red borders and error cards (`CRITICAL_CITATION_CODES`, `HYBRID_DIAG_LABELS`) whenever citations are malformed or unattached.
-- **Dependency Task IDs & Splittability:** Added `#stInpTaskId` plus clickable `#stExistingTaskIdChips` for **"Task cần phải làm trước đó (Task ID)"**, moved the splittability toggle (`✂️ Cho phép cắt nhỏ` | `🔒 Làm liền 1 buổi`) directly into the natural-language bar, and hid the redundant `"Ưu tiên Solver"` dropdown so `Khẩn cấp (1–4)` drives priority consistently.
-- **Cross-Browser Drag-and-Drop:** Dual `window` + `document` `dragenter`/`dragover`/`drop`/`dragend` guards with `try { dropEffect = ... }`, `dt.items` fallback, `decodeURIComponent`, and `dragleave` child-element filtering prevent Edge, Chrome, Firefox, and Safari from opening dragged files in a new browser tab.
+- **Chat-First `"Trợ lý xếp lịch"` Composer (`smartschedule/ui/index.html`, `js/chat-assistant.js`):** Launches directly into `#viewChat` with clean prompt entry (no saved-task pill clutter or prefix injection), citation attachment checking (`[[filename]]` / `@[path]`), and a single **`🗓️ Kiểm tra lịch trình`** post-action button.
+- **Merged 3-Layer Context Extraction (`clause_condenser.py` + `context_router.py`):** Pre-splits multi-day prompts into single atomic tasks (`start_after` + `deadline` + `is_splittable=False`), summarizes concise titles via online `gemini-2.5-flash-lite` (`0 MB` local RAM) or offline syntactic condensation (e.g., `"Làm bài tập Computational Thinking"`), and pairs with `task_tracer.py` SHA-256 fingerprints for hidden parameter updates.
+- **Cross-Browser Drag-and-Drop:** `window` + `document` drag guards with `dt.items` fallback and `decodeURIComponent` prevent Edge, Chrome, Firefox, and Safari from opening dragged files in a new browser tab.
 
 ---
 
@@ -62,7 +61,7 @@ The package directory inside `group03-smartschedule-baseline/NL_Parser_Package/`
 
 | Suite | Command | Verified Result |
 | :--- | :--- | :--- |
-| **Schema Validator** | `python -B verification_tests/NL_Parser_test_cases/validate_cases.py` | `200` cases — `All checks passed` |
-| **200-Case Hybrid Benchmark** | `python -B verification_tests/NL_Parser_test_cases/verify_hybrid_200.py` | `200/200 (100.0%)` in `458.1 ms` |
-| **Hybrid Integration Tests** | `pytest verification_tests/logical_tests/test_hybrid_nl_integration.py` | Included in `142/142` (`8` tests) |
-| **Unbiased Generalization Tests** | `pytest verification_tests/logical_tests/test_hybrid_unbiased_generalization.py` | Included in `142/142` (`9` tests) |
+| **Schema Validator** | `python -B tests/fixtures/nl_cases/validate_cases.py` | `200` cases — `All checks passed` |
+| **200-Case Hybrid Benchmark** | `python -B tests/fixtures/nl_cases/verify_hybrid_200.py` | `200/200 (100.0%)` |
+| **Hybrid Integration Tests** | `pytest tests/logical/test_hybrid_nl_integration.py` | Included in `--pass` (`12` tests) |
+| **Unbiased Generalization Tests** | `pytest tests/logical/test_hybrid_unbiased_generalization.py` | Included in `--pass` (`9` tests) |

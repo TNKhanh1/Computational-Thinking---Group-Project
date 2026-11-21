@@ -1,13 +1,13 @@
 # Bộ Phân Tích Ngôn Ngữ Tự Nhiên Hybrid EN/VI & UX Modal Công Việc
 
-> **Thành phần:** `NL_Parser_Package/` + `src/nl_parser.py` (M1) + `web/api.py` + `web/index.html` + `web/app.js`  
-> **Trạng thái:** Đang vận hành ổn định — `200/200` ca YAML (`rule`, `458.1 ms`), `17/17` bài test tích hợp & tổng quát hóa khách quan đạt 100%.
+> **Thành phần:** `smartschedule/nlp/hybrid_pipeline/` + `smartschedule/nlp/parser_controller.py` (M1) + `smartschedule/nlp/{clause_condenser,context_router}.py` + `smartschedule/api/` + `smartschedule/ui/`  
+> **Trạng thái:** Đang vận hành ổn định — `200/200` ca YAML (`rule`), kiểm thử tích hợp & tổng quát hóa đạt `100%`, đã hợp nhất với tầng **Mô Hình AI Đọc Ngữ Cảnh Online (`gemini-2.5-flash-lite`)** trong `v1.0-alpha`.
 
 ---
 
 ## 1. Kiến Trúc Đường Ống Hybrid 6 Tầng
 
-Bộ phân tích Hybrid EN/VI kết hợp pipeline offline 6 tầng (`NL_Parser_Package/hybrid_parser.py`) với tầng tiếp hợp M1 (`src/nl_parser.py`) và hộp thoại Thêm Công Việc (`web/index.html`, `web/app.js`).
+Bộ phân tích Hybrid EN/VI kết hợp pipeline offline 6 tầng ([`smartschedule/nlp/hybrid_pipeline/hybrid_parser.py`](../../smartschedule/nlp/hybrid_pipeline/hybrid_parser.py)) với tầng tiếp hợp M1 ([`parser_controller.py`](../../smartschedule/nlp/parser_controller.py)), định tuyến ngữ cảnh chat (`context_router.py` + `clause_condenser.py`) và giao diện Chat-First (`smartschedule/ui/`).
 
 ```text
 Câu nhập (Tiếng Việt / Tiếng Anh) + Dữ liệu UI (Khẩn cấp 1-4, Nhịp học, Tệp đính kèm)
@@ -33,9 +33,9 @@ Câu nhập (Tiếng Việt / Tiếng Anh) + Dữ liệu UI (Khẩn cấp 1-4, N
 
 ---
 
-## 2. Cấu Trúc Gói `NL_Parser_Package/` Đang Triển Khai
+## 2. Cấu Trúc Gói `smartschedule/nlp/hybrid_pipeline/` Đang Triển Khai
 
-Thư mục `group03-smartschedule-baseline/NL_Parser_Package/` chỉ lưu trữ **7 module cốt lõi** phục vụ runtime (các file thừa, tài liệu `.md` nội bộ và cache đã được dọn sạch):
+Thư mục [`smartschedule/nlp/hybrid_pipeline/`](../../smartschedule/nlp/hybrid_pipeline/) lưu trữ **7 module cốt lõi** phục vụ runtime (đi kèm `context_router.py` và `clause_condenser.py` trong [`smartschedule/nlp/`](../../smartschedule/nlp/) cho luồng hội thoại `v1.0-alpha`):
 
 | Tệp tin | Vai trò |
 | :--- | :--- |
@@ -49,12 +49,11 @@ Thư mục `group03-smartschedule-baseline/NL_Parser_Package/` chỉ lưu trữ 
 
 ---
 
-## 3. Nâng Cấp Giao Diện Modal & Kéo-Thả Tệp Đa Trình Duyệt
+## 3. Giao Diện Chat-First `"Trợ Lý Xếp Lịch"` & Đọc Ngữ Cảnh Đa Ngày (`smartschedule/nlp/` & `ui/`)
 
-- **Mở rộng Modal & Tự động Lưu Nháp:** `#stTaskModal` rộng thoáng hơn (`max-w-3xl lg:max-w-4xl`, `max-h-[90vh]`, cuộn nội dung mượt), có nút đóng `✕` nổi bật ở góc phải trên + Esc/click nền, tự động lưu nháp vào `localStorage` (`#stModalDraftBadge`, `#btnStClearDraft`).
-- **Hộp Liên Kết Tệp & Cảnh Báo Trích Dẫn Đỏ:** Gộp khung nhập `#stNlPromptBox` và `#stNlFileLinkBox` theo kiểu ô chat, cho phép kéo tệp vào hoặc bấm chèn `[[filename]]` để bảo toàn tên tệp không mất dữ liệu, đồng thời tô đỏ và liệt kê chi tiết khi sai định dạng hoặc thiếu tệp đính kèm (`CRITICAL_CITATION_CODES`, `HYBRID_DIAG_LABELS`).
-- **Task ID Phụ Thuộc & Cắt Nhỏ Ngay Trên Prompt:** Bổ sung ô nhập `Task ID` (`#stInpTaskId`) và danh sách chip bấm chọn `#stExistingTaskIdChips` cho mục **"Task cần phải làm trước đó (Task ID)"**; đưa nút `✂️ Cho phép cắt nhỏ` | `🔒 Làm liền 1 buổi` lên thẳng vùng nhập tự nhiên và ẩn mục `"Ưu tiên Solver"` trùng lặp.
-- **Khắc Phục Mở Tab Mới Khi Kéo-Thả Trên Edge/Chrome/Firefox/Safari:** Chặn đồng bộ `dragenter`/`dragover`/`drop`/`dragend` ở cả `window` và `document`, bọc `try { dropEffect = ... }`, fallback `dt.items`, xử lý `decodeURIComponent`, và lọc `dragleave` với `!this.contains(event.relatedTarget)`.
+- **Khung Hội Thoại Mặc Định Thoáng Sạch (`smartschedule/ui/index.html`, `js/chat-assistant.js`):** Mở ứng dụng vào thẳng `#viewChat` không còn nút chỉnh nhanh rối mắt hay tự chèn tiền tố; hỗ trợ trích dẫn tệp `[[filename]]` / `@[path]` kèm 1 nút duy nhất **`🗓️ Kiểm tra lịch trình`**.
+- **Đọc Ngữ Cảnh 3 Tầng (`clause_condenser.py` + `context_router.py`):** Nhận diện chính xác 1 công việc xuyên nhiều ngày (`start_after` + `deadline` + `liên tục`), dùng `gemini-2.5-flash-lite` online (`0 MB` RAM máy) hoặc bộ rút gọn ngoại tuyến để cho ra tiêu đề súc tích (VD: `"Làm bài tập Computational Thinking"`), và nối với `task_tracer.py` SHA-256 để chỉnh thông số ngầm bằng câu chat.
+- **An Toàn Kéo-Thả Đa Trình Duyệt:** Chặn sự kiện `dragenter`/`dragover`/`drop`/`dragend` trên cả `window` và `document` để Chrome, Edge, Firefox, Safari không mở nhầm tệp sang tab mới.
 
 ---
 
@@ -62,7 +61,7 @@ Thư mục `group03-smartschedule-baseline/NL_Parser_Package/` chỉ lưu trữ 
 
 | Bộ kiểm thử | Lệnh chạy | Kết quả thực tế |
 | :--- | :--- | :--- |
-| **Kiểm tra Schema YAML** | `python -B verification_tests/NL_Parser_test_cases/validate_cases.py` | `200` ca — `All checks passed` |
-| **Benchmark 200 ca Hybrid** | `python -B verification_tests/NL_Parser_test_cases/verify_hybrid_200.py` | `200/200 (100.0%)` trong `458.1 ms` |
-| **Kiểm thử tích hợp Hybrid** | `pytest verification_tests/logical_tests/test_hybrid_nl_integration.py` | Nằm trong `142/142` (`8` tests) |
-| **Kiểm thử tổng quát hóa khách quan** | `pytest verification_tests/logical_tests/test_hybrid_unbiased_generalization.py` | Nằm trong `142/142` (`9` tests) |
+| **Kiểm tra Schema YAML** | `python -B tests/fixtures/nl_cases/validate_cases.py` | `200` ca — `All checks passed` |
+| **Benchmark 200 ca Hybrid** | `python -B tests/fixtures/nl_cases/verify_hybrid_200.py` | `200/200 (100.0%)` |
+| **Kiểm thử tích hợp Hybrid** | `pytest tests/logical/test_hybrid_nl_integration.py` | Đạt 100% (`12` tests) |
+| **Kiểm thử tổng quát hóa khách quan** | `pytest tests/logical/test_hybrid_unbiased_generalization.py` | Đạt 100% (`9` tests) |

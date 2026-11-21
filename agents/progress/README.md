@@ -1,54 +1,19 @@
-# SmartSchedule — Agents Progress Documentation Index
+# Progress Documentation Index (`agents/progress/`)
 
-**Directory:** `agents/progress/`  
-**Purpose:** Comprehensive Knowledge Base for AI Coding Agents assisting Group 03  
-**Target:** All AI Agents & Developers working on SmartSchedule  
-
----
-
-## Document Index
-
-1. **[`system_architecture.md`](system_architecture.md)**
-   - Explains the 5-layer decoupled architecture (Models, Solvers, Controller, Web/Delivery, Verification).
-   - Details the 6 strict system invariants (`INV-1` to `INV-6`) that must never be violated.
-   - Contains mermaid component diagram and data flow specifications.
-
-2. **[`baseline_plan.md`](baseline_plan.md)**
-   - Details the Baseline V0 specification from `Baseline_Plan/baseline_plan.md`.
-   - Explains the 672-slot discrete grid ($7 \times 24 \times 4$), 15-minute slot math, and enum states.
-   - Formalizes the 5 hard constraints ($H_1$ to $H_5$) and the three greedy solvers (EDF, LST, WSPT).
-   - Summarizes the 10 benchmark scenarios (T01–T10).
-
-3. **[`improved_plan.md`](improved_plan.md)**
-   - Details the user-facing and cognitive upgrades from `Improve_Plan/improve_plan.md`.
-   - Outlines the 7 student moments ($M_1$ to $M_7$).
-   - Explains circadian energy matching, 15m rest breaks, planning buffer multipliers ($1.25\times$), overload habit skipping, and the ISO-8601 JSON Data Contract (§7.3).
-   - Lists the 5 intentional developmental gap tests tracking upcoming sprint deliverables.
-
-4. **[`verification_and_benchmarks.md`](verification_and_benchmarks.md)**
-   - Complete inventory and architecture of the automated verification suite (now scaled to **`193 / 193` `clean_runner.py --all` tests** across `ui_tests/`, `architecture_tests/`, `logical_tests/`, `benchmark_tests/`, and `development_gap_tests/`, plus **`39 / 39` `Testing_System/tests`** and **200 Hybrid NL Parser YAML cases** — see [`agents/commit_changes.md`](../commit_changes.md) `Entry 020` for the latest test file additions).
-   - Explains the 60% average passing cases / 40% edge cases & developmental failures matrix.
-   - Documents the Interpretable Test Runner (`clean_runner.py`), the GUI Test Studio (`test_studio.py`), and CLI execution batch files.
-
-5. **[`requirements.md`](../requirements.md)**
-   - Comprehensive environment & package breakdown (`fastapi`, `uvicorn`, `pydantic`, `pytest`, `httpx`, `python-dateutil`, `google-genai`, `python-dotenv`, `PyYAML`, `ctranslate2`, `sentencepiece`, `huggingface-hub`).
-   - Architectural layer scoping for each dependency and standard library utilities (`ast`, `tracemalloc`, `tkinter`).
-   - Mandatory simultaneous update instructions.
-
-6. **[`feature_001_estimate_buffer.md`](feature_001_estimate_buffer.md)**
-   - Specification, integer rounding formulation, architecture, and 34 verification tests for the Planning Fallacy estimate buffer ($1.00\times$, $1.10\times$, $1.25\times$).
-   - Explains non-compounding overrun simulation and zero-regression baseline compatibility.
-
-7. **[`student_mode_ui.md`](student_mode_ui.md)**
-   - Dual-Mode Architecture (Student Mode vs. Lab Mode), 3 student calendar views (Week, Today "Now & Next", Task Queue).
-   - Interactive block controls: Pinning (📌), Check-in (✔️), and "Why here? 💡" algorithmic explainability modal.
-
-8. **[`hybrid_nl_parser.md`](hybrid_nl_parser.md)**
-   - 6-stage Hybrid EN/VI NL Parser pipeline (`NL_Parser_Package/` + `src/nl_parser.py`), `1=Urgent..4=Low -> 5..1` priority adapter, and VI→EN translation backends (`rule`, `nllb`, `opus_mt`).
-   - Expanded Student Task Modal UI/UX (`localStorage` drafts, lossless `[[filename]]`/`@[path]` citations, inline splittability, `Task ID` dependencies) and cross-browser drag-and-drop protection.
+> [!IMPORTANT]
+> **Start at [`agents/README.md`](../README.md) and [`v1.0-alpha-plan/README_agents.md`](../../v1.0-alpha-plan/README_agents.md)** for active `v1.0-alpha` roadmaps, codebase layout, and live checklists. Historical pre-`v1.0-alpha` plans live in [`agents/archive/`](../archive/).
 
 ---
 
-## Quick Navigation to Commit Log
-For the active change log and mandatory synchronization instructions for AI agents, refer to:
-👉 **[`agents/commit_changes.md`](../commit_changes.md)**
+## Active Reference Guides (`agents/progress/`)
+
+1. **[`v1.0-alpha-plan/README_agents.md`](../../v1.0-alpha-plan/README_agents.md)** — **Primary Active Blueprint (`v1.0-alpha`)**
+   - Modular layout (`smartschedule/`, `data/`, `tests/`, `tools/`, `environments/`), Chat-First UI/UX, Merged Online + Clause Context Parser, 6-solver kernel, and active execution checklists.
+2. **[`system_architecture.md`](system_architecture.md)**
+   - Deep-dive into the 5-layer dependency model and Architectural Invariants `INV-1` through `INV-6`.
+3. **[`verification_and_benchmarks.md`](verification_and_benchmarks.md)**
+   - Guide to `tests/` verification layers, `tests/clean_runner.py`, Test Studio, and `Testing_System v2.1` + `T01–T10` benchmarks.
+4. **[`feature_001_estimate_buffer.md`](feature_001_estimate_buffer.md)**
+   - Mathematical & behavioral specification of Planning-Fallacy buffering (`smartschedule/core/estimate_buffer.py`).
+5. **[`hybrid_nl_parser.md`](hybrid_nl_parser.md)**
+   - Hybrid 6-stage EN/VI NL pipeline merged with `v1.0-alpha` online lightweight context parsing (`context_router.py` + `clause_condenser.py`).
