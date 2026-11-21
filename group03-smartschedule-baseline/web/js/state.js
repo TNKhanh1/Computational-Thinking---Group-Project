@@ -58,6 +58,7 @@ export const state = {
 
   // Calendar Scrubber & Display controls
   scrubberStartDay: 0,
+  viewWeekOffset: 0, // weeks from planning_week_start being *viewed* (week nav never re-plans)
   visibleDaysCount: 7, // 1 | 3 | 5 | 7
   hideSleepHours: true,
   showEnergyBackdrop: true,

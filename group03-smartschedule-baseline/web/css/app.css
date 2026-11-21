@@ -1342,3 +1342,10 @@
 /* Tasks whose deadline is before the planning week (after navigating forward): informational, not an error */
 .past-due-strip { border-color: var(--st-info-border); }
 .unplaced-chip.past-due-chip { border-color: var(--st-info-border); background: var(--st-info-bg); }
+
+/* Viewing a week outside the planning window (week nav is view-only) */
+.cal-day-col.out-of-plan {
+  background-image: repeating-linear-gradient(135deg, transparent 0 10px, rgba(120, 130, 140, 0.06) 10px 20px);
+}
+.cal-day-head.out-of-plan { opacity: 0.75; }
+.out-of-plan-banner { margin-bottom: 12px; }

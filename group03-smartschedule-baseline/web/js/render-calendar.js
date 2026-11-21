@@ -42,7 +42,13 @@ export function renderCalendarView(container, callbacks) {
   if (state.scrubberStartDay > maxStart) state.scrubberStartDay = maxStart;
   if (state.scrubberStartDay < 0) state.scrubberStartDay = 0;
 
-  const startDay = state.scrubberStartDay;
+  // Week navigation only changes which week is *viewed* (state.viewWeekOffset, in weeks from the
+  // planning week). Re-planning another week is an explicit action (banner button below), so
+  // tasks are never silently re-solved into a week the user is just browsing.
+  const viewWeekOffset = Number(state.viewWeekOffset) || 0;
+  const startDay = viewWeekOffset !== 0 ? viewWeekOffset * 7 : state.scrubberStartDay;
+  const inPlan = (d) => d >= 0 && d < horizonDays;
+  const wd = (d) => ((d % 7) + 7) % 7;
   const dayIndices = [];
   for (let i = 0; i < visibleCount; i++) {
     dayIndices.push(startDay + i);
@@ -65,8 +71,8 @@ export function renderCalendarView(container, callbacks) {
     const inView = d >= startDay && d <= endDay;
     const isToday = d === todayDayIdx;
     const isPast = d < todayDayIdx;
-    return `<button type="button" class="day-chip ${inView ? "in-view" : ""} ${isToday ? "is-today" : ""} ${isPast ? "is-past" : ""}" data-jump-day="${d}" title="Bắt đầu từ ${WEEKDAYS_VI_FULL[d % 7]} ${fmtDDMM(dt)}">
-      ${WEEKDAYS_VI_SHORT[d % 7]} <span class="mono">${fmtDDMM(dt)}</span>
+    return `<button type="button" class="day-chip ${inView ? "in-view" : ""} ${isToday ? "is-today" : ""} ${isPast ? "is-past" : ""}" data-jump-day="${d}" title="Bắt đầu từ ${WEEKDAYS_VI_FULL[wd(d)]} ${fmtDDMM(dt)}">
+      ${WEEKDAYS_VI_SHORT[wd(d)]} <span class="mono">${fmtDDMM(dt)}</span>
     </button>`;
   }).join("");
 
@@ -82,6 +88,24 @@ export function renderCalendarView(container, callbacks) {
         <div style="display:flex;gap:6px;flex-wrap:wrap;">
           <button type="button" class="btn btn-primary btn-sm" id="btnApplyOverloadPreview">Áp dụng phương án</button>
           <button type="button" class="btn btn-sm" id="btnCancelOverloadPreview">Hoàn tác</button>
+        </div>
+      </div>`;
+  }
+
+  // Viewing a week outside the planning window: show recurring classes/meals only + explain.
+  let outOfPlanHtml = "";
+  if (dayIndices.some((d) => !inPlan(d))) {
+    const viewStart = addDays(wsDate, startDay);
+    const planEnd = addDays(wsDate, horizonDays - 1);
+    outOfPlanHtml = `
+      <div class="alert-banner info out-of-plan-banner">
+        <div>
+          <strong>Đang xem tuần ${fmtDDMM(viewStart)} – ${fmtDDMM(addDays(viewStart, 6))}, ngoài kỳ đang lập lịch (${fmtDDMM(wsDate)} – ${fmtDDMM(planEnd)}).</strong>
+          Lớp học & bữa ăn lặp hằng tuần vẫn hiển thị; các việc chỉ được xếp trong kỳ lập lịch.
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <button type="button" class="btn btn-sm" id="btnBackToPlanWeek">← Về kỳ đang lập lịch</button>
+          <button type="button" class="btn btn-primary btn-sm" id="btnPlanViewedWeek" title="Dời kỳ lập lịch sang tuần này và xếp lại toàn bộ việc (hôm nay giả lập = thứ Hai 08:00 của tuần này)">Lập kế hoạch cho tuần này</button>
         </div>
       </div>`;
   }
@@ -168,7 +192,7 @@ export function renderCalendarView(container, callbacks) {
       const dt = addDays(wsDate, d);
       const isToday = d === todayDayIdx;
       const isPast = d < todayDayIdx;
-      const fixedEvs = expandFixedEventsForDay(state.commitments.fixed_events, d);
+      const fixedEvs = expandFixedEventsForDay(state.commitments.fixed_events, wd(d));
       const classMin = fixedEvs
         .filter((e) => String(e.category || "").toUpperCase() === "ACADEMIC_CLASS")
         .reduce((acc, e) => acc + e.durationMin, 0);
@@ -185,11 +209,11 @@ export function renderCalendarView(container, callbacks) {
           : "";
 
       return `
-        <div class="cal-day-head ${isToday ? "is-today" : ""} ${isPast ? "is-past" : ""}">
+        <div class="cal-day-head ${isToday ? "is-today" : ""} ${isPast ? "is-past" : ""} ${inPlan(d) ? "" : "out-of-plan"}">
           <div class="cal-day-title-row">
             <div class="cal-day-identity">
               <span class="cal-date-circle mono">${String(dt.getDate()).padStart(2, "0")}</span>
-              <div class="cal-day-name">${visibleCount >= 7 ? WEEKDAYS_VI_SHORT[d % 7] : WEEKDAYS_VI_FULL[d % 7]}</div>
+              <div class="cal-day-name">${visibleCount >= 7 ? WEEKDAYS_VI_SHORT[wd(d)] : WEEKDAYS_VI_FULL[wd(d)]}</div>
             </div>
             ${visibleCount < 7 ? statusBadge : ""}
           </div>
@@ -219,7 +243,9 @@ export function renderCalendarView(container, callbacks) {
         .map((h) => {
           const eLevel = getEnergyForHour(state.commitments.focus_preference, h);
           const eCls = state.showEnergyBackdrop ? `energy-${eLevel}` : "";
-          return `<div class="cal-hour-slot ${eCls}" data-drop-day="${d}" data-drop-hour="${h}"></div>`;
+          return inPlan(d)
+            ? `<div class="cal-hour-slot ${eCls}" data-drop-day="${d}" data-drop-hour="${h}"></div>`
+            : `<div class="cal-hour-slot ${eCls}"></div>`;
         })
         .join("");
 
@@ -239,7 +265,7 @@ export function renderCalendarView(container, callbacks) {
         }
       }
 
-      for (const ev of expandFixedEventsForDay(state.commitments.fixed_events, d)) {
+      for (const ev of expandFixedEventsForDay(state.commitments.fixed_events, wd(d))) {
         const s = Math.max(startHour * 60, ev.startMin);
         const e = Math.min(endHour * 60, ev.endMin);
         if (e <= s) continue;
@@ -329,7 +355,7 @@ export function renderCalendarView(container, callbacks) {
       }
 
       return `
-        <div class="cal-day-col ${isToday ? "is-today" : ""} ${isPast ? "is-past" : ""}" style="height:${totalVisibleMin * pxPerMin}px;">
+        <div class="cal-day-col ${isToday ? "is-today" : ""} ${isPast ? "is-past" : ""} ${inPlan(d) ? "" : "out-of-plan"}" style="height:${totalVisibleMin * pxPerMin}px;">
           ${slotsHtml}
           ${eventsLayer.join("")}
           ${nowLineHtml}
@@ -341,6 +367,7 @@ export function renderCalendarView(container, callbacks) {
   const gridColsCss = `60px ${visibleCount === 1 ? "1fr" : `repeat(${dayIndices.length}, ${minColPx})`}`;
 
   container.innerHTML = `
+    ${outOfPlanHtml}
     ${previewBannerHtml}
     ${unplacedHtml}
     ${pastDueHtml}
@@ -348,11 +375,11 @@ export function renderCalendarView(container, callbacks) {
     <div class="calendar-sheet">
       <div class="scrubber-bar">
         <div class="scrubber-left">
-          <button type="button" class="btn btn-sm btn-icon" id="btnScrubPrev" ${startDay <= 0 ? "disabled" : ""} title="Lùi 1 ngày" aria-label="Lùi 1 ngày">
+          <button type="button" class="btn btn-sm btn-icon" id="btnScrubPrev" ${state.scrubberStartDay <= 0 && viewWeekOffset === 0 ? "disabled" : ""} title="Lùi 1 ngày" aria-label="Lùi 1 ngày">
             <svg class="icon" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg>
           </button>
-          <input type="range" class="scrubber-range" id="calScrubberRange" min="0" max="${maxStart}" value="${startDay}" aria-label="Thanh kéo trượt ngày" />
-          <button type="button" class="btn btn-sm btn-icon" id="btnScrubNext" ${startDay >= maxStart ? "disabled" : ""} title="Tiến 1 ngày" aria-label="Tiến 1 ngày">
+          <input type="range" class="scrubber-range" id="calScrubberRange" min="0" max="${maxStart}" value="${state.scrubberStartDay}" aria-label="Thanh kéo trượt ngày" />
+          <button type="button" class="btn btn-sm btn-icon" id="btnScrubNext" ${state.scrubberStartDay >= maxStart && viewWeekOffset === 0 ? "disabled" : ""} title="Tiến 1 ngày" aria-label="Tiến 1 ngày">
             <svg class="icon" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>
           </button>
           <div class="day-chips">${dayChipsHtml}</div>
@@ -388,23 +415,30 @@ export function renderCalendarView(container, callbacks) {
     </div>
   `;
 
-  // Wire scrubber events
+  container.querySelector("#btnBackToPlanWeek")?.addEventListener("click", () => callbacks.onSetViewWeek?.(0));
+  container.querySelector("#btnPlanViewedWeek")?.addEventListener("click", () => callbacks.onShiftWeek?.(viewWeekOffset * 7));
+
+  // Wire scrubber events (they browse the planning window, so they leave any out-of-plan week view)
   container.querySelector("#btnScrubPrev")?.addEventListener("click", () => {
+    state.viewWeekOffset = 0;
     state.scrubberStartDay = Math.max(0, state.scrubberStartDay - 1);
     renderCalendarView(container, callbacks);
     callbacks.onSyncRangeLabel?.();
   });
   container.querySelector("#btnScrubNext")?.addEventListener("click", () => {
+    state.viewWeekOffset = 0;
     state.scrubberStartDay = Math.min(maxStart, state.scrubberStartDay + 1);
     renderCalendarView(container, callbacks);
     callbacks.onSyncRangeLabel?.();
   });
   container.querySelector("#calScrubberRange")?.addEventListener("input", (e) => {
+    state.viewWeekOffset = 0;
     state.scrubberStartDay = Number(e.target.value);
     renderCalendarView(container, callbacks);
     callbacks.onSyncRangeLabel?.();
   });
   container.querySelector("#btnJumpToday")?.addEventListener("click", () => {
+    state.viewWeekOffset = 0;
     state.scrubberStartDay = Math.min(maxStart, todayDayIdx);
     renderCalendarView(container, callbacks);
     callbacks.onSyncRangeLabel?.();
@@ -413,6 +447,7 @@ export function renderCalendarView(container, callbacks) {
   container.querySelectorAll("[data-jump-day]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const target = Number(btn.getAttribute("data-jump-day"));
+      state.viewWeekOffset = 0;
       state.scrubberStartDay = Math.min(maxStart, Math.max(0, target));
       renderCalendarView(container, callbacks);
       callbacks.onSyncRangeLabel?.();

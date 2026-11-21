@@ -136,7 +136,8 @@
                   <button type="button" class="btn btn-sm" id="btnExportCsv">Xuất .csv</button>
                   <button type="button" class="btn btn-sm" id="btnExportJson">Xuất .json</button>
                 </div>
-                <button type="button" class="btn btn-sm btn-danger" id="btnResetState" style="width:100%;margin-top:4px;">Đặt lại về Tuần của Minh</button>
+                <button type="button" class="btn btn-sm btn-danger" id="btnClearAllSchedule" style="width:100%;margin-top:4px;">Xóa tất cả lịch…</button>
+                <button type="button" class="btn btn-sm" id="btnResetState" style="width:100%;margin-top:4px;">Đặt lại về Tuần của Minh</button>
               </div>
             </div>
           </div>
@@ -304,6 +305,31 @@
         <button type="button" class="btn btn-sm btn-icon" data-close-modal="blockModal" aria-label="Đóng">✕</button>
       </div>
       <div class="modal-body" id="blockModalBody"></div>
+    </div>
+  </div>
+
+  <!-- MODAL: CLEAR ALL SCHEDULE (confirm) -->
+  <div class="modal-backdrop" id="clearAllModal" role="dialog" aria-modal="true" aria-labelledby="clearAllModalTitle">
+    <div class="modal-dialog modal-sm">
+      <div class="modal-header">
+        <h2 id="clearAllModalTitle" style="font-size:16px;">Xóa tất cả lịch?</h2>
+        <button type="button" class="btn btn-sm btn-icon" data-close-modal="clearAllModal" aria-label="Đóng">✕</button>
+      </div>
+      <div class="modal-body" style="display:flex;flex-direction:column;gap:12px;font-size:13px;">
+        <p>Sẽ xóa toàn bộ <strong>việc cần làm</strong>, các <strong>khối đã ghim</strong> và <strong>check-in M7</strong> của workspace này, rồi lưu đè vào SQLite. Không thể hoàn tác — nếu cần giữ bản sao, hãy dùng "Xuất .json" trước.</p>
+        <div class="mono" id="clearAllSummary" style="font-size:12px;color:var(--p-muted);"></div>
+        <label class="settings-toggle">
+          <div>
+            <div>Xóa cả lịch cố định & thói quen</div>
+            <small>Lớp học, bữa ăn, sự kiện cố định và thói quen lặp. Giờ ngủ & hồ sơ nhịp sinh học được giữ.</small>
+          </div>
+          <input type="checkbox" id="chkClearIncludeFixed" />
+        </label>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn" data-close-modal="clearAllModal">Hủy</button>
+        <button type="button" class="btn btn-danger" id="btnConfirmClearAll">Xóa tất cả</button>
+      </div>
     </div>
   </div>
 

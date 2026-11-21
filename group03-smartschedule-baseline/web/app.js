@@ -222,6 +222,7 @@ async function loadSuite(source, id, seed = 42, notify = true, horizonDays = nul
     state.tasks = res.tasks || [];
     state.pinnedBlocks = res.pinned_blocks || [];
     state.completedBlocks = {};
+    state.viewWeekOffset = 0;
     state.suiteLabel = res.name || id;
     state.suiteMeta = res.metadata || null;
     state.disruptionPreset = res.disruption || null;
@@ -252,9 +253,50 @@ async function shiftWeek(deltaDays) {
   state.commitments.planning_week_start = `${fmtISODate(nextWs)}T00:00:00+07:00`;
   state.commitments.now = `${fmtISODate(nextWs)}T08:00:00+07:00`;
   state.scrubberStartDay = 0;
+  state.viewWeekOffset = 0;
   invalidateSolverCaches();
   await solveActiveSolver(true);
   await persistWorkspace(true);
+}
+
+/** Browse another week without re-planning: only the viewed week changes. */
+function setViewWeek(offsetWeeks) {
+  state.viewWeekOffset = offsetWeeks;
+  if (offsetWeeks === 0) state.scrubberStartDay = 0;
+  setActiveView("calendar");
+}
+
+/** "Xóa tất cả lịch": empties tasks, pins, check-ins (+ optionally fixed events & habits), then saves. */
+async function clearAllSchedule({ includeFixed = false } = {}) {
+  const counts = {
+    tasks: state.tasks.length,
+    fixed: (state.commitments.fixed_events || []).length,
+    habits: (state.commitments.personal_habits || []).length,
+  };
+  state.tasks = [];
+  state.pinnedBlocks = [];
+  state.completedBlocks = {};
+  state.overloadPreview = null;
+  state.disruptionPreset = null;
+  state.overrunPreset = null;
+  if (includeFixed) {
+    state.commitments.fixed_events = [];
+    state.commitments.personal_habits = [];
+  }
+  state.suiteLabel = "Lịch trống";
+  state.suiteMeta = null;
+  state.viewWeekOffset = 0;
+  state.scrubberStartDay = 0;
+  invalidateSolverCaches();
+  closeModal("clearAllModal");
+  await solveActiveSolver(true);
+  await persistWorkspace(true);
+  showToast(
+    includeFixed
+      ? `Đã xóa ${counts.tasks} việc, ${counts.fixed} lịch cố định và ${counts.habits} thói quen.`
+      : `Đã xóa ${counts.tasks} việc (giữ lại lịch cố định & thói quen).`,
+    "ok"
+  );
 }
 
 async function handleDropMoveBlock(blockId, newStartSlot, dayLabel, timeLabel) {
@@ -510,6 +552,7 @@ function renderAll() {
     onSyncRangeLabel: () => renderCalendarRangeLabel(),
     onBackToCalendar: () => setActiveView("calendar"),
     onShiftWeek: (deltaDays) => shiftWeek(deltaDays),
+    onSetViewWeek: (offsetWeeks) => setViewWeek(offsetWeeks),
     onLoadSuite: async (src, id, seed, horizon = null) => {
       await loadSuite(src, id, seed, true, horizon);
       setActiveView("calendar");
@@ -561,8 +604,10 @@ function renderTopBar() {
   document.getElementById("txtInputTaskCount").textContent = String(state.tasks.length);
 
   const horizon = Number(state.commitments.horizon_days || 7);
-  const ws = parseWeekStartDate(state.commitments.planning_week_start);
-  const we = addDays(ws, horizon - 1);
+  const planWs = parseWeekStartDate(state.commitments.planning_week_start);
+  const offset = Number(state.viewWeekOffset) || 0;
+  const ws = addDays(planWs, offset * 7);
+  const we = addDays(ws, offset === 0 ? horizon - 1 : 6);
   document.getElementById("txtWeekRange").textContent = `${fmtDDMM(ws)} – ${fmtDDMM(we)}/${we.getFullYear()}`;
   document.getElementById("btnHorizon7")?.classList.toggle("active", horizon === 7);
   document.getElementById("btnHorizon14")?.classList.toggle("active", horizon === 14);
@@ -580,6 +625,10 @@ function renderCalendarRangeLabel() {
   if (!lbl) return;
   const count = Number(state.visibleDaysCount) || 7;
   const ws = parseWeekStartDate(state.commitments.planning_week_start);
+  if (Number(state.viewWeekOffset)) {
+    lbl.textContent = `Tuần · từ T2 ${fmtDDMM(addDays(ws, Number(state.viewWeekOffset) * 7))}`;
+    return;
+  }
   const startDt = addDays(ws, state.scrubberStartDay);
   const dayShort = WEEKDAYS_VI_SHORT[state.scrubberStartDay % 7];
   if (count === 1) {
@@ -1201,10 +1250,12 @@ function wireStaticListeners() {
   document.getElementById("btnOpenDisruption").addEventListener("click", () => openDisruptionModal());
 
   // Week navigation & 7d/14d horizon
-  document.getElementById("btnWeekPrev").addEventListener("click", () => shiftWeek(-7));
-  document.getElementById("btnWeekNext").addEventListener("click", () => shiftWeek(7));
+  // ‹ › only change the viewed week; re-planning another week is the banner's explicit button.
+  document.getElementById("btnWeekPrev").addEventListener("click", () => setViewWeek((Number(state.viewWeekOffset) || 0) - 1));
+  document.getElementById("btnWeekNext").addEventListener("click", () => setViewWeek((Number(state.viewWeekOffset) || 0) + 1));
   document.getElementById("btnWeekToday").addEventListener("click", () => {
     const nowSlot = resolveNowSlot(state.commitments);
+    state.viewWeekOffset = 0;
     state.scrubberStartDay = Math.max(0, slotToDayIndex(nowSlot));
     setActiveView("calendar");
   });
@@ -1308,6 +1359,22 @@ function wireStaticListeners() {
   document.getElementById("btnExportIcs").addEventListener("click", () => handleExport("ics"));
   document.getElementById("btnExportCsv").addEventListener("click", () => handleExport("csv"));
   document.getElementById("btnExportJson").addEventListener("click", () => handleExport("json"));
+  document.getElementById("btnClearAllSchedule")?.addEventListener("click", () => {
+    closeAllPopovers();
+    const chk = document.getElementById("chkClearIncludeFixed");
+    if (chk) chk.checked = false;
+    const sum = document.getElementById("clearAllSummary");
+    if (sum) {
+      sum.textContent = `${state.tasks.length} việc · ${(state.pinnedBlocks || []).length} khối ghim · ${
+        Object.keys(state.completedBlocks || {}).length
+      } check-in · ${(state.commitments.fixed_events || []).length} lịch cố định · ${(state.commitments.personal_habits || []).length} thói quen`;
+    }
+    openModal("clearAllModal");
+  });
+  document.getElementById("btnConfirmClearAll")?.addEventListener("click", () =>
+    clearAllSchedule({ includeFixed: Boolean(document.getElementById("chkClearIncludeFixed")?.checked) })
+  );
+
   document.getElementById("btnResetState").addEventListener("click", async () => {
     closeAllPopovers();
     await api.deleteState(state.workspaceId).catch(() => {});

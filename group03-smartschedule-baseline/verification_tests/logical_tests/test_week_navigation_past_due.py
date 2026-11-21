@@ -42,6 +42,20 @@ def test_tasks_due_before_planning_week_are_flagged_past_due() -> None:
     assert shifted["health_v21"]["gates"]["rho_deadline"] == 0.0
 
 
+def test_week_buttons_are_view_only_and_clear_all_is_wired() -> None:
+    """‹ › must not re-plan (no shiftWeek) — re-planning another week is an explicit banner action."""
+    client = TestClient(app)
+    js = client.get("/app.js").text
+    assert 'getElementById("btnWeekPrev").addEventListener("click", () => shiftWeek' not in js
+    assert 'getElementById("btnWeekNext").addEventListener("click", () => shiftWeek' not in js
+    assert "setViewWeek(" in js and "viewWeekOffset" in js
+    cal = client.get("/js/render-calendar.js").text
+    assert "btnPlanViewedWeek" in cal and "btnBackToPlanWeek" in cal and "out-of-plan" in cal
+    html = client.get("/").text
+    assert 'id="btnClearAllSchedule"' in html and 'id="clearAllModal"' in html and 'id="chkClearIncludeFixed"' in html
+    assert "async function clearAllSchedule(" in js
+
+
 def test_calendar_separates_past_due_from_genuine_unplaced() -> None:
     client = TestClient(app)
     js = client.get("/js/render-calendar.js").text
