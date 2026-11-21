@@ -164,7 +164,7 @@
         <div class="dev-side-head">
           <div>
             <h3>Góc nhìn Dev</h3>
-            <div style="font-size:11.5px;color:var(--p-muted);">Chuyển thuật toán, nạp đề test & chấm điểm</div>
+            <div style="font-size:11.5px;color:var(--p-muted);">Chuyển 6 thuật toán (gồm <span class="mono">HYBRID_ALNS</span>), nạp đề test & chấm điểm</div>
           </div>
           <button type="button" class="btn btn-sm btn-icon btn-ghost" id="btnCloseDevPanel" aria-label="Thu gọn bảng Dev">✕</button>
         </div>
@@ -197,14 +197,66 @@
           <div id="telemetryActions" style="margin-top:4px;"></div>
         </div>
 
-        <!-- 4. Full-screen Dev Analysis Views -->
+        <!-- 4. Testing_System v2.1 — 4-pillar health detail (P2–P4 + Top ICEE) -->
+        <details class="dev-block dev-collapsible" id="stHealthV21Panel">
+          <summary>
+            <span class="popover-section-title">Sức khỏe 4 trụ cột (v2.1)</span>
+            <span id="stHealthVerdictBadge" class="badge badge-neutral mono">Chưa chấm</span>
+          </summary>
+          <div class="dev-collapsible-body" id="labHealthV21Panel">
+            <div class="health-summary">
+              <span id="stHealthSummaryText">Đang chờ chấm điểm lịch hiện tại...</span>
+              <span id="stHealthRhoBadge" class="mono"></span>
+            </div>
+            <div id="labHealthVectorGrid" class="dev-metric-grid"></div>
+            <details id="stHealthIceeDetails" class="health-icee">
+              <summary id="stHealthIceeSummary">Cảnh báo ICEE</summary>
+              <ul id="labHealthIceeList"></ul>
+            </details>
+          </div>
+        </details>
+
+        <!-- 5. Focus Timer (Pomodoro → M7) & EWMA α calibration -->
+        <details class="dev-block dev-collapsible">
+          <summary><span class="popover-section-title">Focus Timer & Hiệu chuẩn đệm (M7)</span></summary>
+          <div class="dev-collapsible-body">
+            <div id="stFocusTimerPanel" class="focus-card">
+              <div class="focus-row">
+                <strong id="stFocusTimerDisplay" class="mono focus-display">25:00</strong>
+                <select id="stFocusPresetSelect" class="select focus-preset" aria-label="Thời lượng phiên tập trung">
+                  <option value="25">25 phút</option>
+                  <option value="45">45 phút</option>
+                  <option value="90">90 phút</option>
+                </select>
+              </div>
+              <span id="stFocusTimerStatus" class="focus-status">Sẵn sàng</span>
+              <div class="focus-actions">
+                <button type="button" class="btn btn-sm btn-primary" id="btnFocusStart">▶ Bắt đầu</button>
+                <button type="button" class="btn btn-sm" id="btnFocusPause">⏸ Dừng</button>
+                <button type="button" class="btn btn-sm btn-icon" id="btnFocusReset" title="Đặt lại" aria-label="Đặt lại">↺</button>
+                <button type="button" class="btn btn-sm" id="btnFocusCompleteM7" title="Ghi thời lượng thực tế vào M7">✔ Lưu M7</button>
+              </div>
+            </div>
+            <div id="stCalibrationAdvisoryCard" class="focus-card">
+              <div id="stCalibrationMetrics" class="mono focus-cal-metrics">Mẫu M7: 0/5</div>
+              <div id="stCalibrationNote" class="focus-status">Ghi nhận ≥ 5 phiên M7 để đề xuất hệ số đệm α cá nhân.</div>
+              <div class="focus-actions">
+                <button type="button" class="btn btn-sm" id="btnRefreshCalibration">Cập nhật</button>
+                <button type="button" class="btn btn-sm btn-primary" id="btnApplyCalibrationAlpha" disabled>Áp dụng α</button>
+                <button type="button" class="btn btn-sm" id="btnStNotifyToggle">🔔 Nhắc giờ: Tắt</button>
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <!-- 6. Full-screen Dev Analysis Views -->
         <div class="dev-block">
           <div class="popover-section-title">Phân tích & Đối chiếu chi tiết</div>
           <button type="button" class="btn btn-primary" id="btnTopBenchmark" style="width:100%;">Chấm điểm tất cả thuật toán</button>
           <button type="button" class="btn" id="btnTopWeights" style="width:100%;">Xem trọng số & hệ số thuật toán</button>
         </div>
 
-        <!-- 5. Dev Overlay Toggles -->
+        <!-- 7. Dev Overlay Toggles -->
         <div class="dev-block">
           <div class="popover-section-title">Hiển thị kỹ thuật trên lịch</div>
           <label class="settings-toggle">

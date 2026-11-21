@@ -186,6 +186,35 @@ export function getVerdictBadge(verdict) {
   }
 }
 
+/**
+ * Normalize any evaluation payload into the full Testing_System EvaluationReport shape
+ * the UI reads (`p1_value_timeliness`, `p4_robustness_stability.shock_results`, `d1_icee_critiques`).
+ *  - Full report (from /api/benchmark-all `evaluation`) → returned as-is.
+ *  - Compact v2.1 health (from /api/plan `health_v21` or /api/evaluate) → mapped.
+ *  - `{available:false}` / empty → null.
+ */
+export function normalizeEvaluation(rep) {
+  if (!rep || typeof rep !== "object") return null;
+  if (rep.p1_value_timeliness || rep.d1_icee_critiques) return rep;
+  if (rep.available === false || !rep.verdict) return null;
+  const p = rep.pillars || {};
+  const p4 = p.p4 || {};
+  return {
+    ...rep,
+    p1_value_timeliness: { ...(p.p1 || {}) },
+    p2_cognitive_biology: { ...(p.p2 || {}) },
+    p3_sustainable_pacing: { ...(p.p3 || {}) },
+    p4_robustness_stability: {
+      ...p4,
+      shock_results: [
+        { shock_pct: 25, survived_priority_pct: p4.shock_25_pct ?? 100 },
+        { shock_pct: 50, survived_priority_pct: p4.shock_50_pct ?? 100 },
+      ],
+    },
+    d1_icee_critiques: rep.top_critiques || [],
+  };
+}
+
 export function expandFixedEventsForDay(fixedEvents, dayIdx) {
   const weekdayEn = WEEKDAYS_EN[dayIdx % 7];
   const out = [];

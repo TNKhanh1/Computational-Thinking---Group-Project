@@ -210,14 +210,19 @@ def _enrich_response(
     return data
 
 
+# UI shell files are ES modules that change together; force browser revalidation
+# (ETag → cheap 304) so a merge/branch switch never mixes stale and fresh modules.
+_NO_CACHE_HEADERS = {"Cache-Control": "no-cache"}
+
+
 @app.get("/", include_in_schema=False)
 def serve_index():
-    return FileResponse(WEB_DIR / "index.html")
+    return FileResponse(WEB_DIR / "index.html", headers=_NO_CACHE_HEADERS)
 
 
 @app.get("/app.js", include_in_schema=False)
 def serve_app_js():
-    return FileResponse(WEB_DIR / "app.js", media_type="application/javascript")
+    return FileResponse(WEB_DIR / "app.js", media_type="application/javascript", headers=_NO_CACHE_HEADERS)
 
 
 @app.get("/css/{file_path:path}", include_in_schema=False)
@@ -226,7 +231,7 @@ def serve_css_asset(file_path: str):
     css_root = (WEB_DIR / "css").resolve()
     if not str(target).startswith(str(css_root)) or not target.is_file():
         raise HTTPException(status_code=404, detail="CSS asset not found")
-    return FileResponse(target, media_type="text/css")
+    return FileResponse(target, media_type="text/css", headers=_NO_CACHE_HEADERS)
 
 
 @app.get("/js/{file_path:path}", include_in_schema=False)
@@ -235,7 +240,7 @@ def serve_js_asset(file_path: str):
     js_root = (WEB_DIR / "js").resolve()
     if not str(target).startswith(str(js_root)) or not target.is_file():
         raise HTTPException(status_code=404, detail="JS asset not found")
-    return FileResponse(target, media_type="application/javascript")
+    return FileResponse(target, media_type="application/javascript", headers=_NO_CACHE_HEADERS)
 
 
 @app.get("/assets/{file_path:path}", include_in_schema=False)

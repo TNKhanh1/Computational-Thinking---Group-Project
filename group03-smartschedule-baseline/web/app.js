@@ -1,8 +1,10 @@
 /**
  * SmartSchedule UI v3 — Main ES Module Coordinator.
- * Wires Top Bar, Solver Switcher (with 0ms benchmark cache), 4 Workspace Views,
- * Unified 3-Tab Input Modal, Drag-and-Drop PINNED validation, M7 Check-in,
- * Local Repair, Overload Rescue, and SQLite State Persistence.
+ * Wires Top Bar, Solver Switcher (with 0ms benchmark cache; solvers come from /api/solvers,
+ * currently 6 incl. HYBRID_ALNS), 4 Workspace Views, Unified 3-Tab Input Modal,
+ * Drag-and-Drop PINNED validation, M7 Check-in, Local Repair, Overload Rescue,
+ * Testing_System v2.1 4-pillar health panel, Focus Timer (Pomodoro → M7) with EWMA α
+ * calibration & block reminders, and SQLite State Persistence.
  */
 
 import { api } from "./js/api.js";
@@ -27,6 +29,7 @@ import {
   fmtDDMM,
   fmtISODate,
   getVerdictBadge,
+  normalizeEvaluation,
   parseWeekStartDate,
   resolveNowSlot,
   slotToDayIndex,
@@ -49,6 +52,7 @@ async function bootstrap() {
     if (solversRes?.solvers?.length) state.solvers = solversRes.solvers;
     state.catalog = catalogRes;
     state.calibration = calRes;
+    renderCalibrationAdvisory();
   } catch (err) {
     showToast(`Không tải được danh mục khởi tạo: ${err.message}`, "danger");
   }
@@ -105,11 +109,35 @@ async function persistWorkspace(silent = true) {
 // SOLVING, EVALUATING, BENCHMARKING & WEIGHTS
 // ============================================================================
 
+/**
+ * Testing_System v2.1 evaluation (G1/G2 + P1–P4 + ICEE) for one schedule.
+ * Backend v3 already evaluates inside /api/plan → `health_v21`, so reuse it and skip a second
+ * full evaluation round-trip; only fall back to POST /api/evaluate when it is missing.
+ */
+async function evaluateCurrentScheduleV21(sched = state.currentSchedule, algorithm = state.activeSolver) {
+  if (!sched) return null;
+  const inline = normalizeEvaluation(sched.health_v21);
+  if (inline) return inline;
+  try {
+    return normalizeEvaluation(
+      await api.evaluate({
+        commitments: state.commitments,
+        tasks: state.tasks,
+        pinned_blocks: state.pinnedBlocks,
+        algorithm,
+        schedule: sched,
+      })
+    );
+  } catch {
+    return null;
+  }
+}
+
 async function solveActiveSolver(forceFresh = false) {
   const key = state.activeSolver;
   if (!forceFresh && state.schedulesBySolver[key]) {
     state.currentSchedule = state.schedulesBySolver[key];
-    state.currentEvaluation = state.schedulesBySolver[key].evaluation || null;
+    state.currentEvaluation = normalizeEvaluation(state.schedulesBySolver[key].evaluation);
     renderAll();
     return;
   }
@@ -118,18 +146,7 @@ async function solveActiveSolver(forceFresh = false) {
   try {
     const payload = buildApiPayload(key);
     const sched = await api.plan(payload);
-    let evalReport = null;
-    try {
-      evalReport = await api.evaluate({
-        commitments: state.commitments,
-        tasks: state.tasks,
-        pinned_blocks: state.pinnedBlocks,
-        algorithm: key,
-        schedule: sched,
-      });
-    } catch {
-      evalReport = null;
-    }
+    const evalReport = await evaluateCurrentScheduleV21(sched, key);
     sched.evaluation = evalReport;
     state.schedulesBySolver[key] = sched;
     state.currentSchedule = sched;
@@ -155,7 +172,7 @@ async function runBenchmarkAll(switchToView = true) {
     state.schedulesBySolver = res.schedules_by_solver || {};
     if (state.schedulesBySolver[state.activeSolver]) {
       state.currentSchedule = state.schedulesBySolver[state.activeSolver];
-      state.currentEvaluation = state.currentSchedule.evaluation || null;
+      state.currentEvaluation = normalizeEvaluation(state.currentSchedule.evaluation);
     }
     if (switchToView) {
       setActiveView("benchmark");
@@ -302,7 +319,7 @@ async function handleCheckinBlock(block, actualMin) {
       actual_min: actualMin,
       completed_at: new Date().toISOString(),
     };
-    state.calibration = await api.getCalibration(state.workspaceId).catch(() => state.calibration);
+    await refreshCalibrationAdvisory();
     closeModal("blockModal");
     await persistWorkspace(true);
     renderAll();
@@ -457,6 +474,7 @@ function renderAll() {
   renderSolverRibbon();
   renderCalendarRangeLabel();
   renderTelemetryStrip();
+  renderHealthV21Panels();
 
   const sharedCallbacks = {
     onInspectBlock: (blockId, focusSection = null) => openBlockModal(blockId, focusSection),
@@ -761,6 +779,286 @@ function renderTelemetryStrip() {
   });
 }
 
+// ============================================================================
+// TESTING_SYSTEM v2.1 4-PILLAR HEALTH PANEL (complements the quick telemetry strip)
+// ============================================================================
+
+function renderHealthV21Panels(rep = state.currentEvaluation) {
+  const badge = document.getElementById("stHealthVerdictBadge");
+  const rhoEl = document.getElementById("stHealthRhoBadge");
+  const sumEl = document.getElementById("stHealthSummaryText");
+  const iceeSum = document.getElementById("stHealthIceeSummary");
+  const grid = document.getElementById("labHealthVectorGrid");
+  const iceeList = document.getElementById("labHealthIceeList");
+  if (!badge || !grid) return;
+
+  if (!rep) {
+    badge.textContent = "Chưa chấm";
+    badge.className = "badge badge-neutral mono";
+    if (rhoEl) rhoEl.textContent = "";
+    if (sumEl) sumEl.textContent = "Đang chờ chấm điểm lịch hiện tại...";
+    if (iceeSum) iceeSum.textContent = "Cảnh báo ICEE";
+    grid.innerHTML = "";
+    if (iceeList) iceeList.innerHTML = "";
+    return;
+  }
+
+  const vb = getVerdictBadge(rep.verdict);
+  badge.textContent = rep.verdict_label_vi || vb.label;
+  badge.className = `badge ${vb.cls} mono`;
+  const rho = rep.gates?.rho_deadline;
+  if (rhoEl) rhoEl.textContent = rho !== undefined ? `ρ_deadline = ${(rho * 100).toFixed(0)}%` : "";
+  if (sumEl) {
+    sumEl.textContent =
+      rep.verdict_reasons_vi?.[0] ||
+      (rep.verdict === "HIGH_PRODUCTIVITY" ? "Đạt chuẩn năng suất & nhịp sinh học." : "Xem gợi ý ICEE để tối ưu lịch.");
+  }
+
+  const p2 = rep.p2_cognitive_biology || {};
+  const p3 = rep.p3_sustainable_pacing || {};
+  const p4 = rep.p4_robustness_stability || {};
+  const shock50 = p4.shock_results?.find((s) => Number(s.shock_pct) === 50)?.survived_priority_pct;
+  const p3MaxDay = p3.max_daily_total_min ?? (Array.isArray(p3.daily_load_minutes) ? Math.max(0, ...p3.daily_load_minutes) : undefined);
+  const fmtPct = (v) => (v != null ? `${Number(v).toFixed(1)}%` : "—");
+  grid.innerHTML = `
+    <div class="dev-stat"><span>P2 Việc nặng đúng giờ vàng</span><strong class="mono">${fmtPct(p2.achievable_heavy_peak_match_pct ?? p2.heavy_peak_match_pct)}</strong></div>
+    <div class="dev-stat"><span>P2 Lệch nhịp ngủ (SJL)</span><strong class="mono">${p2.sjl_minutes != null ? `${Number(p2.sjl_minutes).toFixed(0)}p` : "—"}</strong></div>
+    <div class="dev-stat"><span>P3 Tải ngày cao nhất</span><strong class="mono">${p3MaxDay != null ? `${p3MaxDay}p` : "—"}</strong></div>
+    <div class="dev-stat"><span>P4 Chịu sốc +50%</span><strong class="mono">${fmtPct(shock50)}</strong></div>
+  `;
+
+  const crits = rep.d1_icee_critiques || [];
+  if (iceeSum) iceeSum.textContent = `Cảnh báo ICEE (${crits.length})`;
+  if (iceeList) {
+    iceeList.innerHTML = crits.length
+      ? crits
+          .slice(0, 5)
+          .map(
+            (c) =>
+              `<li title="${esc(c.rationale_vi || "")}"><span class="mono">${esc(c.pillar || c.severity || "")}</span> · ${esc(
+                c.summary_vi || ""
+              )}${c.suggested_action_vi ? `<div class="health-icee-action">→ ${esc(c.suggested_action_vi)}</div>` : ""}</li>`
+          )
+          .join("")
+      : `<li>Không có cảnh báo ICEE.</li>`;
+  }
+}
+
+// ============================================================================
+// P3.3 FOCUS TIMER (Pomodoro → M7) · EWMA α CALIBRATION · BLOCK REMINDERS
+// ============================================================================
+
+const focusTimerState = {
+  targetSec: 25 * 60,
+  remainingSec: 25 * 60,
+  elapsedSec: 0,
+  intervalId: null,
+  running: false,
+  notifyEnabled: false,
+  notifyIntervalId: null,
+  notifiedBlockKeys: new Set(),
+};
+
+function _formatMmSs(totalSec) {
+  const safe = Math.max(0, Math.floor(totalSec));
+  return `${String(Math.floor(safe / 60)).padStart(2, "0")}:${String(safe % 60).padStart(2, "0")}`;
+}
+
+function _renderFocusTimerUI() {
+  const disp = document.getElementById("stFocusTimerDisplay");
+  const st = document.getElementById("stFocusTimerStatus");
+  if (disp) disp.textContent = _formatMmSs(focusTimerState.remainingSec);
+  if (st) {
+    const elapsedMin = Math.round(focusTimerState.elapsedSec / 60);
+    st.textContent = focusTimerState.running
+      ? `Đang tập trung… (~${elapsedMin}p)`
+      : focusTimerState.elapsedSec > 0
+        ? `Đã tạm dừng · ${elapsedMin}p`
+        : "Sẵn sàng";
+  }
+  const startBtn = document.getElementById("btnFocusStart");
+  if (startBtn) startBtn.disabled = focusTimerState.running;
+}
+
+function changeFocusTimerPreset() {
+  const sel = document.getElementById("stFocusPresetSelect");
+  const mins = Math.max(5, parseInt(sel ? sel.value : "25", 10) || 25);
+  pauseFocusTimer();
+  focusTimerState.targetSec = mins * 60;
+  focusTimerState.remainingSec = mins * 60;
+  focusTimerState.elapsedSec = 0;
+  _renderFocusTimerUI();
+}
+
+function startFocusTimer() {
+  if (focusTimerState.running) return;
+  focusTimerState.running = true;
+  focusTimerState.intervalId = setInterval(() => {
+    focusTimerState.elapsedSec += 1;
+    if (focusTimerState.remainingSec > 0) focusTimerState.remainingSec -= 1;
+    if (focusTimerState.remainingSec <= 0) {
+      pauseFocusTimer();
+      _sendDesktopNotification("SmartSchedule Focus Timer", "Hết phiên tập trung! Bấm 'Lưu M7' để ghi nhận thời lượng thực tế.");
+      showToast("⏱️ Hết phiên tập trung — bấm “Lưu M7” để ghi nhận.", "ok");
+      return;
+    }
+    _renderFocusTimerUI();
+  }, 1000);
+  _renderFocusTimerUI();
+}
+
+function pauseFocusTimer() {
+  focusTimerState.running = false;
+  if (focusTimerState.intervalId) {
+    clearInterval(focusTimerState.intervalId);
+    focusTimerState.intervalId = null;
+  }
+  _renderFocusTimerUI();
+}
+
+function resetFocusTimer() {
+  pauseFocusTimer();
+  focusTimerState.remainingSec = focusTimerState.targetSec;
+  focusTimerState.elapsedSec = 0;
+  _renderFocusTimerUI();
+}
+
+/** Logs the measured focus session as an M7 actual-duration check-in for the next unfinished study block. */
+async function completeFocusTimerToM7() {
+  pauseFocusTimer();
+  if (focusTimerState.elapsedSec < 60) {
+    showToast("Phiên tập trung chưa đủ 1 phút để ghi nhận M7.", "warn");
+    return;
+  }
+  const measuredMin = Math.round(focusTimerState.elapsedSec / 60);
+  const nowSlot = resolveNowSlot(state.commitments);
+  const studyBlocks = (state.currentSchedule?.blocks || []).filter(
+    (b) => !state.completedBlocks[b.block_id] && b.category !== "FIXED" && b.category !== "SLEEP"
+  );
+  const activeBlock =
+    studyBlocks.find((b) => b.start_slot <= nowSlot && nowSlot < b.end_slot) ||
+    studyBlocks.find((b) => b.end_slot > nowSlot) ||
+    null;
+  const estimatedMin = activeBlock?.duration_min || Math.round(focusTimerState.targetSec / 60);
+
+  try {
+    const res = await api.completeTask({
+      task_id: activeBlock?.task_id || "FOCUS-SESSION",
+      category: activeBlock?.category || "STUDY",
+      workspace_id: state.workspaceId,
+      estimated_duration_min: estimatedMin,
+      actual_duration_min: measuredMin,
+      completed: true,
+    });
+    if (activeBlock) {
+      state.completedBlocks[activeBlock.block_id] = { actual_min: measuredMin, completed_at: new Date().toISOString() };
+      await persistWorkspace(true);
+    }
+    focusTimerState.elapsedSec = 0;
+    focusTimerState.remainingSec = focusTimerState.targetSec;
+    await refreshCalibrationAdvisory();
+    renderAll();
+    showToast(
+      `✔️ Đã lưu M7 ${measuredMin}p / ${estimatedMin}p${activeBlock ? ` cho “${activeBlock.title}”` : ""} (tỷ lệ ${res.overrun_ratio}x).`,
+      "ok"
+    );
+  } catch (err) {
+    showToast(`Lỗi lưu M7 từ Focus Timer: ${err.message}`, "danger");
+  }
+}
+
+function renderCalibrationAdvisory() {
+  const metricsEl = document.getElementById("stCalibrationMetrics");
+  const noteEl = document.getElementById("stCalibrationNote");
+  const applyBtn = document.getElementById("btnApplyCalibrationAlpha");
+  const cal = state.calibration?.calibration;
+  if (!metricsEl) return;
+  if (!cal) {
+    metricsEl.textContent = `Mẫu M7: ${state.calibration?.sample_count ?? 0}/5`;
+    if (applyBtn) applyBtn.disabled = true;
+    return;
+  }
+  const ratioTxt = cal.mean_ratio != null ? ` · TB thực/ước = ${cal.mean_ratio}x` : "";
+  metricsEl.textContent = `Mẫu M7: ${cal.sample_count}/${cal.min_samples_required}${ratioTxt} · Đề xuất α ${Number(
+    cal.recommended_alpha_light
+  ).toFixed(2)} / ${Number(cal.recommended_alpha_heavy).toFixed(2)}`;
+  if (noteEl && cal.advisory_note) noteEl.textContent = cal.advisory_note;
+  if (applyBtn) applyBtn.disabled = !cal.ready_to_apply;
+}
+
+/** GET /api/tasks/calibration (EWMA λ=0.25, ≥5 samples) — shared by the Dev card and Input tab 3. */
+async function refreshCalibrationAdvisory() {
+  state.calibration = await api.getCalibration(state.workspaceId).catch(() => state.calibration);
+  renderCalibrationAdvisory();
+}
+
+async function applyRecommendedCalibrationAlpha() {
+  const cal = state.calibration?.calibration;
+  if (!cal?.ready_to_apply || !state.commitments) return;
+  state.commitments.buffer_mode = "COGNITIVE_LOAD";
+  state.commitments.alpha_light = Number(cal.recommended_alpha_light);
+  state.commitments.alpha_heavy = Number(cal.recommended_alpha_heavy);
+  invalidateSolverCaches();
+  await solveActiveSolver(true);
+  await persistWorkspace(true);
+  showToast(`✨ Đã áp dụng α_light=${cal.recommended_alpha_light}, α_heavy=${cal.recommended_alpha_heavy}.`, "ok");
+}
+
+function _sendDesktopNotification(title, body) {
+  if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+  try {
+    new Notification(title, { body });
+  } catch {
+    // Restricted notification environments
+  }
+}
+
+function _checkUpcomingBlockReminders() {
+  if (!focusTimerState.notifyEnabled) return;
+  const nowMs = Date.now();
+  for (const blk of state.currentSchedule?.blocks || []) {
+    if (state.completedBlocks[blk.block_id] || !blk.start_iso) continue;
+    const startMs = Date.parse(blk.start_iso);
+    if (Number.isNaN(startMs)) continue;
+    const diffMin = Math.round((startMs - nowMs) / 60000);
+    const key = `${blk.block_id}@${blk.start_iso}`;
+    if (diffMin >= 1 && diffMin <= 10 && !focusTimerState.notifiedBlockKeys.has(key)) {
+      focusTimerState.notifiedBlockKeys.add(key);
+      _sendDesktopNotification(`Sắp tới phiên học (${diffMin} phút nữa)`, `${blk.title || blk.task_id} (${blk.start_time} – ${blk.end_time})`);
+    }
+  }
+}
+
+async function toggleScheduleNotifications() {
+  const btn = document.getElementById("btnStNotifyToggle");
+  if (focusTimerState.notifyEnabled) {
+    focusTimerState.notifyEnabled = false;
+    clearInterval(focusTimerState.notifyIntervalId);
+    focusTimerState.notifyIntervalId = null;
+    if (btn) btn.textContent = "🔔 Nhắc giờ: Tắt";
+    return;
+  }
+  if (typeof Notification === "undefined") {
+    showToast("Trình duyệt này không hỗ trợ thông báo.", "warn");
+    return;
+  }
+  if (Notification.permission === "default") {
+    try {
+      await Notification.requestPermission();
+    } catch {
+      // ignore
+    }
+  }
+  if (Notification.permission !== "granted") {
+    showToast("Chưa được cấp quyền thông báo — hãy cho phép trong trình duyệt.", "warn");
+    return;
+  }
+  focusTimerState.notifyEnabled = true;
+  if (btn) btn.textContent = "🔔 Nhắc giờ: Bật";
+  _checkUpcomingBlockReminders();
+  focusTimerState.notifyIntervalId = setInterval(_checkUpcomingBlockReminders, 60000);
+}
+
 function setBusyState(busy) {
   document.body.style.cursor = busy ? "progress" : "";
 }
@@ -841,6 +1139,16 @@ function openOverloadModal() {
 }
 
 function wireStaticListeners() {
+  // Focus Timer · Calibration · Reminders (Dev panel)
+  document.getElementById("stFocusPresetSelect")?.addEventListener("change", changeFocusTimerPreset);
+  document.getElementById("btnFocusStart")?.addEventListener("click", startFocusTimer);
+  document.getElementById("btnFocusPause")?.addEventListener("click", pauseFocusTimer);
+  document.getElementById("btnFocusReset")?.addEventListener("click", resetFocusTimer);
+  document.getElementById("btnFocusCompleteM7")?.addEventListener("click", completeFocusTimerToM7);
+  document.getElementById("btnRefreshCalibration")?.addEventListener("click", refreshCalibrationAdvisory);
+  document.getElementById("btnApplyCalibrationAlpha")?.addEventListener("click", applyRecommendedCalibrationAlpha);
+  document.getElementById("btnStNotifyToggle")?.addEventListener("click", toggleScheduleNotifications);
+
   // View tabs
   document.querySelectorAll("[data-view-tab]").forEach((btn) => {
     btn.addEventListener("click", () => {
