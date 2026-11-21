@@ -123,12 +123,12 @@ def _strip_accents(text: str) -> str:
 
 
 _WEEKDAY_PATTERNS: Tuple[Tuple[str, str], ...] = (
-    (r"\b(?:monday|mon|thu\s*2|t2)\b", "Monday"),
-    (r"\b(?:tuesday|tue|tues|thu\s*3|t3)\b", "Tuesday"),
-    (r"\b(?:wednesday|wed|thu\s*4|t4)\b", "Wednesday"),
-    (r"\b(?:thursday|thurs|thu\s*5|t5)\b|\bthu\b(?!\s*[2-7])", "Thursday"),
-    (r"\b(?:friday|fri|thu\s*6|t6)\b", "Friday"),
-    (r"\b(?:saturday|sat|thu\s*7|t7)\b", "Saturday"),
+    (r"\b(?:monday|mon|thu\s*(?:2|hai)|t2)\b", "Monday"),
+    (r"\b(?:tuesday|tue|tues|thu\s*(?:3|ba)|t3)\b", "Tuesday"),
+    (r"\b(?:wednesday|wed|thu\s*(?:4|tu)|t4)\b", "Wednesday"),
+    (r"\b(?:thursday|thurs|thu\s*(?:5|nam)|t5)\b|\bthu\b(?!\s*(?:[2-7]|hai|ba|tu|nam|sau|bay)\b)", "Thursday"),
+    (r"\b(?:friday|fri|thu\s*(?:6|sau)|t6)\b", "Friday"),
+    (r"\b(?:saturday|sat|thu\s*(?:7|bay)|t7)\b", "Saturday"),
     (r"\b(?:sunday|sun|chu\s*nhat|cn)\b", "Sunday"),
 )
 

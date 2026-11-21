@@ -56,6 +56,7 @@ from web.auth import (
     issue_access_token,
     resolve_workspace_id,
 )
+from web.chat_service import process_chat_turn
 from web.health_v21 import evaluate_schedule_v21
 from web.test_showcase import get_showcase_case, list_showcase
 from web.v3_services import (
@@ -709,6 +710,27 @@ def api_natural_language_add(payload: Dict[str, Any] = Body(...)):
             translation_backend=trans_backend,
         )
     except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/chat/turn")
+def api_chat_turn(payload: Dict[str, Any] = Body(...), request: Request = None):
+    """
+    Conversational Scheduling Turn Endpoint (< 10s SLA):
+      - Multi-turn slot filling for missing content or start/end time.
+      - SHA-256 keyword task traceability & hidden criteria tuning.
+      - Deadline adjustment + remaining-time & personal habit/EWMA buffer re-estimation.
+      - Fast re-solving + Deadlock / Overly Dense edge-case diagnostics.
+    """
+    try:
+        enriched_payload = dict(payload)
+        enriched_payload["workspace_id"] = resolve_workspace_id(
+            request, str(payload.get("workspace_id") or "default")
+        )
+        return process_chat_turn(enriched_payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
