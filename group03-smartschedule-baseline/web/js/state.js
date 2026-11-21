@@ -1,11 +1,11 @@
 /**
- * Central Application State for SmartSchedule UI v3.
+ * Central Application State for SmartSchedule UI (Chat-First + Developer Mode).
  */
 
 export const state = {
   // Active workspace data
   workspaceId: "default",
-  suiteLabel: "Tuần của Minh",
+  suiteLabel: "Lịch trình của bạn",
   suiteMeta: null,
   commitments: {
     student_id: "STUDENT_01",
@@ -44,17 +44,33 @@ export const state = {
   catalog: null, // response from /api/test-suites/catalog
   calibration: null,
 
-  // UI view & theme state
-  activeView: "calendar", // calendar | list | weights | benchmark | showcase
-  // Test-suite picker inputs (kept while the popover is closed/reopened)
-  suitePicker: { regimeSeed: 42, regimeHorizon: "", fuzzSeed: 1001 },
-  // "Bộ test so sánh" view: list + per-case results from /api/test-showcase
-  showcase: { list: null, cases: {}, errors: {}, rerunning: {}, loading: false, listError: null },
-  theme: localStorage.getItem("smartschedule_theme") || "botanical", // botanical | light | dark
+  // UI view, Left Taskbar Slider & Developer Mode
+  activeView: "chat", // chat (default entry) | calendar | list | weights | benchmark | showcase
+  leftSidebarOpen: true,
+  developerMode: false,
   devPanelOpen: false,
+  theme: localStorage.getItem("smartschedule_theme") || "botanical", // botanical | light | dark
   inputTab: "tasks", // tasks | commitments | profile
   editingTaskId: null,
   editingFixedEventId: null,
+
+  // Chat-First Assistant & Synchronized Calendar Copilot State
+  chatMessages: [], // shared transcript across #viewChat and #calendarCopilotDrawer
+  chatModeHint: "AUTO", // AUTO | ADD_RECURRING | ADD_TASK | MODIFY_HIDDEN | ADJUST_DEADLINE
+  pendingChatDraft: null,
+  lastMutatedTaskId: null,
+  chatBusy: false,
+  lastScheduleDiff: {
+    added: [],
+    moved: [],
+    finalizedAt: null,
+    finalizedMessage: "",
+  },
+  edgeCaseBanner: null,
+
+  // Test-suite picker inputs
+  suitePicker: { regimeSeed: 42, regimeHorizon: "", fuzzSeed: 1001 },
+  showcase: { list: null, cases: {}, errors: {}, rerunning: {}, loading: false, listError: null },
 
   // Calendar Scrubber & Display controls
   scrubberStartDay: 0,
@@ -62,7 +78,7 @@ export const state = {
   visibleDaysCount: 7, // 1 | 3 | 5 | 7
   hideSleepHours: true,
   showEnergyBackdrop: true,
-  showTechMetaOnBlocks: false, // Clean default: hide L1-L3/Peak/countdown on card face; toggleable in Settings
+  showTechMetaOnBlocks: false,
 
   // List view controls
   listFilter: "all", // all | study | past | today | future | warning

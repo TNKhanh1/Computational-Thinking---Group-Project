@@ -88,6 +88,12 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
+  chatTurn: (payload) =>
+    request("/api/chat/turn", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
   completeTask: (payload) =>
     request("/api/tasks/complete", {
       method: "POST",

@@ -200,13 +200,12 @@ export function renderListView(container, callbacks) {
               <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
                 <strong>${esc(it.title)}</strong>
                 <span class="badge badge-neutral">${esc(CATEGORY_LABELS[it.category] || it.category)}</span>
-                <span class="badge ${loadCls}">L${it.load}</span>
-                <span class="badge ${it.energy === 3 ? "badge-info" : "badge-neutral"}">${it.energy === 3 ? "Peak E3" : `E${it.energy}`}</span>
+                ${state.developerMode ? `<span class="badge ${loadCls}">L${it.load}</span><span class="badge ${it.energy === 3 ? "badge-info" : "badge-neutral"}">${it.energy === 3 ? "Peak E3" : `E${it.energy}`}</span>` : ""}
                 ${it.isPinned ? `<span class="badge badge-dark">Ghim</span>` : ""}
                 ${it.doneInfo ? `<span class="badge badge-ok">Xong ${it.doneInfo.actual_min}p</span>` : ""}
                 ${it.hasWarning ? `<span class="badge badge-warn">Cần chú ý</span>` : ""}
               </div>
-              ${it.reasonSummary ? `<div style="font-size:12px;color:var(--p-muted);">${esc(it.reasonSummary)}</div>` : ""}
+              ${state.developerMode && it.reasonSummary ? `<div style="font-size:12px;color:var(--p-muted);">${esc(it.reasonSummary)}</div>` : ""}
             </div>
             <div class="chrono-item-actions">
               <button type="button" class="btn btn-sm" data-list-pin="${esc(b.block_id)}">${it.isPinned ? "Bỏ ghim" : "Ghim"}</button>
@@ -225,9 +224,11 @@ export function renderListView(container, callbacks) {
             <strong>${WEEKDAYS_VI_FULL[d % 7]}, <span class="mono">${fmtDDMMYYYY(dt)}</span></strong>
             ${isToday ? `<span class="badge badge-ok">HÔM NAY</span>` : isPastDay ? `<span class="badge badge-neutral">Quá khứ</span>` : ""}
           </div>
-          <div class="mono" style="font-size:12px;color:var(--p-ink-soft);">
-            Tổng tải Lớp + Tự học: <strong>${totalLoad}p</strong> / 540p (Lớp ${classMin}p · Tự học ${studyMin}p)
-          </div>
+          ${
+            state.developerMode
+              ? `<div class="mono" style="font-size:12px;color:var(--p-ink-soft);">Tổng tải Lớp + Tự học: <strong>${totalLoad}p</strong> / 540p (Lớp ${classMin}p · Tự học ${studyMin}p)</div>`
+              : `<div class="mono" style="font-size:12px;color:var(--p-muted);">${dayBlocks.length + fixedEvs.length} hoạt động</div>`
+          }
         </header>
         <div>${rowsHtml}</div>
       </section>`);

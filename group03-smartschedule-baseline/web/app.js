@@ -1,13 +1,14 @@
 /**
- * SmartSchedule UI v3 — Main ES Module Coordinator.
- * Wires Top Bar, Solver Switcher (with 0ms benchmark cache; solvers come from /api/solvers,
- * currently 6 incl. HYBRID_ALNS), 4 Workspace Views, Unified 3-Tab Input Modal,
- * Drag-and-Drop PINNED validation, M7 Check-in, Local Repair, Overload Rescue,
- * Testing_System v2.1 4-pillar health panel, Focus Timer (Pomodoro → M7) with EWMA α
- * calibration & block reminders, and SQLite State Persistence.
+ * SmartSchedule UI — Chat-First Workspace Coordinator + Synchronized Weekly Copilot & Developer Mode.
+ * Wires:
+ *   - Left Vertical Collapsible Taskbar Slider (#leftNavSidebar) + Developer Mode toggle (#chkDeveloperMode)
+ *   - Default Spacious Chat Frame (#viewChat) & Right Calendar Copilot (#calendarCopilotDrawer) via /api/chat/turn
+ *   - Weekly Calendar with live transition animations, Overload Rescue, & Dense-Schedule Warnings
+ *   - Developer Side Panel (6 solvers incl. HYBRID_ALNS, Testing_System v2.1, Focus Timer M7/EWMA)
  */
 
 import { api } from "./js/api.js";
+import { renderChatWorkspaces, renderDevHiddenTaskInspector } from "./js/chat-assistant.js";
 import { renderInputModal } from "./js/input-drawer.js";
 import {
   renderBlockInspectorModal,
@@ -42,7 +43,10 @@ import {
 
 async function bootstrap() {
   applyTheme(state.theme, false);
+  setLeftSidebarOpen(state.leftSidebarOpen);
+  setDeveloperMode(state.developerMode, false);
   wireStaticListeners();
+  setActiveView(state.activeView || "chat", false);
 
   try {
     const [solversRes, catalogRes, calRes] = await Promise.all([
@@ -58,11 +62,10 @@ async function bootstrap() {
     showToast(`Không tải được danh mục khởi tạo: ${err.message}`, "danger");
   }
 
-  // Try restoring SQLite workspace state; fall back to Minh's Week preset
   try {
     const saved = await api.loadState(state.workspaceId);
     if (saved?.exists && saved.state?.commitments && Array.isArray(saved.state?.tasks)) {
-      applyLoadedState(saved.state, saved.state.suiteLabel || "Workspace đã lưu (SQLite)");
+      applyLoadedState(saved.state, saved.state.suiteLabel || "Lịch trình của bạn");
     } else {
       await loadSuite("preset", "minh", 42, false);
       return;
@@ -100,9 +103,105 @@ async function persistWorkspace(silent = true) {
       },
       state.workspaceId
     );
-    if (!silent) showToast("Đã lưu trạng thái workspace vào SQLite.", "ok");
+    if (!silent) showToast("Đã lưu trạng thái lịch vào hệ thống.", "ok");
   } catch (err) {
     if (!silent) showToast(`Lỗi lưu trạng thái: ${err.message}`, "danger");
+  }
+}
+
+// ============================================================================
+// CHAT-FIRST CONVERSATIONAL TURN & LIVE CALENDAR TRANSITIONS
+// ============================================================================
+
+function computeScheduleDiff(prevBlocks, nextBlocks) {
+  const prevById = new Map((prevBlocks || []).map((b) => [b.block_id, b]));
+  const added = [];
+  const moved = [];
+  for (const b of nextBlocks || []) {
+    const old = prevById.get(b.block_id);
+    if (!old) {
+      added.push(b.block_id);
+    } else if (old.start_slot !== b.start_slot || old.end_slot !== b.end_slot || old.day !== b.day) {
+      moved.push(b.block_id);
+    }
+  }
+  return { added, moved };
+}
+
+async function handleChatPrompt(promptText, modeHint = "AUTO") {
+  const cleanPrompt = String(promptText || "").trim();
+  if (!cleanPrompt || state.chatBusy) return;
+
+  state.chatMessages.push({
+    id: `u_${Date.now()}`,
+    role: "user",
+    text: cleanPrompt,
+  });
+  state.chatBusy = true;
+  renderAll();
+
+  const prevBlocks = state.currentSchedule?.blocks || [];
+  try {
+    const res = await api.chatTurn({
+      prompt: cleanPrompt,
+      mode_hint: modeHint || state.chatModeHint || "AUTO",
+      pending_draft: state.pendingChatDraft,
+      commitments: state.commitments,
+      tasks: state.tasks,
+      pinned_blocks: state.pinnedBlocks,
+      completed_blocks: state.completedBlocks,
+      last_task_id: state.lastMutatedTaskId,
+      algorithm: state.activeSolver || "SCORED_GREEDY",
+      workspace_id: state.workspaceId,
+      auto_save: true,
+    });
+
+    state.pendingChatDraft = res.pending_draft || null;
+    if (res.status === "CANCELLED" || res.status === "APPLIED") {
+      state.chatModeHint = "AUTO";
+    }
+    if (res.updated_commitments) state.commitments = res.updated_commitments;
+    if (Array.isArray(res.updated_tasks)) state.tasks = res.updated_tasks;
+    if (Array.isArray(res.updated_pinned_blocks)) state.pinnedBlocks = res.updated_pinned_blocks;
+    if (res.mutated_task_id) state.lastMutatedTaskId = res.mutated_task_id;
+
+    if (res.schedule) {
+      const diff = computeScheduleDiff(prevBlocks, res.schedule.blocks || []);
+      const evalReport = await evaluateCurrentScheduleV21(res.schedule, state.activeSolver);
+      res.schedule.evaluation = evalReport;
+      invalidateSolverCaches();
+      state.schedulesBySolver[state.activeSolver] = res.schedule;
+      state.currentSchedule = res.schedule;
+      state.currentEvaluation = evalReport;
+      state.edgeCaseBanner = res.edge_case || null;
+      state.lastScheduleDiff = {
+        ...diff,
+        finalizedAt: Date.now(),
+        finalizedMessage: res.finalized_message_vi || "✅ Đã hoàn tất và chốt lịch trình mới!",
+      };
+    }
+
+    state.chatMessages.push({
+      id: `a_${Date.now()}`,
+      role: "assistant",
+      text: res.reply_vi || "Đã cập nhật lịch trình của bạn.",
+      quickChips: res.quick_chips || [],
+      postActions: res.post_actions || [],
+      edgeCase: res.edge_case || null,
+      remainingEstimation: res.remaining_estimation || null,
+      finalizedMessage: state.activeView === "calendar" && res.status === "APPLIED" ? res.finalized_message_vi : "",
+      tracedTaskId: res.traced_task?.task_id || res.mutated_task_id || null,
+    });
+  } catch (err) {
+    state.chatMessages.push({
+      id: `e_${Date.now()}`,
+      role: "assistant",
+      text: `Mình gặp chút trục trặc khi xử lý yêu cầu: ${err.message}. Bạn thử diễn đạt lại ngắn gọn hơn nhé.`,
+    });
+    showToast(`Lỗi xử lý chat: ${err.message}`, "danger");
+  } finally {
+    state.chatBusy = false;
+    renderAll();
   }
 }
 
@@ -112,8 +211,7 @@ async function persistWorkspace(silent = true) {
 
 /**
  * Testing_System v2.1 evaluation (G1/G2 + P1–P4 + ICEE) for one schedule.
- * Backend v3 already evaluates inside /api/plan → `health_v21`, so reuse it and skip a second
- * full evaluation round-trip; only fall back to POST /api/evaluate when it is missing.
+ * Reuses inline /api/plan `health_v21` when present, falling back to POST /api/evaluate.
  */
 async function evaluateCurrentScheduleV21(sched = state.currentSchedule, algorithm = state.activeSolver) {
   if (!sched) return null;
@@ -227,6 +325,7 @@ async function loadSuite(source, id, seed = 42, notify = true, horizonDays = nul
     state.suiteMeta = res.metadata || null;
     state.disruptionPreset = res.disruption || null;
     state.overrunPreset = res.overrun_config || null;
+    state.edgeCaseBanner = null;
     state.scrubberStartDay = Math.min(
       Math.max(0, (Number(state.commitments.horizon_days) || 7) - state.visibleDaysCount),
       slotToDayIndex(resolveNowSlot(state.commitments))
@@ -246,7 +345,6 @@ async function loadSuite(source, id, seed = 42, notify = true, horizonDays = nul
 // INTERACTIVE ACTIONS (Drag/Drop, Pin, Check-in, Overrun, Repair, Overload, Export)
 // ============================================================================
 
-/** Move the planning week (and simulated NOW) by `deltaDays`; task deadlines keep their absolute dates. */
 async function shiftWeek(deltaDays) {
   const ws = parseWeekStartDate(state.commitments.planning_week_start);
   const nextWs = addDays(ws, deltaDays);
@@ -259,14 +357,12 @@ async function shiftWeek(deltaDays) {
   await persistWorkspace(true);
 }
 
-/** Browse another week without re-planning: only the viewed week changes. */
 function setViewWeek(offsetWeeks) {
   state.viewWeekOffset = offsetWeeks;
   if (offsetWeeks === 0) state.scrubberStartDay = 0;
   setActiveView("calendar");
 }
 
-/** "Xóa tất cả lịch": empties tasks, pins, check-ins (+ optionally fixed events & habits), then saves. */
 async function clearAllSchedule({ includeFixed = false } = {}) {
   const counts = {
     tasks: state.tasks.length,
@@ -279,6 +375,8 @@ async function clearAllSchedule({ includeFixed = false } = {}) {
   state.overloadPreview = null;
   state.disruptionPreset = null;
   state.overrunPreset = null;
+  state.edgeCaseBanner = null;
+  state.pendingChatDraft = null;
   if (includeFixed) {
     state.commitments.fixed_events = [];
     state.commitments.personal_habits = [];
@@ -315,8 +413,8 @@ async function handleDropMoveBlock(blockId, newStartSlot, dayLabel, timeLabel) {
       new_time: timeLabel,
     });
     if (!val.ok) {
-      const msg = (val.violations || []).join(" · ") || "Vi phạm ràng buộc cứng H1–H5.";
-      showToast(`Không thể dời block: ${msg}`, "danger");
+      const msg = (val.violations || []).join(" · ") || "Khung giờ này trùng lịch cố định hoặc giờ nghỉ.";
+      showToast(`Không thể dời khối này: ${msg}`, "danger");
       return;
     }
 
@@ -334,6 +432,12 @@ async function handleDropMoveBlock(blockId, newStartSlot, dayLabel, timeLabel) {
       ...state.pinnedBlocks.filter((p) => p.block_id !== blockId),
       updatedBlock,
     ];
+    state.lastScheduleDiff = {
+      added: [],
+      moved: [blockId],
+      finalizedAt: Date.now(),
+      finalizedMessage: `✅ Đã dời & chốt "${blk.title}" sang ${dayLabel} ${timeLabel}.`,
+    };
     invalidateSolverCaches();
     await solveActiveSolver(true);
     await persistWorkspace(true);
@@ -347,7 +451,7 @@ async function handleTogglePin(blockId) {
   const exists = state.pinnedBlocks.some((p) => p.block_id === blockId);
   if (exists) {
     state.pinnedBlocks = state.pinnedBlocks.filter((p) => p.block_id !== blockId);
-    showToast("Đã bỏ ghim cố định block.", "ok");
+    showToast("Đã bỏ ghim cố định.", "ok");
   } else {
     const blk = (state.currentSchedule?.blocks || []).find((b) => b.block_id === blockId);
     if (!blk) return;
@@ -379,11 +483,11 @@ async function handleCheckinBlock(block, actualMin) {
     await persistWorkspace(true);
     renderAll();
     showToast(
-      `✔️ Đã ghi nhận M7 (${actualMin}p vs ${block.duration_min}p, tỷ lệ ${res.overrun_ratio}x). Gợi ý α=${res.recommended_alpha}.`,
+      `✔️ Đã ghi nhận thời gian thực tế (${actualMin}p vs ${block.duration_min}p, tỷ lệ ${res.overrun_ratio}x).`,
       "ok"
     );
   } catch (err) {
-    showToast(`Lỗi Check-in M7: ${err.message}`, "danger");
+    showToast(`Lỗi ghi nhận: ${err.message}`, "danger");
   }
 }
 
@@ -396,7 +500,6 @@ async function handleOverrunBlock(block, extraMin) {
       task_id: block.task_id,
       extra_min: extraMin,
     });
-    // Update task duration in workspace to reflect overrun
     const task = state.tasks.find((t) => t.task_id === block.task_id);
     if (task) task.duration_min = res.new_duration_min;
     closeModal("blockModal");
@@ -404,7 +507,7 @@ async function handleOverrunBlock(block, extraMin) {
     await solveActiveSolver(true);
     await persistWorkspace(true);
     showToast(
-      `Đã xử lý tràn +${extraMin}p cho "${block.title}" (${res.shifted_blocks_count} block bị dịch chuyển).`,
+      `Đã cập nhật thêm +${extraMin}p cho "${block.title}" (${res.shifted_blocks_count} phiên được điều chỉnh).`,
       "warn"
     );
   } catch (err) {
@@ -422,7 +525,6 @@ async function handleRunRepair({ new_event, mode }) {
       new_event,
       mode,
     });
-    // Persist new urgent fixed event into commitments so subsequent views stay consistent
     state.commitments.fixed_events = [
       ...(state.commitments.fixed_events || []),
       { ...new_event, category: "MEETING" },
@@ -433,11 +535,11 @@ async function handleRunRepair({ new_event, mode }) {
     await persistWorkspace(true);
     const stab = res.stability_pct ?? res.summary?.stability_pct;
     showToast(
-      `Đã chèn sự cố "${new_event.title}" (${mode})${stab != null ? ` · Độ ổn định: ${stab}%` : ""}.`,
+      `Đã chèn sự cố "${new_event.title}"${stab != null ? ` · Độ ổn định: ${stab}%` : ""}.`,
       "ok"
     );
   } catch (err) {
-    showToast(`Lỗi chạy Local Repair: ${err.message}`, "danger");
+    showToast(`Lỗi sửa lịch: ${err.message}`, "danger");
   }
 }
 
@@ -455,9 +557,9 @@ async function handlePreviewOverload(optionId, optionCode, targetTaskId) {
     state.overloadPreview = res;
     closeModal("overloadModal");
     setActiveView("calendar");
-    showToast(`👁️ Đang xem thử phương án ${optionId}. Kiểm tra các khối nét đứt trên lịch.`, "ok");
+    showToast("👁️ Đang xem thử phương án gỡ kẹt (các khối nét đứt trên lịch).", "ok");
   } catch (err) {
-    showToast(`Lỗi xem thử giải cứu quá tải: ${err.message}`, "danger");
+    showToast(`Lỗi xem thử gỡ kẹt: ${err.message}`, "danger");
   }
 }
 
@@ -467,10 +569,17 @@ async function handleApplyOverloadPreview() {
     state.tasks = state.overloadPreview.resolved_tasks;
   }
   state.overloadPreview = null;
+  state.edgeCaseBanner = null;
+  state.lastScheduleDiff = {
+    added: [],
+    moved: [],
+    finalizedAt: Date.now(),
+    finalizedMessage: "✅ Đã hoàn tất và chốt lịch trình mới sau khi gỡ kẹt!",
+  };
   invalidateSolverCaches();
   await solveActiveSolver(true);
   await persistWorkspace(true);
-  showToast("✔️ Đã áp dụng phương án giải cứu quá tải.", "ok");
+  showToast("✔️ Đã áp dụng phương án gỡ kẹt và chốt lịch mới.", "ok");
 }
 
 async function handleExport(fmt) {
@@ -497,17 +606,51 @@ async function handleExport(fmt) {
 }
 
 // ============================================================================
-// RENDERING ORCHESTRATION
+// NAVIGATION, SIDEBAR SLIDER, DEVELOPER MODE & RENDERING ORCHESTRATION
 // ============================================================================
 
-function setActiveView(viewName) {
+function setLeftSidebarOpen(open) {
+  state.leftSidebarOpen = Boolean(open);
+  const sidebar = document.getElementById("leftNavSidebar");
+  const btn = document.getElementById("btnToggleLeftSidebar");
+  sidebar?.classList.toggle("collapsed", !state.leftSidebarOpen);
+  btn?.setAttribute("aria-expanded", String(state.leftSidebarOpen));
+}
+
+function setDeveloperMode(enabled, notify = false) {
+  state.developerMode = Boolean(enabled);
+  document.body.classList.toggle("app-developer-mode", state.developerMode);
+  const chk = document.getElementById("chkDeveloperMode");
+  if (chk) chk.checked = state.developerMode;
+
+  if (!state.developerMode) {
+    setDevPanelOpen(false);
+    if (["weights", "benchmark", "showcase"].includes(state.activeView)) {
+      setActiveView("chat");
+    }
+  }
+  renderAll();
+  if (notify) {
+    showToast(
+      state.developerMode
+        ? "🛠️ Đã bật Developer Mode: Hiển thị thông số ẩn (SHA-256, nhịp sinh học, buffer, chia nhỏ)."
+        : "Đã chuyển về giao diện Người dùng tối giản.",
+      "ok"
+    );
+  }
+}
+
+function setActiveView(viewName, renderNow = true) {
   state.activeView = viewName;
+  document.body.classList.toggle("view-calendar-active", viewName === "calendar" || viewName === "list");
+
   document.querySelectorAll("[data-view-tab]").forEach((btn) => {
     const active = btn.getAttribute("data-view-tab") === viewName;
     btn.classList.toggle("active", active);
     btn.setAttribute("aria-selected", String(active));
   });
   const map = {
+    chat: "viewChat",
     calendar: "viewCalendar",
     list: "viewList",
     weights: "viewWeights",
@@ -522,7 +665,7 @@ function setActiveView(viewName) {
     fetchSolverWeights(false);
     return;
   }
-  renderAll();
+  if (renderNow) renderAll();
 }
 
 function renderAll() {
@@ -531,6 +674,7 @@ function renderAll() {
   renderCalendarRangeLabel();
   renderTelemetryStrip();
   renderHealthV21Panels();
+  renderDevHiddenTaskInspector();
 
   const sharedCallbacks = {
     onInspectBlock: (blockId, focusSection = null) => openBlockModal(blockId, focusSection),
@@ -557,10 +701,17 @@ function renderAll() {
       await loadSuite(src, id, seed, true, horizon);
       setActiveView("calendar");
     },
+    onSendChatPrompt: (prompt, modeHint) => handleChatPrompt(prompt, modeHint),
+    onOpenCalendarView: () => setActiveView("calendar"),
+    onOpenChatView: () => setActiveView("chat"),
+    onPreviewOverloadOption: (optId, code, tid) => handlePreviewOverload(optId, code, tid),
   };
 
+  renderChatWorkspaces(sharedCallbacks);
+
   if (state.activeView === "calendar") {
-    renderCalendarView(document.getElementById("viewCalendar"), sharedCallbacks);
+    const stage = document.getElementById("calendarMainStage") || document.getElementById("viewCalendar");
+    renderCalendarView(stage, sharedCallbacks);
   } else if (state.activeView === "list") {
     renderListView(document.getElementById("viewList"), sharedCallbacks);
   } else if (state.activeView === "weights") {
@@ -598,17 +749,22 @@ function setDevPanelOpen(open) {
 }
 
 function renderTopBar() {
-  document.getElementById("activeSuiteBadge").textContent = state.suiteLabel;
+  const suiteBadge = document.getElementById("activeSuiteBadge");
+  if (suiteBadge) suiteBadge.textContent = state.suiteLabel;
   const devLbl = document.getElementById("devSuiteLabel");
   if (devLbl) devLbl.textContent = state.suiteLabel;
-  document.getElementById("txtInputTaskCount").textContent = String(state.tasks.length);
+  const taskCnt = document.getElementById("txtInputTaskCount");
+  if (taskCnt) taskCnt.textContent = String(state.tasks.length);
+  const sideBadge = document.getElementById("leftSidebarTaskBadge");
+  if (sideBadge) sideBadge.textContent = `${state.tasks.length} công việc đang theo dõi`;
 
   const horizon = Number(state.commitments.horizon_days || 7);
   const planWs = parseWeekStartDate(state.commitments.planning_week_start);
   const offset = Number(state.viewWeekOffset) || 0;
   const ws = addDays(planWs, offset * 7);
   const we = addDays(ws, offset === 0 ? horizon - 1 : 6);
-  document.getElementById("txtWeekRange").textContent = `${fmtDDMM(ws)} – ${fmtDDMM(we)}/${we.getFullYear()}`;
+  const weekTxt = document.getElementById("txtWeekRange");
+  if (weekTxt) weekTxt.textContent = `${fmtDDMM(ws)} – ${fmtDDMM(we)}/${we.getFullYear()}`;
   document.getElementById("btnHorizon7")?.classList.toggle("active", horizon === 7);
   document.getElementById("btnHorizon14")?.classList.toggle("active", horizon === 14);
 
@@ -724,6 +880,7 @@ function renderCalendarRangePopover() {
 
 function renderSolverRibbon() {
   const bar = document.getElementById("solverSwitcherBar");
+  if (!bar) return;
   const activeMeta = state.solvers.find((s) => s.key === state.activeSolver) || {
     key: state.activeSolver,
     label: state.activeSolver,
@@ -773,7 +930,7 @@ function renderSolverRibbon() {
 
   const trigger = bar.querySelector("#btnToggleSolverMenu");
   const menu = bar.querySelector("#solverDropdownMenu");
-  trigger.addEventListener("click", (e) => {
+  trigger?.addEventListener("click", (e) => {
     e.stopPropagation();
     const willOpen = !menu.classList.contains("open");
     closeAllPopovers();
@@ -796,6 +953,7 @@ function renderTelemetryStrip() {
   const el = document.getElementById("telemetryMetrics");
   const actionsEl = document.getElementById("telemetryActions");
   const devDot = document.getElementById("devToggleDot");
+  if (!el || !actionsEl) return;
   const sched = state.currentSchedule;
   const rep = state.currentEvaluation;
 
@@ -850,7 +1008,7 @@ function renderTelemetryStrip() {
 }
 
 // ============================================================================
-// TESTING_SYSTEM v2.1 4-PILLAR HEALTH PANEL (complements the quick telemetry strip)
+// TESTING_SYSTEM v2.1 4-PILLAR HEALTH PANEL
 // ============================================================================
 
 function renderHealthV21Panels(rep = state.currentEvaluation) {
@@ -993,7 +1151,6 @@ function resetFocusTimer() {
   _renderFocusTimerUI();
 }
 
-/** Logs the measured focus session as an M7 actual-duration check-in for the next unfinished study block. */
 async function completeFocusTimerToM7() {
   pauseFocusTimer();
   if (focusTimerState.elapsedSec < 60) {
@@ -1056,7 +1213,7 @@ function renderCalibrationAdvisory() {
   if (applyBtn) applyBtn.disabled = !cal.ready_to_apply;
 }
 
-/** GET /api/tasks/calibration (EWMA λ=0.25, ≥5 samples) — shared by the Dev card and Input tab 3. */
+/** GET /api/tasks/calibration (EWMA λ=0.25, ≥5 samples) — shared by Dev Mode & Profile tab. */
 async function refreshCalibrationAdvisory() {
   state.calibration = await api.getCalibration(state.workspaceId).catch(() => state.calibration);
   renderCalibrationAdvisory();
@@ -1209,6 +1366,21 @@ function openOverloadModal() {
 }
 
 function wireStaticListeners() {
+  // Left Vertical Taskbar Slider & Developer Mode Toggle
+  document.getElementById("btnToggleLeftSidebar")?.addEventListener("click", () => {
+    setLeftSidebarOpen(!state.leftSidebarOpen);
+  });
+  document.getElementById("chkDeveloperMode")?.addEventListener("change", (e) => {
+    setDeveloperMode(e.target.checked, true);
+  });
+  document.getElementById("btnSideWeekPrev")?.addEventListener("click", () =>
+    setViewWeek((Number(state.viewWeekOffset) || 0) - 1)
+  );
+  document.getElementById("btnSideWeekCurrent")?.addEventListener("click", () => setViewWeek(0));
+  document.getElementById("btnSideWeekNext")?.addEventListener("click", () =>
+    setViewWeek((Number(state.viewWeekOffset) || 0) + 1)
+  );
+
   // Focus Timer · Calibration · Reminders (Dev panel)
   document.getElementById("stFocusPresetSelect")?.addEventListener("change", changeFocusTimerPreset);
   document.getElementById("btnFocusStart")?.addEventListener("click", startFocusTimer);
@@ -1219,7 +1391,7 @@ function wireStaticListeners() {
   document.getElementById("btnApplyCalibrationAlpha")?.addEventListener("click", applyRecommendedCalibrationAlpha);
   document.getElementById("btnStNotifyToggle")?.addEventListener("click", toggleScheduleNotifications);
 
-  // View tabs
+  // View tabs (sidebar + topbar)
   document.querySelectorAll("[data-view-tab]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const target = btn.getAttribute("data-view-tab");
@@ -1234,12 +1406,12 @@ function wireStaticListeners() {
   });
 
   // Top bar & Settings buttons
-  document.getElementById("btnOpenInputModal").addEventListener("click", () => openInputModal());
-  document.getElementById("btnTopWeights").addEventListener("click", () => {
+  document.getElementById("btnOpenInputModal")?.addEventListener("click", () => openInputModal());
+  document.getElementById("btnTopWeights")?.addEventListener("click", () => {
     closeAllPopovers();
     fetchSolverWeights(true);
   });
-  document.getElementById("btnTopBenchmark").addEventListener("click", () => {
+  document.getElementById("btnTopBenchmark")?.addEventListener("click", () => {
     closeAllPopovers();
     runBenchmarkAll(true);
   });
@@ -1247,13 +1419,12 @@ function wireStaticListeners() {
     closeAllPopovers();
     setActiveView("showcase");
   });
-  document.getElementById("btnOpenDisruption").addEventListener("click", () => openDisruptionModal());
+  document.getElementById("btnOpenDisruption")?.addEventListener("click", () => openDisruptionModal());
 
-  // Week navigation & 7d/14d horizon
-  // ‹ › only change the viewed week; re-planning another week is the banner's explicit button.
-  document.getElementById("btnWeekPrev").addEventListener("click", () => setViewWeek((Number(state.viewWeekOffset) || 0) - 1));
-  document.getElementById("btnWeekNext").addEventListener("click", () => setViewWeek((Number(state.viewWeekOffset) || 0) + 1));
-  document.getElementById("btnWeekToday").addEventListener("click", () => {
+  // Week navigation (view-only) & 7d/14d horizon
+  document.getElementById("btnWeekPrev")?.addEventListener("click", () => setViewWeek((Number(state.viewWeekOffset) || 0) - 1));
+  document.getElementById("btnWeekNext")?.addEventListener("click", () => setViewWeek((Number(state.viewWeekOffset) || 0) + 1));
+  document.getElementById("btnWeekToday")?.addEventListener("click", () => {
     const nowSlot = resolveNowSlot(state.commitments);
     state.viewWeekOffset = 0;
     state.scrubberStartDay = Math.max(0, slotToDayIndex(nowSlot));
@@ -1266,11 +1437,11 @@ function wireStaticListeners() {
     await solveActiveSolver(true);
     await persistWorkspace(true);
   };
-  document.getElementById("btnHorizon7").addEventListener("click", () => setHorizon(7));
-  document.getElementById("btnHorizon14").addEventListener("click", () => setHorizon(14));
+  document.getElementById("btnHorizon7")?.addEventListener("click", () => setHorizon(7));
+  document.getElementById("btnHorizon14")?.addEventListener("click", () => setHorizon(14));
 
   // Test Suites Popover
-  document.getElementById("btnToggleSuites").addEventListener("click", (e) => {
+  document.getElementById("btnToggleSuites")?.addEventListener("click", (e) => {
     e.stopPropagation();
     const pop = document.getElementById("suitesPopover");
     const willOpen = !pop.classList.contains("open");
@@ -1288,7 +1459,7 @@ function wireStaticListeners() {
     }
   });
 
-  // Theme Switcher Popover (Botanical Green / Light / Dark Forest)
+  // Theme Switcher Popover
   document.getElementById("btnToggleTheme")?.addEventListener("click", (e) => {
     e.stopPropagation();
     const pop = document.getElementById("themePopover");
@@ -1315,7 +1486,7 @@ function wireStaticListeners() {
   });
 
   // Calendar Range & Start Day Popover
-  document.getElementById("btnToggleCalendarRange").addEventListener("click", (e) => {
+  document.getElementById("btnToggleCalendarRange")?.addEventListener("click", (e) => {
     e.stopPropagation();
     const pop = document.getElementById("calendarRangePopover");
     const willOpen = !pop.classList.contains("open");
@@ -1328,7 +1499,7 @@ function wireStaticListeners() {
   });
 
   // Unified Settings & Tools Gear Popover
-  document.getElementById("btnToggleSettings").addEventListener("click", (e) => {
+  document.getElementById("btnToggleSettings")?.addEventListener("click", (e) => {
     e.stopPropagation();
     const pop = document.getElementById("settingsPopover");
     const willOpen = !pop.classList.contains("open");
@@ -1352,13 +1523,13 @@ function wireStaticListeners() {
     renderAll();
   });
 
-  document.getElementById("btnSaveSqlState").addEventListener("click", () => {
+  document.getElementById("btnSaveSqlState")?.addEventListener("click", () => {
     closeAllPopovers();
     persistWorkspace(false);
   });
-  document.getElementById("btnExportIcs").addEventListener("click", () => handleExport("ics"));
-  document.getElementById("btnExportCsv").addEventListener("click", () => handleExport("csv"));
-  document.getElementById("btnExportJson").addEventListener("click", () => handleExport("json"));
+  document.getElementById("btnExportIcs")?.addEventListener("click", () => handleExport("ics"));
+  document.getElementById("btnExportCsv")?.addEventListener("click", () => handleExport("csv"));
+  document.getElementById("btnExportJson")?.addEventListener("click", () => handleExport("json"));
   document.getElementById("btnClearAllSchedule")?.addEventListener("click", () => {
     closeAllPopovers();
     const chk = document.getElementById("chkClearIncludeFixed");
@@ -1375,7 +1546,7 @@ function wireStaticListeners() {
     clearAllSchedule({ includeFixed: Boolean(document.getElementById("chkClearIncludeFixed")?.checked) })
   );
 
-  document.getElementById("btnResetState").addEventListener("click", async () => {
+  document.getElementById("btnResetState")?.addEventListener("click", async () => {
     closeAllPopovers();
     await api.deleteState(state.workspaceId).catch(() => {});
     await loadSuite("preset", "minh", 42, true);

@@ -1,7 +1,8 @@
 /**
- * View 1: Daily / Weekly Timeline Calendar (1 / 3 / 5 / 7 days with selectable start day),
- * Past / Now / Future differentiation, Drag-and-Drop rescheduling (/api/validate-move),
- * subtle Circadian backdrop, and clean card presentation (technical L1-L3/Peak labels hidden by default).
+ * View 1: Clean User-First Daily / Weekly Timeline Calendar (1 / 3 / 5 / 7 days),
+ * Smooth Live Transitions when edited by the Right Copilot,
+ * Yellow Dense-Schedule Warnings & Red Deadlock Alerts,
+ * and Hidden Parameter Debug Badges when Developer Mode is active.
  */
 
 import { state } from "./state.js";
@@ -11,6 +12,7 @@ import {
   WEEKDAYS_VI_FULL,
   WEEKDAYS_VI_SHORT,
   addDays,
+  computeBufferPreview,
   esc,
   expandFixedEventsForDay,
   fmtDDMM,
@@ -27,6 +29,7 @@ import {
 const HOUR_HEIGHT = 58; // px per hour (matches .cal-hour-slot)
 
 export function renderCalendarView(container, callbacks) {
+  if (!container) return;
   const horizonDays = Math.max(7, Math.min(14, Number(state.commitments.horizon_days) || 7));
   const wsDate = parseWeekStartDate(state.commitments.planning_week_start);
   const nowSlot = resolveNowSlot(state.commitments);
@@ -37,14 +40,10 @@ export function renderCalendarView(container, callbacks) {
   const requestedDays = Number(state.visibleDaysCount) || 7;
   const visibleCount = isNarrow ? Math.min(requestedDays, requestedDays === 1 ? 1 : 3) : requestedDays;
 
-  // Allow choosing ANY start day in the horizon (even in 7-day week mode, user can start from Tue/Wed/etc.)
   const maxStart = horizonDays - 1;
   if (state.scrubberStartDay > maxStart) state.scrubberStartDay = maxStart;
   if (state.scrubberStartDay < 0) state.scrubberStartDay = 0;
 
-  // Week navigation only changes which week is *viewed* (state.viewWeekOffset, in weeks from the
-  // planning week). Re-planning another week is an explicit action (banner button below), so
-  // tasks are never silently re-solved into a week the user is just browsing.
   const viewWeekOffset = Number(state.viewWeekOffset) || 0;
   const startDay = viewWeekOffset !== 0 ? viewWeekOffset * 7 : state.scrubberStartDay;
   const inPlan = (d) => d >= 0 && d < horizonDays;
@@ -59,6 +58,11 @@ export function renderCalendarView(container, callbacks) {
   const blocks = state.overloadPreview?.blocks || schedule?.blocks || [];
   const unplaced = schedule?.unplaced_tasks || [];
   const pinnedIds = new Set((state.pinnedBlocks || []).map((b) => b.block_id));
+  const taskById = new Map((state.tasks || []).map((t) => [t.task_id, t]));
+
+  const diffAddedSet = new Set(state.lastScheduleDiff?.added || []);
+  const diffMovedSet = new Set(state.lastScheduleDiff?.moved || []);
+  const diffFresh = state.lastScheduleDiff?.finalizedAt && Date.now() - state.lastScheduleDiff.finalizedAt < 8000;
 
   const startHour = state.hideSleepHours ? 6 : 0;
   const endHour = 24;
@@ -76,13 +80,44 @@ export function renderCalendarView(container, callbacks) {
     </button>`;
   }).join("");
 
+  // Finalized live transition banner when updated via Copilot/Chat
+  let finalizedBannerHtml = "";
+  if (diffFresh && state.lastScheduleDiff?.finalizedMessage) {
+    finalizedBannerHtml = `
+      <div class="alert-banner ok cal-finalized-banner" id="calendarFinalizedBanner">
+        <div>
+          <strong>${esc(state.lastScheduleDiff.finalizedMessage)}</strong>
+          ${
+            diffAddedSet.size + diffMovedSet.size > 0
+              ? `<span style="margin-left:8px;color:var(--p-muted);font-size:12.5px;">(${diffAddedSet.size} khối mới · ${diffMovedSet.size} khối đã chuyển chỗ)</span>`
+              : ""
+          }
+        </div>
+        <button type="button" class="btn btn-sm btn-ghost" id="btnDismissFinalized">Đã hiểu</button>
+      </div>`;
+  }
+
+  // Edge Case Banner (Yellow Density Warning or Red Deadlock Banner)
+  let edgeBannerHtml = "";
+  if (state.edgeCaseBanner) {
+    const isDeadlock = state.edgeCaseBanner.type === "DEADLOCK";
+    edgeBannerHtml = `
+      <div class="alert-banner ${isDeadlock ? "danger" : "warn"}">
+        <div>
+          <strong>${isDeadlock ? "🚨 Lịch bị kẹt / Trùng hạn chót:" : "⚠️ Cảnh báo lịch trình dày đặc:"}</strong>
+          <span>${esc(state.edgeCaseBanner.message_vi)}</span>
+        </div>
+        ${isDeadlock ? `<button type="button" class="btn btn-sm btn-primary" id="btnOpenOverloadRescueFromBanner">Xem hướng gỡ rối</button>` : ""}
+      </div>`;
+  }
+
   // Overload preview notice
   let previewBannerHtml = "";
   if (state.overloadPreview) {
     previewBannerHtml = `
       <div class="alert-banner info">
         <div>
-          <strong>Đang xem thử phương án giải cứu (${esc(state.overloadPreview.option_id)}):</strong>
+          <strong>Đang xem thử phương án gỡ rối:</strong>
           Các khối nét đứt là lịch đề xuất. Bạn có thể áp dụng hoặc hoàn tác.
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;">
@@ -92,7 +127,7 @@ export function renderCalendarView(container, callbacks) {
       </div>`;
   }
 
-  // Viewing a week outside the planning window: show recurring classes/meals only + explain.
+  // Out-of-plan week notice
   let outOfPlanHtml = "";
   if (dayIndices.some((d) => !inPlan(d))) {
     const viewStart = addDays(wsDate, startDay);
@@ -101,23 +136,19 @@ export function renderCalendarView(container, callbacks) {
       <div class="alert-banner info out-of-plan-banner">
         <div>
           <strong>Đang xem tuần ${fmtDDMM(viewStart)} – ${fmtDDMM(addDays(viewStart, 6))}, ngoài kỳ đang lập lịch (${fmtDDMM(wsDate)} – ${fmtDDMM(planEnd)}).</strong>
-          Lớp học & bữa ăn lặp hằng tuần vẫn hiển thị; các việc chỉ được xếp trong kỳ lập lịch.
+          Lớp học & thói quen lặp hằng tuần vẫn hiển thị.
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;">
-          <button type="button" class="btn btn-sm" id="btnBackToPlanWeek">← Về kỳ đang lập lịch</button>
-          <button type="button" class="btn btn-primary btn-sm" id="btnPlanViewedWeek" title="Dời kỳ lập lịch sang tuần này và xếp lại toàn bộ việc (hôm nay giả lập = thứ Hai 08:00 của tuần này)">Lập kế hoạch cho tuần này</button>
+          <button type="button" class="btn btn-sm" id="btnBackToPlanWeek">← Về tuần đang lập lịch</button>
+          <button type="button" class="btn btn-primary btn-sm" id="btnPlanViewedWeek">Lập kế hoạch cho tuần này</button>
         </div>
       </div>`;
   }
 
-  // Unplaced strip — split genuine "no valid slot" failures from tasks whose deadline is already
-  // before the planning week (backend reason DEADLINE_IN_PAST / code PAST_DUE). The latter happen
-  // when the user navigates to a later week: they are not a scheduling failure nor an overload.
   const isPastDue = (u) =>
     u.reason_code === "PAST_DUE" || u.reason_code === "DEADLINE_IN_PAST" || String(u.reason || "").includes("DEADLINE_IN_PAST");
   const pastDue = unplaced.filter(isPastDue);
   const genuineUnplaced = unplaced.filter((u) => !isPastDue(u));
-  const taskById = new Map((state.tasks || []).map((t) => [t.task_id, t]));
   const dueOf = (u) => {
     const m = String(taskById.get(u.task_id)?.due || "").match(/^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?/);
     return m ? { date: new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])), time: m[4] ? `${m[4]}:${m[5]}` : "" } : null;
@@ -127,11 +158,8 @@ export function renderCalendarView(container, callbacks) {
   if (pastDue.length > 0) {
     const dues = pastDue.map(dueOf).filter(Boolean);
     const latest = dues.length ? new Date(Math.max(...dues.map((d) => d.date.getTime()))) : null;
-    // Shift by whole weeks so the planning week keeps its weekday alignment and contains `latest`.
     const weeksBack = latest ? Math.floor((latest.getTime() - wsDate.getTime()) / (7 * 86400000)) : 0;
     const targetWs = addDays(wsDate, weeksBack * 7);
-    const nothingElse =
-      genuineUnplaced.length === 0 && !blocks.some((b) => !["HABIT", "FIXED", "SLEEP", "MEAL"].includes(String(b.category || "").toUpperCase()));
     const chips = pastDue
       .map((u) => {
         const d = dueOf(u);
@@ -148,9 +176,7 @@ export function renderCalendarView(container, callbacks) {
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0;">
             <span class="badge badge-info">Đã quá hạn trước tuần này (${pastDue.length})</span>
             <span style="font-size:12.5px;color:var(--p-muted)">
-              Hạn chót của các việc này nằm trước ${fmtDDMM(wsDate)} nên không xếp vào tuần đang xem — không phải lỗi xếp lịch hay quá tải.${
-                nothingElse ? " <strong>Tuần này không có việc có hạn nào cần xếp.</strong>" : ""
-              }
+              Hạn chót của các việc này nằm trước ${fmtDDMM(wsDate)} nên không xếp vào tuần đang xem.
             </span>
           </div>
           ${
@@ -170,7 +196,7 @@ export function renderCalendarView(container, callbacks) {
         (u) => `<div class="unplaced-chip">
           <strong>${esc(u.title || u.task_id)}</strong>
           <span class="mono">${u.duration_min}p</span>
-          <span style="color:var(--p-muted)">· ${esc(u.reason || u.reason_code || "Thiếu khe trống")}</span>
+          <span style="color:var(--p-muted)">· ${esc(u.reason || "Chưa đủ giờ trống")}</span>
         </div>`
       )
       .join("");
@@ -179,9 +205,9 @@ export function renderCalendarView(container, callbacks) {
         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
           <div style="display:flex;align-items:center;gap:8px;">
             <span class="badge badge-danger">Chưa xếp được (${genuineUnplaced.length})</span>
-            <span style="font-size:12.5px;color:var(--p-muted)">Không đủ khe trống hợp lệ trước hạn chót hoặc vi phạm phụ thuộc.</span>
+            <span style="font-size:12.5px;color:var(--p-muted)">Quỹ thời gian trống trước hạn chót đang bị kẹt.</span>
           </div>
-          <button type="button" class="btn btn-sm btn-primary" id="btnOpenOverloadRescue">Gợi ý giải cứu quá tải (O1–O4)</button>
+          <button type="button" class="btn btn-sm btn-primary" id="btnOpenOverloadRescue">Gợi ý gỡ kẹt nhẹ nhàng</button>
         </div>
         <div class="unplaced-list">${chips}</div>
       </div>`;
@@ -199,31 +225,40 @@ export function renderCalendarView(container, callbacks) {
       const dayBlocks = blocks.filter((b) => slotToDayIndex(b.start_slot) === d);
       const studyMin = dayBlocks.reduce((acc, b) => acc + Number(b.duration_min || 0), 0);
       const totalLoad = classMin + studyMin;
+      const isDayDense = totalLoad >= 420;
       const pct = Math.min(100, Math.round((totalLoad / 540) * 100));
-      const barCls = totalLoad > 600 ? "danger" : totalLoad > 540 ? "warn" : "";
+      const barCls = totalLoad > 600 ? "danger" : totalLoad >= 420 ? "warn" : "";
 
       const statusBadge = isToday
         ? `<span class="badge badge-info">Hôm nay</span>`
         : isPast
           ? `<span class="cal-day-sub">Đã qua</span>`
+          : isDayDense
+            ? `<span class="badge badge-warn">Khá dày</span>`
+            : "";
+
+      const devLoadMeter = state.developerMode
+        ? `<div class="load-meter" title="Tổng Lớp (${classMin}p) + Tự học (${studyMin}p) / 540p">
+             <div class="load-meter-label">
+               <span>${visibleCount >= 7 ? "" : "Tải ngày"}</span>
+               <span class="mono">${totalLoad} / 540p</span>
+             </div>
+             <div class="load-bar"><div class="load-bar-fill ${barCls}" style="width:${pct}%"></div></div>
+           </div>`
+        : isDayDense
+          ? `<div class="user-dense-dot" title="Ngày này có lịch khá dày (~${(totalLoad / 60).toFixed(1)} tiếng)"></div>`
           : "";
 
       return `
-        <div class="cal-day-head ${isToday ? "is-today" : ""} ${isPast ? "is-past" : ""} ${inPlan(d) ? "" : "out-of-plan"}">
+        <div class="cal-day-head ${isToday ? "is-today" : ""} ${isPast ? "is-past" : ""} ${inPlan(d) ? "" : "out-of-plan"} ${isDayDense ? "is-dense-day" : ""}">
           <div class="cal-day-title-row">
             <div class="cal-day-identity">
               <span class="cal-date-circle mono">${String(dt.getDate()).padStart(2, "0")}</span>
               <div class="cal-day-name">${visibleCount >= 7 ? WEEKDAYS_VI_SHORT[wd(d)] : WEEKDAYS_VI_FULL[wd(d)]}</div>
             </div>
-            ${visibleCount < 7 ? statusBadge : ""}
+            ${statusBadge}
           </div>
-          <div class="load-meter" title="Tổng Lớp (${classMin}p) + Tự học (${studyMin}p) so với trần 540p/ngày">
-            <div class="load-meter-label">
-              <span>${visibleCount >= 7 ? "" : "Tải ngày"}</span>
-              <span class="mono">${totalLoad} / 540p</span>
-            </div>
-            <div class="load-bar"><div class="load-bar-fill ${barCls}" style="width:${pct}%"></div></div>
-          </div>
+          ${devLoadMeter}
         </div>`;
     })
     .join("");
@@ -291,7 +326,7 @@ export function renderCalendarView(container, callbacks) {
         const e = Math.min(endHour * 60, bEndMin);
         if (e <= s) continue;
         const top = (s - startHour * 60) * pxPerMin;
-        const height = Math.max(26, (e - s) * pxPerMin - 2);
+        const height = Math.max(28, (e - s) * pxPerMin - 2);
 
         const isPastBlock = b.end_slot <= nowSlot;
         const isNowBlock = b.start_slot <= nowSlot && nowSlot < b.end_slot;
@@ -302,34 +337,45 @@ export function renderCalendarView(container, callbacks) {
         const energy = b.energy_level || getEnergyForHour(state.commitments.focus_preference, Math.floor(bStartMin / 60));
         const countdown = !isPastBlock ? formatDeadlineCountdown(b.deadline_slot, nowSlot) : "Đã qua";
 
+        const isEnter = diffFresh && diffAddedSet.has(b.block_id);
+        const isMoved = diffFresh && diffMovedSet.has(b.block_id);
+
         const stateCls = [
           `load-${load}`,
           isPastBlock ? "state-past" : "",
           isNowBlock ? "state-now" : "",
           isPinned ? "state-pinned" : "",
           isProposed ? "state-proposed" : "",
+          isEnter ? "cal-block-enter" : "",
+          isMoved ? "cal-block-moved" : "",
         ]
           .filter(Boolean)
           .join(" ");
 
         const tagChips = [];
-        if (isNowBlock) tagChips.push(`<span class="badge badge-danger" style="padding:1px 6px;font-size:9.5px;">Đang diễn ra</span>`);
-        if (doneInfo) tagChips.push(`<span class="badge badge-ok" style="padding:1px 6px;font-size:9.5px;">Xong ${doneInfo.actual_min}p</span>`);
+        if (isEnter) tagChips.push(`<span class="badge badge-ok" style="padding:1px 6px;font-size:9.5px;">Mới thêm</span>`);
+        if (isMoved) tagChips.push(`<span class="badge badge-info" style="padding:1px 6px;font-size:9.5px;">Đã dời</span>`);
+        if (isNowBlock) tagChips.push(`<span class="badge badge-danger" style="padding:1px 6px;font-size:9.5px;">Đang làm</span>`);
+        if (doneInfo) tagChips.push(`<span class="badge badge-ok" style="padding:1px 6px;font-size:9.5px;">Xong</span>`);
         if (isPinned) tagChips.push(`<span class="badge badge-info" style="padding:1px 6px;font-size:9.5px;">Ghim</span>`);
 
-        // Clean default face: title + time only; technical L1-L3/Peak/countdown shown when enabled in Settings or in 1-day view tooltip
-        const techBits = state.showTechMetaOnBlocks
-          ? `<span>· L${load}</span>${energy === 3 ? `<span>· Peak</span>` : ""}<span>· ${esc(countdown)}</span>`
-          : visibleCount === 1
-            ? `<span>· ${esc(CATEGORY_LABELS[b.category] || b.category)}</span><span>· ${esc(countdown)}</span>`
-            : "";
+        // User mode stays 100% clean & abstract; Developer Mode exposes hidden parameters right on the block
+        const srcTask = taskById.get(b.task_id);
+        let devHiddenLine = "";
+        if (state.developerMode || state.showTechMetaOnBlocks) {
+          const hash6 = srcTask?.trace_hash ? String(srcTask.trace_hash).slice(0, 6) : "—";
+          const bufPrev = srcTask ? computeBufferPreview(srcTask.duration_min, load, state.commitments) : null;
+          const mult = srcTask?.buffer_mode === "NONE" ? 1.0 : Number(srcTask?.buffer_multiplier > 1 ? srcTask.buffer_multiplier : bufPrev?.mult || 1.2);
+          const splitTag = srcTask?.is_splittable ? `Split ${b.part || 1}/${b.parts || 1}` : "Atomic";
+          devHiddenLine = `<div class="dev-hidden-param-badge mono">#${esc(hash6)} · L${load} · E${energy} · ×${mult.toFixed(2)} · ${esc(splitTag)} · ${esc(countdown)}</div>`;
+        }
 
         eventsLayer.push(`
           <div class="cal-event task-block ${stateCls}"
                draggable="${!isPastBlock}"
                data-block-id="${esc(b.block_id)}"
                style="top:${top}px;height:${height}px;"
-               title="${esc(b.title)} (${b.start_time}–${b.end_time}, ${b.duration_min}p · L${load} · ${energy === 3 ? "Peak E3" : `E${energy}`} · ${countdown}) — Click xem chi tiết hoặc kéo để dời giờ">
+               title="${esc(b.title)} (${b.start_time}–${b.end_time}) — Nhấp để xem chi tiết hoặc kéo thả để dời giờ">
             <div class="cal-ev-top">
               <span class="cal-ev-title">${esc(b.title)}</span>
               <span style="display:inline-flex;gap:3px;align-items:center;">${tagChips.join("")}</span>
@@ -338,10 +384,10 @@ export function renderCalendarView(container, callbacks) {
               height >= 40
                 ? `<div class="cal-ev-meta">
                     <span class="mono">${esc(b.start_time)}–${esc(b.end_time)}</span>
-                    ${techBits}
                   </div>`
                 : ""
             }
+            ${height >= 54 ? devHiddenLine : ""}
           </div>`);
       }
 
@@ -363,10 +409,12 @@ export function renderCalendarView(container, callbacks) {
     })
     .join("");
 
-  const minColPx = visibleCount === 1 ? "1fr" : visibleCount >= 7 ? "minmax(122px, 1fr)" : "minmax(150px, 1fr)";
-  const gridColsCss = `60px ${visibleCount === 1 ? "1fr" : `repeat(${dayIndices.length}, ${minColPx})`}`;
+  const minColPx = visibleCount === 1 ? "1fr" : visibleCount >= 7 ? "minmax(108px, 1fr)" : "minmax(136px, 1fr)";
+  const gridColsCss = `56px ${visibleCount === 1 ? "1fr" : `repeat(${dayIndices.length}, ${minColPx})`}`;
 
   container.innerHTML = `
+    ${finalizedBannerHtml}
+    ${edgeBannerHtml}
     ${outOfPlanHtml}
     ${previewBannerHtml}
     ${unplacedHtml}
@@ -403,22 +451,25 @@ export function renderCalendarView(container, callbacks) {
 
       <div class="calendar-legend">
         <div class="legend-items">
-          <span class="legend-dot"><span class="legend-swatch" style="background:#d46256"></span>Tập trung sâu</span>
-          <span class="legend-dot"><span class="legend-swatch" style="background:#d4952a"></span>Trung bình</span>
-          <span class="legend-dot"><span class="legend-swatch" style="background:#359464"></span>Nhẹ</span>
-          <span class="legend-dot"><span class="legend-swatch" style="background:#3b7ddd"></span>Lớp cố định</span>
+          <span class="legend-dot"><span class="legend-swatch" style="background:#d46256"></span>Việc tập trung cao</span>
+          <span class="legend-dot"><span class="legend-swatch" style="background:#d4952a"></span>Việc vừa</span>
+          <span class="legend-dot"><span class="legend-swatch" style="background:#359464"></span>Việc nhẹ</span>
+          <span class="legend-dot"><span class="legend-swatch" style="background:#3b7ddd"></span>Lịch cố định</span>
           <span class="legend-dot"><span class="legend-swatch" style="background:#3a8d8d"></span>Bữa ăn</span>
-          <span class="legend-dot"><span class="legend-swatch" style="background:#9aa4b4"></span>Đã qua</span>
         </div>
-        <span>Kéo thả khối để dời & ghim giờ · Click vào khối để xem chi tiết</span>
+        <span>Kéo thả khối để dời giờ · Hoặc nhắn trợ lý bên phải để sửa lịch tự động</span>
       </div>
     </div>
   `;
 
+  container.querySelector("#btnDismissFinalized")?.addEventListener("click", () => {
+    state.lastScheduleDiff = { added: [], moved: [], finalizedAt: null, finalizedMessage: "" };
+    renderCalendarView(container, callbacks);
+  });
+
   container.querySelector("#btnBackToPlanWeek")?.addEventListener("click", () => callbacks.onSetViewWeek?.(0));
   container.querySelector("#btnPlanViewedWeek")?.addEventListener("click", () => callbacks.onShiftWeek?.(viewWeekOffset * 7));
 
-  // Wire scrubber events (they browse the planning window, so they leave any out-of-plan week view)
   container.querySelector("#btnScrubPrev")?.addEventListener("click", () => {
     state.viewWeekOffset = 0;
     state.scrubberStartDay = Math.max(0, state.scrubberStartDay - 1);
@@ -455,6 +506,7 @@ export function renderCalendarView(container, callbacks) {
   });
 
   container.querySelector("#btnOpenOverloadRescue")?.addEventListener("click", () => callbacks.onOpenOverloadRescue());
+  container.querySelector("#btnOpenOverloadRescueFromBanner")?.addEventListener("click", () => callbacks.onOpenOverloadRescue());
   container.querySelector("#btnJumpToDueWeek")?.addEventListener("click", (e) => {
     callbacks.onShiftWeek?.(Number(e.currentTarget.getAttribute("data-week-shift")));
   });
@@ -472,6 +524,12 @@ export function renderCalendarView(container, callbacks) {
       ev.dataTransfer.effectAllowed = "move";
     });
   });
+
+  // Smooth scroll to newly animated block if present
+  const firstChanged = container.querySelector(".cal-block-enter, .cal-block-moved");
+  if (firstChanged) {
+    firstChanged.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
+  }
 
   container.querySelectorAll(".cal-hour-slot[data-drop-day]").forEach((slotEl) => {
     slotEl.addEventListener("dragover", (ev) => {
