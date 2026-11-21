@@ -44,6 +44,7 @@ import {
 async function bootstrap() {
   applyTheme(state.theme, false);
   setLeftSidebarOpen(state.leftSidebarOpen);
+  setCopilotCollapsed(state.copilotCollapsed);
   setDeveloperMode(state.developerMode, false);
   wireStaticListeners();
   setActiveView(state.activeView || "chat", false);
@@ -680,6 +681,9 @@ function setActiveView(viewName, renderNow = true) {
   Object.entries(map).forEach(([k, id]) => {
     document.getElementById(id)?.classList.toggle("active", k === viewName);
   });
+  if (viewName === "calendar") {
+    setCopilotCollapsed(state.copilotCollapsed);
+  }
 
   if (viewName === "weights" && !state.weightsData) {
     fetchSolverWeights(false);

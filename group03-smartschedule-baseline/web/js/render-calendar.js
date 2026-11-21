@@ -229,13 +229,16 @@ export function renderCalendarView(container, callbacks) {
       const pct = Math.min(100, Math.round((totalLoad / 540) * 100));
       const barCls = totalLoad > 600 ? "danger" : totalLoad >= 420 ? "warn" : "";
 
-      const statusBadge = isToday
-        ? `<span class="badge badge-info">Hôm nay</span>`
-        : isPast
-          ? `<span class="cal-day-sub">Đã qua</span>`
-          : isDayDense
-            ? `<span class="badge badge-warn">Khá dày</span>`
-            : "";
+      const statusBadge =
+        visibleCount >= 5
+          ? ""
+          : isToday
+            ? `<span class="badge badge-info">Hôm nay</span>`
+            : isPast
+              ? `<span class="cal-day-sub">Đã qua</span>`
+              : isDayDense
+                ? `<span class="badge badge-warn">Khá dày</span>`
+                : "";
 
       const devLoadMeter = state.developerMode
         ? `<div class="load-meter" title="Tổng Lớp (${classMin}p) + Tự học (${studyMin}p) / 540p">

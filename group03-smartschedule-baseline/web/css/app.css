@@ -77,19 +77,36 @@
 .week-pill {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
   background: var(--p-card);
   border: 1px solid var(--p-line);
   border-radius: var(--r-pill);
-  padding: 3px 6px;
+  padding: 3px 8px;
+  min-height: 36px;
   box-shadow: var(--sh-sm);
+}
+.week-pill .btn {
+  height: 28px;
+  min-height: 28px;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  white-space: nowrap;
+}
+.week-pill .btn.btn-icon {
+  width: 28px;
+  padding: 0;
 }
 
 .week-range-text {
-  padding: 0 10px 0 6px;
+  padding: 0 8px 0 6px;
   font-size: 13px;
   font-weight: 600;
   color: var(--p-ink);
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .horizon-toggle {
@@ -709,6 +726,12 @@
   align-items: center;
   justify-content: space-between;
   gap: 6px;
+  min-height: 34px;
+  flex-wrap: nowrap;
+}
+.cal-day-title-row .badge {
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .cal-day-identity {
@@ -1951,6 +1974,13 @@ body:not(.view-calendar-active):not(.app-developer-mode) .calendar-context-only 
   box-shadow: var(--sh-lg);
   border-radius: var(--r-pill);
   padding: 10px 16px;
+}
+.copilot-expand-fab[hidden],
+.calendar-with-copilot-layout:not(.copilot-collapsed) .copilot-expand-fab {
+  display: none !important;
+}
+.calendar-with-copilot-layout.copilot-collapsed .copilot-expand-fab {
+  display: inline-flex !important;
 }
 .calendar-main-stage {
   min-width: 0;
