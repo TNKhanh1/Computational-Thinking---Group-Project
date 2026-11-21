@@ -78,7 +78,9 @@ app.add_middleware(
 )
 
 
-def _extract_profile_and_tasks(payload: Dict[str, Any]) -> Tuple[CommitmentsProfile, List[Task], str, List[ScheduleBlock]]:
+def _extract_profile_and_tasks_impl(
+    payload: Dict[str, Any], apply_buffer: bool = True
+) -> Tuple[CommitmentsProfile, List[Task], str, List[ScheduleBlock]]:
     """
     Parse request payload supporting BOTH:
       1. Baseline Schema: { "commitments": {...}, "tasks": [...], "algorithm": "EDF" }
@@ -131,9 +133,8 @@ def _extract_profile_and_tasks(payload: Dict[str, Any]) -> Tuple[CommitmentsProf
 
     raw_tasks = payload.get("tasks") or []
     tasks = [Task.model_validate(t) for t in raw_tasks]
-    # Feature 001: every endpoint (plan, repair, export, compare...) sees the same buffered durations.
-    tasks = ScheduleController.apply_estimate_buffer(profile, tasks)
-
+    if apply_buffer:
+        tasks = ScheduleController.apply_estimate_buffer(profile, tasks)
     raw_pinned = payload.get("pinned_blocks") or []
     pinned_blocks = [ScheduleBlock.model_validate(pb) for pb in raw_pinned]
 
@@ -202,6 +203,33 @@ def serve_index():
 @app.get("/app.js", include_in_schema=False)
 def serve_app_js():
     return FileResponse(WEB_DIR / "app.js", media_type="application/javascript")
+
+
+@app.get("/css/{file_path:path}", include_in_schema=False)
+def serve_css_asset(file_path: str):
+    target = (WEB_DIR / "css" / file_path).resolve()
+    css_root = (WEB_DIR / "css").resolve()
+    if not str(target).startswith(str(css_root)) or not target.is_file():
+        raise HTTPException(status_code=404, detail="CSS asset not found")
+    return FileResponse(target, media_type="text/css")
+
+
+@app.get("/js/{file_path:path}", include_in_schema=False)
+def serve_js_asset(file_path: str):
+    target = (WEB_DIR / "js" / file_path).resolve()
+    js_root = (WEB_DIR / "js").resolve()
+    if not str(target).startswith(str(js_root)) or not target.is_file():
+        raise HTTPException(status_code=404, detail="JS asset not found")
+    return FileResponse(target, media_type="application/javascript")
+
+
+@app.get("/assets/{file_path:path}", include_in_schema=False)
+def serve_media_asset(file_path: str):
+    target = (WEB_DIR / "assets" / file_path).resolve()
+    assets_root = (WEB_DIR / "assets").resolve()
+    if not str(target).startswith(str(assets_root)) or not target.is_file():
+        raise HTTPException(status_code=404, detail="Media asset not found")
+    return FileResponse(target)
 
 
 @app.get("/api/presets")

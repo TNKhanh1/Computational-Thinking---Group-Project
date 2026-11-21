@@ -1,142 +1,28 @@
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="vi" data-theme="botanical">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SmartSchedule — Trợ Lý Lập Lịch Học Tập Cá Nhân | Group 03</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <style>
-    @import url('https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
-    body {
-      font-family: 'Be Vietnam Pro', system-ui, -apple-system, sans-serif;
-      background-color: #F1F5F9;
-      color: #0F172A;
-    }
-    .mono {
-      font-family: 'JetBrains Mono', monospace;
-      font-variant-numeric: tabular-nums;
-    }
-    /* Custom scrollbar for grid and queues */
-    ::-webkit-scrollbar {
-      width: 7px;
-      height: 7px;
-    }
-    ::-webkit-scrollbar-track {
-      background: #F1F5F9;
-    }
-    ::-webkit-scrollbar-thumb {
-      background: #CBD5E1;
-      border-radius: 4px;
-    }
-    ::-webkit-scrollbar-thumb:hover {
-      background: #94A3B8;
-    }
-    /* Prominent horizontal scrollbar for calendar timeline & grids */
-    .calendar-h-scroll {
-      scrollbar-width: auto;
-      scrollbar-color: #6366F1 #E2E8F0;
-    }
-    .calendar-h-scroll::-webkit-scrollbar {
-      height: 11px;
-      width: 8px;
-    }
-    .calendar-h-scroll::-webkit-scrollbar-track {
-      background: #E2E8F0;
-      border-radius: 9999px;
-    }
-    .calendar-h-scroll::-webkit-scrollbar-thumb {
-      background: #6366F1;
-      border-radius: 9999px;
-      border: 2px solid #E2E8F0;
-    }
-    .calendar-h-scroll::-webkit-scrollbar-thumb:hover {
-      background: #4F46E5;
-    }
-    /* Slot colors strictly adhering to baseline_plan.md §7.6 */
-    .slot-sleep {
-      background-color: #334155;
-      color: #CBD5E1;
-      background-image: repeating-linear-gradient(
-        45deg,
-        rgba(255,255,255,0.04),
-        rgba(255,255,255,0.04) 6px,
-        transparent 6px,
-        transparent 12px
-      );
-    }
-    .slot-occupied-class {
-      background-color: #E11D48;
-      color: #FFFFFF;
-    }
-    .slot-occupied-meal {
-      background-color: #D97706;
-      color: #FFFFFF;
-    }
-    .slot-occupied-disruption {
-      background-color: #9333EA;
-      color: #FFFFFF;
-    }
-    .slot-block {
-      background-color: #059669;
-      color: #FFFFFF;
-    }
-    .slot-block-moved {
-      background-color: #2563EB;
-      color: #FFFFFF;
-    }
-    .slot-block-diff {
-      background-color: #0D9488;
-      color: #FFFFFF;
-      outline: 2px dashed #FACC15;
-      outline-offset: -2px;
-    }
-    .slot-block-proposed {
-      background-color: #EEF2FF;
-      color: #3730A3;
-      outline: 2px dashed #4F46E5;
-      outline-offset: -2px;
-    }
-    .slot-rest {
-      background-color: #ECFDF5;
-      color: #047857;
-      border-left: 3px dashed #10B981;
-    }
-    .slot-free {
-      background-color: #F8FAFC;
-      color: #64748B;
-    }
-    .slot-free:hover {
-      background-color: #E2E8F0;
-    }
-    .grid-cell {
-      transition: filter 0.1s ease, transform 0.08s ease;
-    }
-    .grid-cell:hover {
-      filter: brightness(1.08);
-    }
-    /* Gói A.0 Progressive Disclosure: keep Lab controls in DOM for contract & Lab Mode, hide clutter in Student Mode */
-    body.app-mode-student .st-lab-only-modal {
-      display: none !important;
-    }
-  </style>
+  <title>SmartSchedule — Trợ Lý Lập Lịch & Đối Chiếu Thuật Toán</title>
+  <meta name="description" content="SmartSchedule UI v3 — Lập lịch học tập tối ưu theo nhịp sinh học và đối chiếu chuẩn mực giữa các thuật toán xếp lịch." />
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='10' fill='%232e6f40'/%3E%3Ctext x='16' y='21' text-anchor='middle' font-family='sans-serif' font-weight='700' font-size='13' fill='%23ffffff'%3ESS%3C/text%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/tokens.css" />
+  <link rel="stylesheet" href="/css/app.css" />
 </head>
-<body class="min-h-screen flex flex-col">
-
-  <!-- TOP HEADER BAR (UNIFIED NAVIGATION & TEMPORAL CONTEXT) -->
-  <header class="bg-slate-900 text-white border-b border-slate-700 sticky top-0 z-30 shadow-md">
-    <div class="max-w-[1800px] mx-auto px-4 py-2 flex flex-wrap items-center justify-between gap-3">
-      <!-- Brand + Mode Switch -->
-      <div class="flex flex-wrap items-center gap-3">
-        <div class="flex items-center gap-2.5">
-          <div class="w-8 h-8 rounded-xl bg-gradient-to-tr from-indigo-600 to-emerald-500 flex items-center justify-center font-bold text-base shadow-inner">⚡</div>
-          <div>
-            <div class="flex items-center gap-1.5">
-              <h1 class="font-bold text-sm sm:text-base tracking-tight text-white">SmartSchedule</h1>
-              <span id="headerModeBadge" class="px-2 py-0.5 text-[10px] font-bold bg-indigo-500/30 text-indigo-300 border border-indigo-400/30 rounded-full mono uppercase">STUDENT APP</span>
-            </div>
-            <p id="topClockLiveLabel" class="text-[10px] text-slate-400 mono">Hôm nay: --/--/---- --:--</p>
+<body>
+  <div class="app-shell">
+    <!-- [1] SINGLE-ROW USER TOP BAR (100% User-focused, zero Dev clutter) -->
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="brand-group">
+          <div class="brand-mark" aria-hidden="true">SS</div>
+          <div class="brand-title">
+            <strong>SmartSchedule</strong>
+            <span id="activeSuiteBadge">Đang tải bộ dữ liệu...</span>
           </div>
-        </div>
 
         <div class="flex items-center bg-slate-800 p-1 rounded-xl border border-slate-700 shadow-inner">
           <button id="btnAppModeStudent" onclick="switchAppMode('STUDENT')" class="px-3 py-1 text-xs font-bold rounded-lg bg-indigo-600 text-white shadow transition flex items-center gap-1">
@@ -367,20 +253,28 @@
             <button id="btnStOpenMonthCal" type="button" onclick="toggleObservedRangeCalendar(true)" class="px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 font-bold text-[11px] transition">
               🗓️ Xem Lịch Tháng
             </button>
+            <button type="button" class="btn btn-ghost btn-sm btn-icon" id="btnWeekNext" title="Tuần sau" aria-label="Tuần sau">
+              <svg class="icon" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>
+            </button>
+            <span class="week-range-text mono" id="txtWeekRange">--/-- – --/--</span>
           </div>
         </div>
 
-        <!-- Visual Day Chain Map (highlights visible viewport days vs remaining horizon days) -->
-        <div id="stObservedDaysStrip" class="flex flex-wrap items-center gap-1.5"></div>
+        <!-- Clean 2-tab User View Switcher -->
+        <nav class="view-tabs" role="tablist" aria-label="Chế độ xem của người dùng">
+          <button type="button" class="view-tab active" role="tab" data-view-tab="calendar" aria-selected="true">Lịch</button>
+          <button type="button" class="view-tab" role="tab" data-view-tab="list" aria-selected="false">Danh sách</button>
+        </nav>
 
-        <!-- Horizontal Slider Scrubber -->
-        <div class="flex items-center gap-2 pt-0.5">
-          <button type="button" id="btnStPanLeft" onclick="panCalendarByDays(-1)" class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition" title="Trượt sang trái 1 ngày">◀</button>
-          <input id="stCalendarHorizontalSlider" type="range" min="0" max="1000" value="0" oninput="onStHorizontalSliderInput(this.value)" onchange="restoreCalendarSmoothScroll()" class="flex-1 h-2 bg-slate-200 rounded-lg accent-indigo-600 cursor-pointer" title="Kéo thanh trượt ngang để di chuyển qua các ngày" />
-          <button type="button" id="btnStPanRight" onclick="panCalendarByDays(1)" class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition" title="Trượt sang phải 1 ngày">▶</button>
-          <button type="button" onclick="scrollToTodayColumn()" class="px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-[11px] transition whitespace-nowrap" title="Cuộn nhanh tới cột Hôm nay">📍 Về Hôm Nay</button>
-        </div>
-      </div>
+        <div class="topbar-actions">
+          <!-- Calendar Display Mode (1d / 3d / 5d / 7d + Start Day) -->
+          <div class="popover-anchor" id="calendarRangeAnchor">
+            <button type="button" class="btn" id="btnToggleCalendarRange" aria-expanded="false" aria-controls="calendarRangePopover">
+              <span id="txtCalendarRangeLabel">Tuần (7 ngày)</span>
+              <svg class="icon" viewBox="0 0 24 24" style="width:14px;height:14px;color:var(--p-muted);"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+            <div class="popover-menu align-right range-popover" id="calendarRangePopover" role="dialog" aria-label="Chọn chế độ hiển thị và ngày bắt đầu"></div>
+          </div>
 
       <!-- Horizontal Continuous Calendar Track (Days 0..6 + Dynamic Days 7..13 when 14-day Horizon active) -->
       <div id="stCalendarScrollContainer" onscroll="syncSliderFromCalendarScroll()" class="calendar-h-scroll flex gap-3 overflow-x-auto pb-3 scroll-smooth">
@@ -592,393 +486,165 @@
           <button type="button" id="btnStSubTasks" onclick="switchStudentTasksSubtab('TASKS')" class="px-3 py-1.5 rounded-lg bg-white text-indigo-700 font-bold shadow-sm transition">
             📝 Công Việc / Bài Tập
           </button>
-          <button type="button" id="btnStSubHabits" onclick="switchStudentTasksSubtab('HABITS')" class="px-3 py-1.5 rounded-lg text-slate-600 font-semibold hover:text-slate-900 transition">
-            🏃 Thói Quen Tuần (PersonalHabit)
-          </button>
-        </div>
-        <div class="text-xs text-slate-500">Quản lý hạn chót cụ thể theo ngày `DD/MM/YYYY`, độ ưu tiên và thói quen lặp lại</div>
-      </div>
 
-      <!-- Sub-tab A: Tasks Table -->
-      <div id="stSubTasksPane" class="overflow-x-auto">
-        <table class="w-full text-left text-xs">
-          <thead class="bg-slate-50 text-slate-600 border-b border-slate-200">
-            <tr>
-              <th class="py-2.5 px-3">Mã Task</th>
-              <th class="py-2.5 px-3">Tên Công Việc</th>
-              <th class="py-2.5 px-3">Thời Lượng</th>
-              <th class="py-2.5 px-3">Hạn Chót (Ngày Cụ Thể)</th>
-              <th class="py-2.5 px-3">Ưu Tiên</th>
-              <th class="py-2.5 px-3">Trạng Thái</th>
-              <th class="py-2.5 px-3 text-right">Thao Tác</th>
-            </tr>
-          </thead>
-          <tbody id="stTasksTableBody" class="divide-y divide-slate-100"></tbody>
-        </table>
-      </div>
-
-      <!-- Sub-tab B: Direct PersonalHabit Manager (mirrors Settings modal cleanly) -->
-      <div id="stSubHabitsPane" class="hidden space-y-4">
-        <div class="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3 text-xs">
-          <div class="font-bold text-slate-800">➕ Thêm Thói Quen Tuần (`PersonalHabit` — tự rải đều qua các ngày & ưu tiên buổi đã chọn)</div>
-          <div class="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
-            <input id="stMainHabitNewName" type="text" placeholder="Tên thói quen (VD: Tập gym, Đọc sách tiếng Anh...)" class="sm:col-span-5 px-3 py-2 rounded-xl border border-slate-300 bg-white" />
-            <select id="stMainHabitNewWindow" class="sm:col-span-3 px-2.5 py-2 rounded-xl border border-slate-300 bg-white">
-              <option value="MORNING">Buổi sáng (06:00–12:00)</option>
-              <option value="AFTERNOON">Buổi chiều (12:00–18:00)</option>
-              <option value="EVENING" selected>Buổi tối (18:00–23:00)</option>
-              <option value="ANYTIME">Linh hoạt cả ngày</option>
-            </select>
-            <select id="stMainHabitNewFreq" class="sm:col-span-2 px-2.5 py-2 rounded-xl border border-slate-300 bg-white">
-              <option value="1">1 buổi/tuần</option>
-              <option value="2">2 buổi/tuần</option>
-              <option value="3" selected>3 buổi/tuần</option>
-              <option value="4">4 buổi/tuần</option>
-              <option value="5">5 buổi/tuần</option>
-              <option value="6">6 buổi/tuần</option>
-              <option value="7">Hằng ngày (7x)</option>
-            </select>
-            <input id="stMainHabitNewDur" type="number" min="15" max="180" step="15" value="60" class="sm:col-span-1 px-2 py-2 rounded-xl border border-slate-300 bg-white mono text-center" title="Phút/buổi" />
-            <button type="button" onclick="addStudentHabitFromMainTab()" class="sm:col-span-1 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl transition">Thêm</button>
-          </div>
-        </div>
-        <div id="stMainHabitsList" class="space-y-2"></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ============================================================================ -->
-  <!-- MODAL: THÊM CÔNG VIỆC TỐI GIẢN (CLEAN TASK MODAL + HYBRID NL ENGINE)          -->
-  <!-- ============================================================================ -->
-  <div id="stTaskModal" onclick="if(event.target===this) closeStudentTaskModal()" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 md:p-6">
-    <div class="bg-white rounded-2xl shadow-2xl max-w-3xl lg:max-w-4xl w-full max-h-[90vh] flex flex-col border border-slate-200 overflow-hidden">
-      
-      <!-- Modal Header (fixed/sticky) -->
-      <div class="flex items-center justify-between border-b border-slate-100 px-5 py-3.5 bg-white flex-shrink-0">
-        <div class="flex items-center gap-2.5">
-          <div class="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-sm">📝</div>
-          <div>
-            <div class="flex items-center gap-2">
-              <h3 class="text-sm font-bold text-slate-900">Thêm Công Việc Mới</h3>
-              <span id="stModalDraftBadge" class="hidden text-[10px] bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full border border-amber-200 font-semibold flex items-center gap-1">
-                <span>💾</span> Đã lưu nháp
-              </span>
-            </div>
-            <p class="text-[11px] text-slate-500">Nhập ngôn ngữ tự nhiên (AI + Hybrid) hoặc điền biểu mẫu chi tiết bên dưới</p>
-          </div>
-        </div>
-        <div class="flex items-center gap-1.5">
-          <button type="button" onclick="clearStudentModalDraft(true)" id="btnStClearDraft" title="Xóa nháp và điền lại từ đầu" class="hidden text-[11px] text-slate-500 hover:text-rose-600 hover:bg-rose-50 px-2.5 py-1 rounded-lg transition font-medium">
-            🗑️ Xóa nháp
-          </button>
-          <button type="button" onclick="closeStudentTaskModal()" title="Đóng & Lưu nháp (Esc)" aria-label="Đóng" class="w-8 h-8 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 flex items-center justify-center font-bold text-lg transition">
-            ✕
-          </button>
-        </div>
-      </div>
-
-      <!-- Modal Body (Progressive Disclosure: Clean Student View by default; full panels open in Lab Mode) -->
-      <div class="flex-1 overflow-y-auto px-5 py-4 space-y-4 text-xs">
-        <input id="stNlAttachments" type="file" multiple accept=".pdf,.txt,.md,.html" class="hidden" onchange="onStNlAttachmentsChange(this)" />
-
-        <!-- Section 1: Smart Natural Language Quick-Fill -->
-        <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2.5">
-          <div class="flex items-center justify-between gap-2 flex-wrap">
-            <label class="font-bold text-slate-700 text-[11px] flex items-center gap-1.5">
-              <span>✨ Nhập tự nhiên bằng tiếng Việt hoặc tiếng Anh</span>
-              <span id="stNlEngineBadge" class="hidden px-1.5 py-0.5 rounded text-[9px] font-bold"></span>
-            </label>
-            <div class="st-lab-only-modal flex items-center gap-1.5 flex-wrap">
-              <div class="inline-flex rounded-lg bg-slate-200/80 p-0.5 text-[10px] font-semibold" role="group" aria-label="NL Engine Mode">
-                <button type="button" id="btnNlEngineAuto" onclick="setStudentNlEngine('auto')"
-                  class="px-2 py-0.5 rounded-md bg-white text-indigo-700 shadow-sm transition">
-                  ✨ Auto (AI)
-                </button>
-                <button type="button" id="btnNlEngineOffline" onclick="setStudentNlEngine('offline')"
-                  class="px-2 py-0.5 rounded-md text-slate-600 hover:text-slate-900 transition">
-                  ⚡ Offline
-                </button>
-              </div>
-              <select id="stNlTransBackend" onchange="setStNlTransBackend(this.value)"
-                title="Chọn bộ dịch Tiếng Việt -> Tiếng Anh cho Hybrid Pipeline"
-                class="text-[10px] px-1.5 py-0.5 rounded-md border border-slate-300 bg-white text-slate-700 font-semibold">
-                <option value="rule" selected>VI→EN: Rule (2ms)</option>
-                <option value="nllb">VI→EN: NLLB-200 Neural</option>
-              </select>
-            </div>
-          </div>
-
-          <!-- Clean Unified Prompt Input + Compact Attachment Button + Analyze Button -->
-          <div class="flex gap-1.5 items-stretch">
-            <div id="stNlPromptBox"
-              ondragenter="event.preventDefault();event.stopPropagation();this.classList.add('border-indigo-500','bg-indigo-50/30');"
-              ondragover="event.preventDefault();event.stopPropagation();try{if(event.dataTransfer)event.dataTransfer.dropEffect='copy';}catch(_){}this.classList.add('border-indigo-500','bg-indigo-50/30');"
-              ondragleave="event.stopPropagation();if(!this.contains(event.relatedTarget))this.classList.remove('border-indigo-500','bg-indigo-50/30');"
-              ondrop="handleStNlFileDrop(event,'prompt')"
-              class="flex-1 rounded-lg border border-slate-300 bg-white focus-within:border-indigo-600 focus-within:ring-1 focus-within:ring-indigo-500 px-2.5 py-1.5 space-y-1.5 transition">
-              <div id="stNlCitationBlockChips" class="hidden flex flex-wrap items-center gap-1.5 text-[10px]"></div>
-              <input id="stNlPrompt" type="text" placeholder="Ví dụ: Ôn Toán rời rạc trước tối thứ 5, khoảng 2 tiếng..."
-                oninput="onStNlPromptLiveCheck(this.value)"
-                onkeydown="if(event.key==='Enter'){event.preventDefault();analyzeStudentNlPrompt();}"
-                class="w-full text-xs bg-transparent border-none outline-none p-0.5" />
-            </div>
-            <label for="stNlAttachments" title="Đính kèm tài liệu (.pdf, .txt, .md, .html)"
-              class="px-2.5 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 font-semibold cursor-pointer inline-flex items-center justify-center transition whitespace-nowrap">
-              📎
-            </label>
-            <button type="button" onclick="analyzeStudentNlPrompt()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg transition whitespace-nowrap shadow-sm">Phân tích</button>
-          </div>
-
-          <div id="stNlAttachChips" class="hidden flex flex-wrap items-center gap-1.5 pt-0.5"></div>
-          <div id="stNlStatus" class="text-[10px] text-slate-500 hidden"></div>
-
-          <!-- Lab-Only Sub-Controls inside NL Panel -->
-          <div class="st-lab-only-modal space-y-2">
-            <!-- Splittability & WorkRhythm Quick-Pills -->
-            <div class="flex flex-wrap items-center gap-1.5 text-[10px]">
-              <span class="text-slate-500 font-semibold mr-0.5">Cắt nhỏ & Nhịp học:</span>
-              <button type="button" id="stNlSessionSplit" onclick="setStNlSession('splittable')"
-                class="px-2.5 py-1 rounded-md font-semibold bg-indigo-600 text-white transition">✂️ Cho phép cắt nhỏ</button>
-              <button type="button" id="stNlSessionSingle" onclick="setStNlSession('single')"
-                class="px-2.5 py-1 rounded-md font-semibold bg-white border border-slate-300 text-slate-600 transition">🔒 Làm liền 1 buổi</button>
-              <span class="text-slate-300 mx-0.5">|</span>
-              <div id="stNlPacingGroup" class="inline-flex flex-wrap items-center gap-1 transition">
-                <button type="button" id="stNlPaceLight" onclick="setStNlPacing('LIGHT')"
-                  class="px-2.5 py-1 rounded-md font-semibold bg-white border border-slate-300 text-slate-600 transition">⚡ Nhẹ 25m</button>
-                <button type="button" id="stNlPaceBalanced" onclick="setStNlPacing('BALANCED')"
-                  class="px-2.5 py-1 rounded-md font-semibold bg-indigo-100 border border-indigo-400 text-indigo-800 transition">⚖️ Vừa 45m</button>
-                <button type="button" id="stNlPaceFlow" onclick="setStNlPacing('FLOW')"
-                  class="px-2.5 py-1 rounded-md font-semibold bg-white border border-slate-300 text-slate-600 transition">🌊 Sâu 90m</button>
-                <button type="button" id="stNlPaceCustom" onclick="setStNlPacing('CUSTOM')"
-                  class="px-2.5 py-1 rounded-md font-semibold bg-white border border-slate-300 text-slate-600 transition">🎛️ Tùy chỉnh</button>
-                <span id="stNlCustomWrap" class="hidden inline-flex items-center gap-1 ml-1">
-                  <input id="stNlCustomMin" type="number" min="15" max="120" step="5" value="20"
-                    class="w-12 text-[10px] px-1.5 py-0.5 rounded border border-slate-300 bg-white text-center" />
-                  <span>–</span>
-                  <input id="stNlCustomMax" type="number" min="15" max="240" step="5" value="45"
-                    class="w-12 text-[10px] px-1.5 py-0.5 rounded border border-slate-300 bg-white text-center" />
-                  <span class="text-slate-400">m</span>
-                </span>
-              </div>
-            </div>
-
-            <!-- User Urgency Scale (1 = Urgent .. 4 = Low) -->
-            <div class="flex flex-wrap items-center justify-between gap-1.5 text-[10px]">
-              <div class="flex flex-wrap items-center gap-1">
-                <span class="text-slate-500 font-semibold" title="Thang khẩn cấp người dùng 1=Urgent..4=Low (tự ánh xạ sang Solver)">Khẩn cấp (1–4):</span>
-                <button type="button" id="stNlUrgAuto" onclick="setStNlUrgency(null)"
-                  class="px-2 py-0.5 rounded font-semibold bg-indigo-100 border border-indigo-400 text-indigo-800 transition">? Tự động</button>
-                <button type="button" id="stNlUrg1" onclick="setStNlUrgency(1)"
-                  class="px-2 py-0.5 rounded font-semibold bg-white border border-slate-300 text-rose-700 transition">P1 Khẩn</button>
-                <button type="button" id="stNlUrg2" onclick="setStNlUrgency(2)"
-                  class="px-2 py-0.5 rounded font-semibold bg-white border border-slate-300 text-amber-700 transition">P2 Cao</button>
-                <button type="button" id="stNlUrg3" onclick="setStNlUrgency(3)"
-                  class="px-2 py-0.5 rounded font-semibold bg-white border border-slate-300 text-slate-700 transition">P3 Vừa</button>
-                <button type="button" id="stNlUrg4" onclick="setStNlUrgency(4)"
-                  class="px-2 py-0.5 rounded font-semibold bg-white border border-slate-300 text-emerald-700 transition">P4 Thấp</button>
-              </div>
-            </div>
-
-            <!-- File Dropzone & Citation Link Box (Lab Mode / Expert Syntax) -->
-            <div id="stNlFileLinkBox"
-              ondragenter="event.preventDefault();event.stopPropagation();this.classList.add('border-indigo-500','bg-indigo-50/40');"
-              ondragover="event.preventDefault();event.stopPropagation();try{if(event.dataTransfer)event.dataTransfer.dropEffect='copy';}catch(_){}this.classList.add('border-indigo-500','bg-indigo-50/40');"
-              ondragleave="event.stopPropagation();if(!this.contains(event.relatedTarget))this.classList.remove('border-indigo-500','bg-indigo-50/40');"
-              ondrop="handleStNlFileDrop(event,'linkbox')"
-              class="bg-white border border-dashed border-slate-300 hover:border-indigo-400 rounded-xl p-2.5 space-y-1.5 text-[10px] transition">
-              <div class="flex flex-wrap items-center justify-between gap-2">
-                <div class="flex flex-wrap items-center gap-2">
-                  <span class="font-bold text-slate-700">📎 Kéo thả tệp vào đây để đối chiếu trích dẫn</span>
-                  <span id="stNlBracketLiveStatus" class="font-medium"></span>
-                </div>
-                <div class="flex flex-wrap items-center gap-2">
-                  <label class="inline-flex items-center gap-1.5 cursor-pointer text-slate-700 font-semibold select-none">
-                    <input id="stNlOptInsertBoxedToPrompt" type="checkbox" checked onchange="saveStudentModalDraft()" class="rounded text-indigo-600" />
-                    <span>Tự chèn <code class="px-1 py-0.5 rounded bg-indigo-50 text-indigo-700 font-mono">[[tên tệp]]</code> vào ô nhập</span>
-                  </label>
-                  <button type="button" onclick="promptInsertCitationBox()" title="Chèn cặp khung [[ ]] ngay tại con trỏ trong ô nhập chính"
-                    class="px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-700 font-semibold whitespace-nowrap transition">
-                    + Khung [[ ]] vào prompt
-                  </button>
-                  <label for="stNlAttachments"
-                    class="cursor-pointer px-2.5 py-1 rounded-lg border border-indigo-300 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 font-bold inline-flex items-center gap-1 whitespace-nowrap">
-                    <span>📂 Chọn từ máy</span>
-                  </label>
-                </div>
-              </div>
-            </div>
-
-            <div id="stNlTransBadge" class="hidden text-[10px] px-2.5 py-1.5 rounded-lg bg-sky-50 border border-sky-200 text-sky-900"></div>
-            <div id="stNlDiagnostics" class="hidden space-y-1.5 pt-0.5"></div>
-          </div>
-
-          <div id="stNlChips" class="hidden flex flex-wrap items-center gap-1.5 pt-0.5"></div>
-          <div id="stNlFixedBanner" class="hidden bg-amber-50 border border-amber-300 rounded-lg p-2.5 flex items-center justify-between gap-2">
-            <div class="text-[11px] text-amber-950">
-              <div class="font-bold">📌 Phát hiện lịch hẹn cố định (không dời được)</div>
-              <div id="stNlFixedDesc" class="text-[10px] text-amber-800 mt-0.5"></div>
-            </div>
-            <button type="button" onclick="lockNlFixedEvent()"
-              class="px-2.5 py-1.5 bg-amber-600 hover:bg-amber-500 text-white text-[10px] font-bold rounded-lg whitespace-nowrap shadow-sm transition">
-              🔒 Khóa vào Lịch Cố Định
+          <!-- Theme Mode Switcher (Botanical Green / Light / Dark Forest) -->
+          <div class="popover-anchor">
+            <button type="button" class="btn btn-icon" id="btnToggleTheme" title="Đổi giao diện (Rừng cây / Sáng / Tối)" aria-expanded="false" aria-controls="themePopover" aria-label="Đổi giao diện">
+              <svg class="icon" viewBox="0 0 24 24"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/></svg>
             </button>
-          </div>
-        </div>
-
-        <!-- Section 2: 4 Core Structured Fields (Visible Cleanly in Student Mode) -->
-        <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
-          <!-- Field 1: Title -->
-          <div class="md:col-span-7">
-            <label class="block font-semibold text-slate-700 mb-1">1. Tên Bài Tập / Công Việc <span class="text-rose-500">*</span></label>
-            <input id="stInpTitle" type="text" placeholder="VD: Ôn tập môn Cấu trúc dữ liệu & Giải thuật..."
-              class="w-full text-xs px-3 py-2 rounded-xl border border-slate-300 focus:border-indigo-600 focus:ring-1 focus:ring-indigo-500 outline-none" />
-          </div>
-
-          <!-- Field 2: Duration with quick chips -->
-          <div class="md:col-span-5">
-            <div class="flex items-center justify-between mb-1">
-              <label class="font-semibold text-slate-700">2. Thời Lượng Gốc <span class="text-rose-500">*</span></label>
-              <span id="stDurationPreview" class="text-indigo-600 font-semibold mono">60 phút</span>
+            <div class="popover-menu align-right theme-popover" id="themePopover" role="dialog" aria-label="Chọn chủ đề giao diện">
+              <div class="popover-section-title">Chủ đề giao diện</div>
+              <button type="button" class="range-option" data-set-theme="botanical">
+                <div style="display:flex;align-items:center;gap:10px;">
+                  <span class="theme-swatch-dot" style="background:linear-gradient(135deg,#2e6f40,#cde5d3);"></span>
+                  <div>
+                    <div>Rừng cây (Botanical)</div>
+                    <div style="font-size:11px;color:var(--p-muted);font-weight:400;">Xanh rêu dịu mắt · Ảnh rừng thật</div>
+                  </div>
+                </div>
+              </button>
+              <button type="button" class="range-option" data-set-theme="light">
+                <div style="display:flex;align-items:center;gap:10px;">
+                  <span class="theme-swatch-dot" style="background:linear-gradient(135deg,#1a73e8,#f8fafd);"></span>
+                  <div>
+                    <div>Sáng tối giản</div>
+                    <div style="font-size:11px;color:var(--p-muted);font-weight:400;">Trắng thanh thoát kiểu Google Calendar</div>
+                  </div>
+                </div>
+              </button>
+              <button type="button" class="range-option" data-set-theme="dark">
+                <div style="display:flex;align-items:center;gap:10px;">
+                  <span class="theme-swatch-dot" style="background:linear-gradient(135deg,#111815,#52b778);"></span>
+                  <div>
+                    <div>Rừng đêm (Dark)</div>
+                    <div style="font-size:11px;color:var(--p-muted);font-weight:400;">Nền tối dịu mắt · Học khuya thoải mái</div>
+                  </div>
+                </div>
+              </button>
             </div>
-            <div class="flex items-center gap-1.5">
-              <input id="stInpDuration" type="number" min="15" step="15" value="60" oninput="updateStBufferPreview()"
-                class="w-20 text-xs px-2.5 py-2 rounded-xl border border-slate-300 font-semibold mono focus:border-indigo-600 outline-none" />
-              <div class="flex flex-wrap gap-1">
-                <button type="button" onclick="setStDuration(30)" class="px-1.5 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 font-medium text-[10px]">30p</button>
-                <button type="button" onclick="setStDuration(45)" class="px-1.5 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 font-medium text-[10px]">45p</button>
-                <button type="button" onclick="setStDuration(60)" class="px-1.5 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 font-medium text-[10px]">60p</button>
-                <button type="button" onclick="setStDuration(90)" class="px-1.5 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 font-medium text-[10px]">90p</button>
-                <button type="button" onclick="setStDuration(120)" class="px-1.5 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 font-medium text-[10px]">120p</button>
+          </div>
+
+          <!-- User Settings & Export Popover -->
+          <div class="popover-anchor">
+            <button type="button" class="btn btn-icon" id="btnToggleSettings" title="Cài đặt lịch & Lưu xuất" aria-expanded="false" aria-controls="settingsPopover" aria-label="Cài đặt">
+              <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.604.852.997 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            </button>
+            <div class="popover-menu align-right settings-popover" id="settingsPopover" role="dialog" aria-label="Cài đặt hiển thị và tiện ích">
+              <div class="settings-section">
+                <div class="popover-section-title">Hiển thị lịch</div>
+                <div class="settings-row">
+                  <span>Cửa sổ dữ liệu</span>
+                  <div class="horizon-toggle" role="group" aria-label="Cửa sổ lập lịch">
+                    <button type="button" id="btnHorizon7" class="active">7 ngày</button>
+                    <button type="button" id="btnHorizon14">14 ngày</button>
+                  </div>
+                </div>
+                <label class="settings-toggle">
+                  <span>Ẩn khung giờ ngủ (00–06h)</span>
+                  <input type="checkbox" id="chkSettingHideSleep" checked />
+                </label>
+                <label class="settings-toggle">
+                  <span>Nền năng lượng sinh học</span>
+                  <input type="checkbox" id="chkSettingEnergy" checked />
+                </label>
+              </div>
+
+              <div class="settings-section">
+                <div class="popover-section-title">Xử lý lịch thực tế</div>
+                <button type="button" class="settings-action" id="btnOpenDisruption">
+                  <span>Báo sự cố đột xuất & Sửa lịch</span>
+                  <svg class="icon" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>
+                </button>
+              </div>
+
+              <div class="settings-section" id="exportPopover">
+                <div class="popover-section-title">Lưu & Xuất lịch</div>
+                <div class="settings-export-grid">
+                  <button type="button" class="btn btn-sm" id="btnSaveSqlState">Lưu SQLite</button>
+                  <button type="button" class="btn btn-sm" id="btnExportIcs">Xuất .ics</button>
+                  <button type="button" class="btn btn-sm" id="btnExportCsv">Xuất .csv</button>
+                  <button type="button" class="btn btn-sm" id="btnExportJson">Xuất .json</button>
+                </div>
+                <button type="button" class="btn btn-sm btn-danger" id="btnResetState" style="width:100%;margin-top:4px;">Đặt lại về Tuần của Minh</button>
               </div>
             </div>
           </div>
-        </div>
 
-        <!-- Field 3 & 4 Row: Deadline Day/Time, Priority P1-P4, Category -->
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-2.5">
-          <div>
-            <label class="block font-semibold text-slate-700 mb-1">3. Hạn Chót (Thứ) <span class="text-rose-500">*</span></label>
-            <select id="stInpDeadlineDay" class="w-full text-xs px-2.5 py-2 rounded-xl border border-slate-300 bg-white focus:border-indigo-600 outline-none">
-              <option value="Monday">Thứ Hai</option>
-              <option value="Tuesday">Thứ Ba</option>
-              <option value="Wednesday" selected>Thứ Tư</option>
-              <option value="Thursday">Thứ Năm</option>
-              <option value="Friday">Thứ Sáu</option>
-              <option value="Saturday">Thứ Bảy</option>
-              <option value="Sunday">Chủ Nhật</option>
-              <option value="Next Monday">Thứ Hai Tuần Sau</option>
-              <option value="">Không có hạn chót (Habit)</option>
-            </select>
-          </div>
-          <div>
-            <label class="block font-semibold text-slate-700 mb-1">Giờ Hạn Chót</label>
-            <input id="stInpDeadlineTime" type="time" value="23:59" class="w-full text-xs px-2.5 py-2 rounded-xl border border-slate-300 mono focus:border-indigo-600 outline-none" />
-          </div>
-          <div>
-            <label class="block font-semibold text-slate-700 mb-1">4. Mức Ưu Tiên</label>
-            <select id="stInpPriorityCore" onchange="syncPriorityFromCore(this.value)" class="w-full text-xs px-2.5 py-2 rounded-xl border border-slate-300 bg-white">
-              <option value="auto" selected>Tự động (AI)</option>
-              <option value="1">P1 – Khẩn cấp nhất</option>
-              <option value="2">P2 – Cao</option>
-              <option value="3">P3 – Trung bình</option>
-              <option value="4">P4 – Thấp / Linh hoạt</option>
-            </select>
-          </div>
-          <div>
-            <label class="block font-semibold text-slate-700 mb-1">Phân loại</label>
-            <select id="stInpCategory" onchange="updateStBufferPreview()" class="w-full text-xs px-2.5 py-2 rounded-xl border border-slate-300 bg-white">
-              <option value="ASSIGNMENT" selected>ASSIGNMENT (Bài tập)</option>
-              <option value="EXAM">EXAM (Thi cử)</option>
-              <option value="QUIZ">QUIZ (Kiểm tra)</option>
-              <option value="PROJECT">PROJECT (Đồ án)</option>
-              <option value="LAB">LAB (Thực hành)</option>
-              <option value="READING">READING (Đọc tài liệu)</option>
-              <option value="HABIT">HABIT (Thói quen)</option>
-            </select>
-          </div>
-        </div>
-
-        <!-- Section 3: Collapsible Advanced Settings (Tucked cleanly under <details> in Student Mode) -->
-        <details id="stTaskAdvDetails" class="group border border-slate-200 rounded-xl overflow-hidden">
-          <summary class="px-3.5 py-2 bg-slate-50 cursor-pointer text-slate-700 font-semibold flex items-center justify-between">
-            <span>⚙️ Tùy Chọn Nâng Cao (Chia nhỏ, Start After, Độ nặng & Tiên quyết)</span>
-            <span class="group-open:rotate-180 transition text-slate-400">▼</span>
-          </summary>
-          <div class="p-3.5 space-y-3 bg-white">
-            <input type="hidden" id="stInpPriority" value="5" />
-            <div id="stAdvSyncedSummary" class="text-[11px] px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-slate-600">
-              Đồng bộ từ mục trên: <strong>Khẩn cấp Tự động</strong> · <strong>Cho phép cắt nhỏ (BALANCED)</strong>
-            </div>
-
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-2.5">
-              <div>
-                <label for="stInpTaskId" class="block font-medium text-slate-700 mb-1">Mã Task (`Task ID`)</label>
-                <input id="stInpTaskId" type="text" placeholder="VD: LAB-1 (tự tạo)"
-                  class="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 mono uppercase outline-none" />
-              </div>
-              <div>
-                <label for="stInpWorkRhythm" class="block font-medium text-slate-700 mb-1">Nhịp độ chia phiên (`work_rhythm`)</label>
-                <select id="stInpWorkRhythm" onchange="syncWorkRhythmFromAdv(this.value)" class="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white">
-                  <option value="BALANCED" selected>BALANCED (45–90m)</option>
-                  <option value="LIGHT">LIGHT (30–45m)</option>
-                  <option value="FLOW">FLOW (60–120m Deep Work)</option>
-                  <option value="CUSTOM">CUSTOM (Tùy chỉnh)</option>
-                </select>
-              </div>
-              <div>
-                <label for="stInpStartAfter" class="block font-medium text-slate-700 mb-1">Không làm trước (`start_after`)</label>
-                <input id="stInpStartAfter" type="text" placeholder="VD: Wednesday 14:00"
-                  class="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 outline-none" />
-              </div>
-            </div>
-
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-2.5 items-center">
-              <div>
-                <label class="block font-medium text-slate-700 mb-1">Tải nhận thức (`cognitive_load`)</label>
-                <select id="stInpCognitiveLoad" onchange="updateStBufferPreview()" class="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white">
-                  <option value="1">1 - Nhẹ (Low Energy)</option>
-                  <option value="2" selected>2 - Trung bình</option>
-                  <option value="3">3 - Nặng / Deep Work</option>
-                </select>
-              </div>
-              <label class="inline-flex items-center gap-2 pt-4 cursor-pointer text-slate-700 font-medium">
-                <input id="stInpSplittable" type="checkbox" checked onchange="syncStSessionFromSplittableCheckbox(this.checked);saveStudentModalDraft();" class="w-4 h-4 text-indigo-600 rounded" />
-                <span>✂️ Cho phép chia nhỏ thành nhiều phiên (`is_splittable`)</span>
-              </label>
-            </div>
-
-            <!-- Planning Fallacy Buffer Toggle & Live Preview -->
-            <div class="bg-indigo-50/80 border border-indigo-200 rounded-xl p-2.5 flex items-start gap-2.5">
-              <input id="stInpBuffer" type="checkbox" checked onchange="updateStBufferPreview()" class="mt-0.5 w-4 h-4 text-indigo-600 rounded cursor-pointer" />
-              <div class="flex-1">
-                <label for="stInpBuffer" class="font-bold text-indigo-950 cursor-pointer block">🛡️ Áp dụng bộ đệm Planning Fallacy theo Cài Đặt (Pattern 1)</label>
-                <p id="stBufferPreviewText" class="text-[11px] text-indigo-700 mt-0.5">
-                  Backend tự động tính đệm dựa theo `buffer_mode` / `cognitive_load` hoặc `estimate_habit`.
-                </p>
-              </div>
-            </div>
-
-            <div>
-              <label for="stInpDependsOn" class="block font-medium text-slate-700 mb-1">Task cần phải làm trước đó (Task ID)</label>
-              <input id="stInpDependsOn" type="text" placeholder="Để trống hoặc ghi Task ID cần hoàn thành trước (VD: PRJ-1)" class="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 mono uppercase" />
-              <div id="stExistingTaskIdChips" class="flex flex-wrap items-center gap-1 pt-1.5 text-[10px]"></div>
-            </div>
-          </div>
-        </details>
-      </div>
-
-      <!-- Sticky Modal Footer -->
-      <div class="flex items-center justify-between border-t border-slate-100 px-5 py-3 bg-slate-50/80 flex-shrink-0">
-        <div class="text-[11px] text-slate-500 flex items-center gap-1.5">
-          <span>💡 Đóng cửa sổ sẽ tự động lưu lại các thay đổi chưa nạp.</span>
-        </div>
-        <div class="flex items-center gap-2">
-          <button type="button" onclick="closeStudentTaskModal()" class="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-200 rounded-xl transition">Đóng</button>
-          <button id="btnSaveStTask" type="button" onclick="saveStudentTask()" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl shadow-md transition flex items-center gap-1.5">
-            <span>➕</span> Thêm & Lên Lịch Ngay
+          <!-- Slim Collapsible Dev Side-Panel Toggle -->
+          <button type="button" class="dev-toggle-btn" id="btnToggleDevPanel" aria-expanded="false" aria-controls="devSidePanel" title="Mở / Ẩn bảng công cụ & chỉ số Dev">
+            <span class="status-dot" id="devToggleDot"></span>
+            <span>Dev</span>
           </button>
         </div>
       </div>
+    </header>
+
+    <!-- [2] MAIN WORKSPACE + COLLAPSIBLE RIGHT DEV SIDE PANEL -->
+    <div class="workspace-layout">
+      <main class="workspace-main" id="mainWorkspace">
+        <div class="view-panel active" id="viewCalendar" role="tabpanel"></div>
+        <div class="view-panel" id="viewList" role="tabpanel"></div>
+        <div class="view-panel" id="viewWeights" role="tabpanel"></div>
+        <div class="view-panel" id="viewBenchmark" role="tabpanel"></div>
+      </main>
+
+      <!-- COLLAPSIBLE DEV SIDE PANEL (Hidden by default; opens cleanly on side when Dev clicks "Dev") -->
+      <aside class="dev-side-panel" id="devSidePanel" aria-label="Bảng kiểm định & đối chiếu dành cho Dev">
+        <div class="dev-side-head">
+          <div>
+            <h3>Góc nhìn Dev</h3>
+            <div style="font-size:11.5px;color:var(--p-muted);">Chuyển thuật toán, nạp đề test & chấm điểm</div>
+          </div>
+          <button type="button" class="btn btn-sm btn-icon btn-ghost" id="btnCloseDevPanel" aria-label="Thu gọn bảng Dev">✕</button>
+        </div>
+
+        <!-- 1. Solver selector dropdown -->
+        <div class="dev-block">
+          <div class="popover-section-title">Thuật toán (trên cùng input)</div>
+          <div class="popover-anchor" id="solverSwitcherBar"></div>
+        </div>
+
+        <!-- 2. Test Suite selector -->
+        <div class="dev-block">
+          <div class="popover-section-title">Bộ dữ liệu test</div>
+          <div class="popover-anchor">
+            <button type="button" class="solver-select-trigger" id="btnToggleSuites" aria-expanded="false" aria-controls="suitesPopover">
+              <span style="display:inline-flex;align-items:center;gap:8px;min-width:0;">
+                <svg class="icon" viewBox="0 0 24 24" style="color:var(--p-muted);"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+                <span id="devSuiteLabel" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Chọn bộ test (Presets / T01–T10 / R1–R6)</span>
+              </span>
+              <svg class="icon" viewBox="0 0 24 24" style="width:14px;height:14px;color:var(--p-muted);"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+            <div class="popover-menu align-right" id="suitesPopover" role="dialog" aria-label="Chọn bộ test"></div>
+          </div>
+        </div>
+
+        <!-- 3. Live Evaluation Telemetry -->
+        <div class="dev-block">
+          <div class="popover-section-title">Chỉ số đánh giá nhanh</div>
+          <div id="telemetryMetrics"></div>
+          <div id="telemetryActions" style="margin-top:4px;"></div>
+        </div>
+
+        <!-- 4. Full-screen Dev Analysis Views -->
+        <div class="dev-block">
+          <div class="popover-section-title">Phân tích & Đối chiếu chi tiết</div>
+          <button type="button" class="btn btn-primary" id="btnTopBenchmark" style="width:100%;">Chấm điểm tất cả thuật toán</button>
+          <button type="button" class="btn" id="btnTopWeights" style="width:100%;">Xem trọng số & hệ số thuật toán</button>
+        </div>
+
+        <!-- 5. Dev Overlay Toggles -->
+        <div class="dev-block">
+          <div class="popover-section-title">Hiển thị kỹ thuật trên lịch</div>
+          <label class="settings-toggle">
+            <div>
+              <div>Hiện nhãn kỹ thuật trên ô</div>
+              <small>L1–L3, Peak, đếm ngược hạn chót</small>
+            </div>
+            <input type="checkbox" id="chkSettingTechMeta" />
+          </label>
+        </div>
+      </aside>
     </div>
   </div>
 
@@ -1086,109 +752,59 @@
         </div>
 
         <div>
-          <label class="block font-semibold text-slate-700 mb-1">Mốc thời gian bắt đầu (`now`)</label>
-          <select id="stSetNowMode" class="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white">
-            <option value="KEEP">Giữ theo hồ sơ / preset hiện tại</option>
-            <option value="REALTIME">Giờ thực tế ngay lúc này (Real-Time + Tuần hiện tại)</option>
-            <option value="WEEK_START">Từ đầu tuần 00:00 Thứ 2 (Full Week)</option>
-          </select>
+          <h2 id="inputModalTitle" style="font-size:16px;">Thiết lập & Dữ liệu đầu vào</h2>
+          <p style="font-size:12.5px;color:var(--p-muted);">Mọi thay đổi được giữ nguyên khi chuyển đổi giữa các thuật toán và tự động lưu.</p>
         </div>
-
-        <!-- PersonalHabit Manager (Q7.3 = A3: 1 PreferredWindow + Frequency/week + Duration) -->
-        <div class="border border-slate-200 rounded-xl p-3 bg-slate-50/70 space-y-2">
-          <div class="flex items-center justify-between">
-            <label class="font-bold text-slate-800">🏃 Thói Quen Cá Nhân (`PersonalHabit` · Q7.3)</label>
-            <span class="text-[10px] text-slate-500">Tự rải đều trong tuần</span>
-          </div>
-          <div id="stSetHabitsList" class="space-y-1.5"></div>
-          <div class="grid grid-cols-12 gap-1.5 pt-1 items-center">
-            <input id="stHabitNewName" type="text" placeholder="Tên thói quen (VD: Tập gym)" class="col-span-4 px-2 py-1 rounded-lg border border-slate-300 bg-white" />
-            <select id="stHabitNewWindow" class="col-span-3 px-1.5 py-1 rounded-lg border border-slate-300 bg-white">
-              <option value="MORNING">Sáng (06–12h)</option>
-              <option value="AFTERNOON">Chiều (12–18h)</option>
-              <option value="EVENING" selected>Tối (18–23h)</option>
-              <option value="ANYTIME">Linh hoạt</option>
-            </select>
-            <select id="stHabitNewFreq" class="col-span-2 px-1 py-1 rounded-lg border border-slate-300 bg-white" title="Số buổi/tuần">
-              <option value="1">1x/t</option>
-              <option value="2">2x/t</option>
-              <option value="3" selected>3x/t</option>
-              <option value="4">4x/t</option>
-              <option value="5">5x/t</option>
-              <option value="6">6x/t</option>
-              <option value="7">7x/t</option>
-            </select>
-            <input id="stHabitNewDur" type="number" min="15" max="180" step="15" value="60" class="col-span-2 px-1.5 py-1 rounded-lg border border-slate-300 bg-white mono text-center" title="Phút/buổi" />
-            <button type="button" onclick="addStudentPersonalHabit()" class="col-span-1 py-1 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg" title="Thêm thói quen">➕</button>
-          </div>
-        </div>
+        <button type="button" class="btn btn-sm btn-icon" data-close-modal="inputModal" aria-label="Đóng">✕</button>
       </div>
-      <div class="flex justify-end gap-2 pt-3 border-t border-slate-100">
-        <button onclick="closeStudentSettingsModal()" class="px-4 py-2 text-xs text-slate-600 hover:bg-slate-100 rounded-xl font-semibold">Hủy</button>
-        <button onclick="saveStudentSettings()" class="px-4 py-2 text-xs bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold shadow">Lưu & Xếp Lại</button>
+      <div class="modal-tabs" role="tablist">
+        <button type="button" class="modal-tab active" data-input-tab="tasks">1. Công việc</button>
+        <button type="button" class="modal-tab" data-input-tab="commitments">2. Lịch cố định & Ngủ</button>
+        <button type="button" class="modal-tab" data-input-tab="profile">3. Nhịp sinh học & Thói quen</button>
+      </div>
+      <div class="modal-body" id="inputModalBody"></div>
+      <div class="modal-footer">
+        <span id="inputModalLoadHint" class="mono" style="font-size:12px;color:var(--p-muted);"></span>
+        <button type="button" class="btn btn-primary" data-close-modal="inputModal">Hoàn tất & Xem lịch</button>
       </div>
     </div>
   </div>
 
-  <!-- MODAL: BÁO SỰ CỐ ĐỘT XUẤT (M5 LOCAL REPAIR TRIGGER) -->
-  <div id="stDisruptionModal" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4 border border-slate-200">
-      <div class="flex items-center justify-between border-b border-slate-100 pb-3">
-        <h3 class="text-sm font-bold text-slate-900">⚡ Sự Cố Đột Xuất (Tái Lập Lịch Cục Bộ ≥90% Ổn Định)</h3>
-        <button onclick="closeStudentDisruptionModal()" class="text-slate-400 hover:text-slate-700 text-lg font-bold px-2">✕</button>
+  <!-- MODAL: BLOCK INSPECTOR -->
+  <div class="modal-backdrop" id="blockModal" role="dialog" aria-modal="true" aria-labelledby="blockModalTitle">
+    <div class="modal-dialog modal-sm">
+      <div class="modal-header">
+        <h2 id="blockModalTitle" style="font-size:16px;">Chi tiết phiên học</h2>
+        <button type="button" class="btn btn-sm btn-icon" data-close-modal="blockModal" aria-label="Đóng">✕</button>
       </div>
-      <div class="space-y-3 text-xs">
-        <div>
-          <label class="block font-semibold text-slate-700 mb-1">Tên sự kiện phát sinh</label>
-          <input id="stDisTitle" type="text" value="Họp khẩn / Việc đột xuất" class="w-full px-3 py-2 rounded-xl border border-slate-300" />
-        </div>
-        <div class="grid grid-cols-3 gap-2">
-          <div>
-            <label class="block font-semibold text-slate-700 mb-1">Thứ</label>
-            <select id="stDisDay" class="w-full px-2 py-1.5 rounded-lg border border-slate-300 bg-white">
-              <option value="Monday">Thứ 2</option><option value="Tuesday">Thứ 3</option>
-              <option value="Wednesday">Thứ 4</option><option value="Thursday">Thứ 5</option>
-              <option value="Friday">Thứ 6</option><option value="Saturday">Thứ 7</option><option value="Sunday">CN</option>
-            </select>
-          </div>
-          <div>
-            <label class="block font-semibold text-slate-700 mb-1">Bắt đầu</label>
-            <input id="stDisStart" type="time" value="08:00" class="w-full px-2 py-1.5 rounded-lg border border-slate-300 mono" />
-          </div>
-          <div>
-            <label class="block font-semibold text-slate-700 mb-1">Kết thúc</label>
-            <input id="stDisEnd" type="time" value="10:00" class="w-full px-2 py-1.5 rounded-lg border border-slate-300 mono" />
-          </div>
-        </div>
-      </div>
-      <div class="flex justify-end gap-2 pt-3 border-t border-slate-100">
-        <button onclick="closeStudentDisruptionModal()" class="px-4 py-2 text-xs text-slate-600 hover:bg-slate-100 rounded-xl font-semibold">Hủy</button>
-        <button onclick="applyStudentDisruption()" class="px-4 py-2 text-xs bg-amber-600 hover:bg-amber-500 text-white rounded-xl font-bold shadow">⚡ Chèn & Dời Cục Bộ</button>
-      </div>
+      <div class="modal-body" id="blockModalBody"></div>
     </div>
   </div>
 
-  <!-- ============================================================================ -->
-  <!-- 2. LAB RESEARCH WORKBENCH (25% CONTROL RAIL + 75% 3-TAB ANALYTICAL STAGE)    -->
-  <!-- ============================================================================ -->
-  <div id="labWorkbenchLayout" class="hidden">
-    <!-- ACTIVE SCENARIO DESCRIPTION BANNER -->
-    <div id="scenarioBanner" class="hidden bg-indigo-950 text-indigo-100 border-b border-indigo-800 px-4 py-2 text-xs">
-      <div class="max-w-[1800px] mx-auto flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <span id="scenarioBannerTitle" class="font-bold text-amber-300"></span>
-          <span class="mx-2 text-indigo-400">|</span>
-          <span id="scenarioBannerDesc"></span>
-        </div>
-        <span id="scenarioBannerExpected" class="px-2 py-0.5 rounded bg-indigo-900 border border-indigo-700 mono text-[11px]"></span>
+  <!-- MODAL: DISRUPTION / LOCAL REPAIR -->
+  <div class="modal-backdrop" id="disruptionModal" role="dialog" aria-modal="true" aria-labelledby="disruptionModalTitle">
+    <div class="modal-dialog modal-sm">
+      <div class="modal-header">
+        <h2 id="disruptionModalTitle" style="font-size:16px;">Mô phỏng sự cố đột xuất & Sửa lịch</h2>
+        <button type="button" class="btn btn-sm btn-icon" data-close-modal="disruptionModal" aria-label="Đóng">✕</button>
       </div>
+      <div class="modal-body" id="disruptionModalBody"></div>
     </div>
+  </div>
 
-    <!-- MAIN 2-COLUMN WORKBENCH LAYOUT (3 cols Config Rail / 9 cols Analytical Stage) -->
-    <main class="flex-1 max-w-[1800px] w-full mx-auto px-4 py-4 grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+  <!-- MODAL: OVERLOAD RESCUE (O1-O4) -->
+  <div class="modal-backdrop" id="overloadModal" role="dialog" aria-modal="true" aria-labelledby="overloadModalTitle">
+    <div class="modal-dialog modal-sm">
+      <div class="modal-header">
+        <h2 id="overloadModalTitle" style="font-size:16px;">Gợi ý giải cứu quá tải (O1–O4)</h2>
+        <button type="button" class="btn btn-sm btn-icon" data-close-modal="overloadModal" aria-label="Đóng">✕</button>
+      </div>
+      <div class="modal-body" id="overloadModalBody"></div>
+    </div>
+  </div>
 
-      <!-- ==================== LEFT RAIL (3 cols): 1-PURPOSE EXPERIMENT CONFIG & DATA ==================== -->
-      <section class="lg:col-span-3 space-y-3">
+  <!-- TOAST STACK -->
+  <div class="toast-stack" id="toastStack" aria-live="polite"></div>
 
         <!-- Card 1: Solver Selection & Run Trigger -->
         <div class="bg-slate-900 text-white rounded-xl border border-slate-800 p-3.5 shadow-sm space-y-2.5">
@@ -1767,4 +1383,3 @@
   <script src="/app.js"></script>
 </body>
 </html>
-
