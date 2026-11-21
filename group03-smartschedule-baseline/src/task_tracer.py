@@ -16,35 +16,37 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 _STOP_WORDS: frozenset[str] = frozenset(
     {
-        # Vietnamese common particles & verbs
+        # Vietnamese common particles, pronouns & verbs
         "va", "voi", "cua", "cho", "minh", "ban", "toi", "em", "anh", "chi",
         "nay", "do", "kia", "day", "roi", "nhe", "nha", "a", "ah", "oi", "di",
-        "hay", "hoac", "nhung", "ma", "thi", "la", "duoc", "bi", "bi", "se",
-        "dang", "da", "can", "phai", "muon", "giup", "sua", "chinh", "cap",
-        "nhat", "doi", "thay", "them", "tao", "xoa", "bo", "xep", "sap", "lich",
-        "trinh", "viec", "cong", "task", "bai", "nay", "vua", "tren", "duoi",
-        "vao", "luc", "truoc", "sau", "tu", "den", "toi", "khoang", "tam",
-        "hon", "kem", "qua", "lam", "rat", "hoi", "khong", "the", "co", "du",
-        "mot", "hai", "ba", "nhieu", "it", "buoi", "mach", "lien", "tuc",
+        "hay", "hoac", "nhung", "ma", "thi", "la", "duoc", "bi", "se", "dang",
+        "da", "can", "phai", "muon", "giup", "sua", "chinh", "cap", "nhat",
+        "doi", "thay", "them", "tao", "xoa", "bo", "xep", "sap", "lich",
+        "trinh", "viec", "cong", "task", "bai", "tap", "mon", "hoc", "lam",
+        "thuc", "hien", "trong", "vua", "tren", "duoi", "vao", "luc", "truoc",
+        "sau", "tu", "den", "khoang", "tam", "hon", "kem", "qua", "rat", "hoi",
+        "khong", "the", "co", "du", "mot", "hai", "ba", "bon", "nam", "sau",
+        "bay", "tam", "chin", "muoi", "nhieu", "it", "buoi", "mach", "lien",
+        "tuc", "phan", "chuong", "nhom", "bat", "buoc",
         # Hidden criteria / temporal words stripped so core subject keywords remain
         "nang", "nhe", "nhang", "kho", "de", "don", "gian", "chia", "nho",
-        "tach", "gop", "sang", "trua", "chieu", "toi", "dem", "khuya", "som",
-        "nhip", "sinh", "hoc", "tinh", "tao", "gio", "vang", "peak", "deep",
-        "light", "flow", "balanced", "buffer", "tru", "hao", "du", "phong",
-        "fallacy", "deadline", "han", "chot", "nop", "phut", "tieng", "ngay",
-        "mai", "tuan", "thu", "chu", "nhat", "monday", "tuesday", "wednesday",
-        "thursday", "friday", "saturday", "sunday", "today", "tomorrow",
-        "morning", "afternoon", "evening", "night", "split", "unsplittable",
-        "heavy", "easy", "hard", "urgent", "gap", "khan", "cap", "uu", "tien",
-        "cao", "thap", "please", "help", "me", "the", "for", "and", "to", "in",
-        "on", "at", "my", "this", "that", "make", "change", "update", "move",
-        "con", "lai", "tiep", "theo", "uoc", "luong", "estimate", "ti", "chut",
+        "tach", "gop", "sang", "trua", "chieu", "dem", "khuya", "som", "nhip",
+        "sinh", "tinh", "tao", "gio", "vang", "peak", "deep", "light", "flow",
+        "balanced", "buffer", "tru", "hao", "phong", "fallacy", "deadline",
+        "han", "chot", "nop", "phut", "tieng", "ngay", "mai", "tuan", "thu",
+        "chu", "nhat", "monday", "tuesday", "wednesday", "thursday", "friday",
+        "saturday", "sunday", "today", "tomorrow", "morning", "afternoon",
+        "evening", "night", "split", "unsplittable", "heavy", "easy", "hard",
+        "urgent", "gap", "khan", "uu", "tien", "cao", "thap", "vua", "please",
+        "help", "me", "the", "for", "and", "to", "in", "on", "at", "my",
+        "this", "that", "make", "change", "update", "move", "con", "lai",
+        "tiep", "theo", "uoc", "luong", "estimate", "ti", "chut",
     }
 )
 
 _ANAPHORA_RE = re.compile(
     r"\b(?:viec\s+do|viec\s+nay|viec\s+vua\s+roi|task\s+do|task\s+nay|"
-    r"task\s+vua\s+roi|bai\s+nay|bai\s+do|cong\s+viec\s+tren|no)\b"
+    r"task\s+vua\s+roi|bai\s+nay|bai\s+do|cong\s+viec\s+tren)\b"
 )
 
 
@@ -60,7 +62,7 @@ def canonicalize_keywords(text: str) -> List[str]:
     norm = strip_accents(text).lower()
     norm = re.sub(r"#sha256:[a-f0-9]+|\[trace:[a-f0-9]+\]", " ", norm)
     tokens = re.findall(r"[a-z0-9]+", norm)
-    return [tok for tok in tokens if len(tok) >= 2 and tok not in _STOP_WORDS]
+    return [tok for tok in tokens if len(tok) >= 2 and not tok.isdigit() and tok not in _STOP_WORDS]
 
 
 def _sha256_short(token: str, length: int = 8) -> str:
@@ -83,7 +85,7 @@ def compute_keyword_hashes(title: str) -> List[str]:
     kw = canonicalize_keywords(title)
     if not kw:
         raw_tokens = re.findall(r"[a-z0-9]+", strip_accents(title).lower())
-        kw = [t for t in raw_tokens if len(t) >= 2]
+        kw = [t for t in raw_tokens if len(t) >= 2 and not t.isdigit()]
     terms: List[str] = list(kw)
     for idx in range(len(kw) - 1):
         terms.append(f"{kw[idx]} {kw[idx + 1]}")
@@ -115,7 +117,7 @@ def resolve_target_task_from_prompt(
     """
     Trace which existing task in `tasks` a natural-language prompt refers to using:
       1. Explicit `#sha256:<hex>` / `[trace:<hex>]` or `task_id` embedded in the prompt.
-      2. SHA-256 unigram/bigram keyword hash overlap + normalized substring affinity.
+      2. SHA-256 unigram/bigram keyword hash overlap + normalized subject phrase affinity.
       3. Anaphora fallback (`"việc vừa rồi"`, `"task đó"`) when `last_task_id` is available.
     """
     if not tasks:
@@ -161,7 +163,7 @@ def resolve_target_task_from_prompt(
                 "candidates": [],
             }
 
-    # 2. Keyword SHA-256 hash matching
+    # 2. Keyword SHA-256 hash matching on subject keywords
     prompt_kw = canonicalize_keywords(prompt)
     prompt_terms: List[str] = list(prompt_kw)
     for idx in range(len(prompt_kw) - 1):
@@ -181,29 +183,29 @@ def resolve_target_task_from_prompt(
 
         containment = len(overlap_hashes) / float(max(1, len(task_hashes)))
         jaccard = len(overlap_hashes) / float(max(1, len(prompt_hashes | task_hashes)))
-        score = 0.70 * containment + 0.30 * jaccard
+        score = 0.72 * containment + 0.28 * jaccard
 
-        if title_norm and len(title_norm) >= 3 and title_norm in prompt_norm:
+        if title_norm and len(title_norm) >= 4 and title_norm in prompt_norm:
             score = max(score, 0.96)
-        elif task_kw:
+        elif task_kw and len(task_kw) >= 2:
             kw_phrase = " ".join(task_kw)
-            if len(kw_phrase) >= 3 and kw_phrase in prompt_norm:
+            if len(kw_phrase) >= 4 and kw_phrase in prompt_norm:
                 score = max(score, 0.90)
 
         if last_task_id and t.get("task_id") == last_task_id and score > 0.0:
             score += 0.05
 
-        if score > 0.0:
+        if score >= 0.45:
             scored.append((min(1.0, round(score, 4)), t, sorted(set(matched_terms))))
 
     scored.sort(key=lambda item: item[0], reverse=True)
 
-    if scored and scored[0][0] >= 0.35:
+    if scored:
         top_score, top_task, top_kws = scored[0]
         ambiguous = (
             len(scored) >= 2
             and abs(scored[0][0] - scored[1][0]) < 0.06
-            and scored[1][0] >= 0.35
+            and scored[1][0] >= 0.45
             and scored[0][0] < 0.85
         )
         candidates = [
@@ -340,14 +342,17 @@ def extract_hidden_criteria_updates(
             updates["max_chunk_min"] = 90
             summary_vi.append("Cho phép chia nhiều buổi 45–90 phút")
 
-    # 3. Circadian / biological rhythm window
-    if re.search(r"\b(?:buoi\s*sang|sang\s*som|luc\s*sang|morning)\b", norm):
+    # 3. Circadian / biological rhythm window (Note: avoid matching preposition "tới" / pronoun "tôi" as "buổi tối")
+    if re.search(r"\b(?:buoi\s*sang|sang\s*som|luc\s*sang|vao\s*sang|morning)\b", norm):
         updates["preferred_window"] = "MORNING"
         summary_vi.append("Ưu tiên xếp vào buổi sáng")
-    elif re.search(r"\b(?:buoi\s*chieu|chieu|afternoon)\b", norm):
+    elif re.search(r"\b(?:buoi\s*chieu|luc\s*chieu|vao\s*chieu|afternoon)\b", norm):
         updates["preferred_window"] = "AFTERNOON"
         summary_vi.append("Ưu tiên xếp vào buổi chiều")
-    elif re.search(r"\b(?:buoi\s*toi|toi|dem|khuya|evening|night)\b", norm):
+    elif re.search(
+        r"\b(?:buoi\s*toi|toi\s*nay|toi\s*mai|toi\s*thu|vao\s*toi|ban\s*dem|dem\s*khuya|khuya|evening|night)\b",
+        norm,
+    ):
         updates["preferred_window"] = "EVENING"
         summary_vi.append("Ưu tiên xếp vào buổi tối")
     elif re.search(r"\b(?:nhip\s*sinh\s*hoc|tinh\s*tao|gio\s*vang|minh\s*man|peak)\b", norm):

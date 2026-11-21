@@ -48,24 +48,21 @@ flowchart LR
     1. **🔁 Thêm / Chỉnh lịch cố định lặp lại hằng ngày/tuần** (*Add or modify recurring daily/weekly schedules: classes, sleep, meals, personal habits*).
     2. **📌 Thêm / Điều chỉnh 1 công việc riêng biệt** (*Add or modify a specific one-off task/deadline*).
 
-### 2.2. Left Vertical Collapsible Taskbar Slider (`#leftNavSidebar`)
-- A sleek, collapsible vertical navigation rail on the left edge of the screen (`260px` expanded, `56px` collapsed icon rail, smooth CSS `cubic-bezier(0.22, 1, 0.36, 1)` transition).
+### 2.2. Left Vertical Collapsible Taskbar Slider (`#leftNavSidebar`) & Topbar Brand Link
+- Clicking the **`SS SmartSchedule`** brand logo (`#btnBrandHome`) in the top-left header always returns directly to **`Trợ lý xếp lịch`** (`#viewChat`).
+- When the left taskbar is collapsed via `#btnToggleLeftSidebar`, `#leftNavSidebar` is completely hidden (`display: none`) so the bottom Developer Mode card never leaks or misaligns.
+- The `"Chuyển nhanh tuần"` section is removed from the left taskbar to keep navigation ultra-minimal (week switching stays inside the Calendar header).
+- The upper-right Settings menu (`#settingsPopover`) removes `"Nền năng lượng sinh học"` (a hidden criterion) and `"Tiện ích nhanh"` (handled directly in chat).
 - **Navigation Items:**
-  1. **💬 Khung Chat Chính (Main Assistant):** Switches to `#viewChat` to continue prompting in the full-screen conversational workspace.
-  2. **🗓️ Lịch Trình Các Tuần (Weekly Schedule):** Switches to `#viewCalendar` with the **Right Docked AI Copilot** active alongside the weekly calendar grid, plus quick week selector pills (`Tuần trước`, `Tuần này`, `Tuần sau`).
-  3. **🛠️ Developer Mode Toggle (`#btnToggleDevMode`):**
-     - A dedicated switch in the footer of the left taskbar.
-     - When **OFF (Default User Mode)**: The UI is 100% abstract, calm, and beginner-friendly. Zero technical jargon (`L1–L3`, `α=1.35`, `SHA-256`, `ICEE`, `SCORED_GREEDY`, `chunk_min`) is shown.
+  1. **💬 Trợ lý xếp lịch (Main Assistant):** Switches to `#viewChat` to continue prompting in the full-screen conversational workspace.
+  2. **🗓️ Lịch Trình Tuần (Weekly Schedule):** Switches to `#viewCalendar` with the **Collapsible Right Docked AI Copilot** (`#calendarCopilotDrawer`, `"Trợ lý tinh chỉnh trực tiếp"`), whose arrow button (`#btnToggleCopilotDrawer`) shrinks the drawer so the calendar expands to 100% width.
+  3. **🛠️ Developer Mode Toggle (`#chkDeveloperMode`):**
+     - When **OFF (Default User Mode)**: Ultra-minimal UI with zero technical jargon, no `"Chỉnh nhanh việc đã lưu"` strip, and no forced prefixes when clicking suggestion cards.
      - When **ON (Developer / Debug Mode)**:
-       - Activates `.app-developer-mode` on `document.body`.
-       - Displays an inspectable **Hidden Parameter Debug Badge** on every task card, chat draft card, and calendar block showing:
-         - `task_hash` (`SHA-256` trace ID)
-         - `cognitive_load` (`L1 Light` / `L2 Medium` / `L3 Heavy`)
-         - `circadian_alignment` (`preferred_window`, slot energy level `E1..E3`, `focus_preference`)
-         - `fallacy_buffer` (`raw_duration_min -> planned_duration_min`, `buffer_mode`, `buffer_multiplier` / EWMA `α`)
-         - `splittability` (`is_splittable`, `work_rhythm`, `min_chunk_min..max_chunk_min`, `part/parts`)
-         - `reasons` (`ENERGY_MATCH`, `ESTIMATE_BUFFER`, `BEFORE_DEADLINE`, etc.)
-       - Unlocks the collapsible Developer Side Panel (`#devSidePanel`) and analytical tabs (`Weights`, `Benchmark`, `Showcase`) for full engineering inspection.
+       - Displays an Antigravity-style humanized **Thinking Stage (`💭 Quá trình suy nghĩ & chọn thuật toán`)** inside every assistant response explaining:
+         1. Context & hidden-criteria parsing (including cross-day window recognition so `"Làm bài tập môn Computational Thinking, từ 19h ngày thứ 3, tới 21h ngày thứ 5, cần thực hiện trong 2 tiếng"` is parsed as **1 single task** with `duration_min=120`, `start_after=Tue 19:00`, `deadline=Thu 21:00`).
+         2. Dominant algorithm subset selection (`SCORED_GREEDY`, `HYBRID_ALNS`) and why energy-blind baselines (`EDF`, `WSPT`, `LST`) are pruned (since their best-case circadian/ergonomic evaluation is worse than the worst case of circadian-aware solvers).
+         3. Execution outcome, latency, and hidden parameter badge (`SHA-256`, `L1..L3`, `Circadian`, `Fallacy Buffer`, `Splittability`).
 
 ---
 

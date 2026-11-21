@@ -165,6 +165,10 @@ async function handleChatPrompt(promptText, modeHint = "AUTO") {
     if (Array.isArray(res.updated_pinned_blocks)) state.pinnedBlocks = res.updated_pinned_blocks;
     if (res.mutated_task_id) state.lastMutatedTaskId = res.mutated_task_id;
 
+    if (res.thinking_summary?.selected_algorithm) {
+      state.activeSolver = res.thinking_summary.selected_algorithm;
+    }
+
     if (res.schedule) {
       const diff = computeScheduleDiff(prevBlocks, res.schedule.blocks || []);
       const evalReport = await evaluateCurrentScheduleV21(res.schedule, state.activeSolver);
@@ -181,14 +185,20 @@ async function handleChatPrompt(promptText, modeHint = "AUTO") {
       };
     }
 
+    const defaultPostActions =
+      Array.isArray(res.post_actions) && res.post_actions.length
+        ? res.post_actions
+        : [{ action: "OPEN_CALENDAR", label: "🗓️ Kiểm tra lịch trình" }];
+
     state.chatMessages.push({
       id: `a_${Date.now()}`,
       role: "assistant",
       text: res.reply_vi || "Đã cập nhật lịch trình của bạn.",
       quickChips: res.quick_chips || [],
-      postActions: res.post_actions || [],
+      postActions: defaultPostActions,
       edgeCase: res.edge_case || null,
       remainingEstimation: res.remaining_estimation || null,
+      thinkingSummary: res.thinking_summary || null,
       finalizedMessage: state.activeView === "calendar" && res.status === "APPLIED" ? res.finalized_message_vi : "",
       tracedTaskId: res.traced_task?.task_id || res.mutated_task_id || null,
     });
@@ -617,6 +627,16 @@ function setLeftSidebarOpen(open) {
   btn?.setAttribute("aria-expanded", String(state.leftSidebarOpen));
 }
 
+function setCopilotCollapsed(collapsed) {
+  state.copilotCollapsed = Boolean(collapsed);
+  const layout = document.getElementById("calendarCopilotLayout") || document.querySelector(".calendar-with-copilot-layout");
+  const expandBtn = document.getElementById("btnExpandCopilotDrawer");
+  layout?.classList.toggle("copilot-collapsed", state.copilotCollapsed);
+  if (expandBtn) {
+    expandBtn.hidden = !state.copilotCollapsed;
+  }
+}
+
 function setDeveloperMode(enabled, notify = false) {
   state.developerMode = Boolean(enabled);
   document.body.classList.toggle("app-developer-mode", state.developerMode);
@@ -704,6 +724,7 @@ function renderAll() {
     onSendChatPrompt: (prompt, modeHint) => handleChatPrompt(prompt, modeHint),
     onOpenCalendarView: () => setActiveView("calendar"),
     onOpenChatView: () => setActiveView("chat"),
+    onToggleCopilotDrawer: () => setCopilotCollapsed(!state.copilotCollapsed),
     onPreviewOverloadOption: (optId, code, tid) => handlePreviewOverload(optId, code, tid),
   };
 
@@ -1366,20 +1387,26 @@ function openOverloadModal() {
 }
 
 function wireStaticListeners() {
-  // Left Vertical Taskbar Slider & Developer Mode Toggle
+  // Brand Logo Home Click -> Transit back to Trợ lý xếp lịch (#viewChat)
+  const brandHome = document.getElementById("btnBrandHome");
+  brandHome?.addEventListener("click", () => setActiveView("chat"));
+  brandHome?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      setActiveView("chat");
+    }
+  });
+
+  // Left Vertical Taskbar Slider, Copilot Collapse & Developer Mode Toggle
   document.getElementById("btnToggleLeftSidebar")?.addEventListener("click", () => {
     setLeftSidebarOpen(!state.leftSidebarOpen);
+  });
+  document.getElementById("btnExpandCopilotDrawer")?.addEventListener("click", () => {
+    setCopilotCollapsed(false);
   });
   document.getElementById("chkDeveloperMode")?.addEventListener("change", (e) => {
     setDeveloperMode(e.target.checked, true);
   });
-  document.getElementById("btnSideWeekPrev")?.addEventListener("click", () =>
-    setViewWeek((Number(state.viewWeekOffset) || 0) - 1)
-  );
-  document.getElementById("btnSideWeekCurrent")?.addEventListener("click", () => setViewWeek(0));
-  document.getElementById("btnSideWeekNext")?.addEventListener("click", () =>
-    setViewWeek((Number(state.viewWeekOffset) || 0) + 1)
-  );
 
   // Focus Timer · Calibration · Reminders (Dev panel)
   document.getElementById("stFocusPresetSelect")?.addEventListener("change", changeFocusTimerPreset);

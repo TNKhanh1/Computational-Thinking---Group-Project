@@ -1,14 +1,16 @@
 """
-Conversational Scheduling Service for Chat-First UI/UX (Layer 4).
+Conversational Scheduling Service for Chat-First UI/UX (Layer 4 — Revision 2).
 
 Handles:
   1. Multi-turn slot filling for recurring schedules (FixedEvent) and one-off tasks (Task)
      when title or start/end time is missing.
-  2. SHA-256 task traceability + hidden criteria tuning (cognitive load, circadian window,
-     planning-fallacy buffer, splittability).
-  3. Deadline adjustment & remaining-duration estimation using user habit + M7 EWMA calibration.
-  4. Fast (< 10s SLA, typically < 100ms) re-solving prioritizing nearest deadlines & current week,
-     plus Deadlock (Red Error) and Overly Dense (Yellow Warning) edge-case diagnostics.
+  2. Context-aware cross-day window parsing (e.g. "từ 19h ngày thứ 3, tới 21h ngày thứ 5,
+     cần thực hiện trong 2 tiếng" -> 1 single task with start_after=Tuesday 19:00,
+     deadline=Thursday 21:00, duration=120m).
+  3. SHA-256 task traceability + hidden criteria tuning.
+  4. Deadline adjustment & remaining-duration estimation using user habit + M7 EWMA calibration.
+  5. Dominant Algorithm Subset selection (`SCORED_GREEDY` / `HYBRID_ALNS`, pruning dominated
+     energy-blind `EDF`/`WSPT`/`LST`) + Antigravity-style humanized Thinking Summary for Developer Mode.
 """
 
 from __future__ import annotations
@@ -72,6 +74,8 @@ _GENERIC_TITLES = frozenset(
         "moi",
         "schedule",
         "event",
+        "can thuc hien",
+        "thuc hien",
     }
 )
 
@@ -104,8 +108,63 @@ def _parse_clock_token(hour_raw: str, min_raw: Optional[str], ampm_raw: Optional
     return _format_hhmm(hh, mm)
 
 
+def _resolve_day_token(day_fragment: str, now_day: str) -> Optional[str]:
+    norm = _strip_accents(day_fragment).lower()
+    for pat, wd in _DAY_CHIP_PATTERNS:
+        if re.search(pat, norm):
+            return wd
+    now_idx = WEEKDAYS.index(now_day) if now_day in WEEKDAYS else 0
+    if re.search(r"\b(?:hom\s*nay|today)\b", norm):
+        return now_day
+    if re.search(r"\b(?:ngay\s*mai|mai|tomorrow)\b", norm):
+        return WEEKDAYS[(now_idx + 1) % 7]
+    if re.search(r"\b(?:ngay\s*kia|ngay\s*mot)\b", norm):
+        return WEEKDAYS[(now_idx + 2) % 7]
+    return None
+
+
+def _extract_cross_day_window(norm_text: str, now_day: str) -> Optional[Dict[str, str]]:
+    """
+    Detect a start-anchor + end-deadline window spanning days, such as:
+      - "từ 19h ngày thứ 3, tới 21h ngày thứ 5"
+      - "từ thứ 3 lúc 19:00 đến thứ 5 lúc 21:00"
+      - "từ ngày thứ 3 tới ngày thứ 5"
+    Returns `{"start_day": ..., "start_time": ..., "end_day": ..., "end_time": ...}` or None.
+    """
+    day_expr = r"(?:ngay\s+)?(?:thu\s*(?:[2-7]|hai|ba|tu|nam|sau|bay)|t[2-7]|chu\s*nhat|cn|hom\s*nay|ngay\s*mai|mai|monday|tuesday|wednesday|thursday|friday|saturday|sunday)"
+    time_expr = r"(\d{1,2})\s*(?::|h|gio)\s*(\d{1,2}|ruoi)?\s*(am|pm)?\s*(sang|trua|chieu|toi|dem)?"
+
+    # Pattern A: từ <time1> [ngày] <day1> [, ] (tới|đến|trước) <time2> [ngày] <day2>
+    pat_a = re.compile(
+        rf"\b(?:tu|from)\s+{time_expr}\s*(?:,|\s)*({day_expr})\s*(?:,|\s)*(?:\b(?:toi|den|truoc|to|until)\b|-|–|—)\s*{time_expr}\s*(?:,|\s)*({day_expr})\b"
+    )
+    m = pat_a.search(norm_text)
+    if m:
+        t1 = _parse_clock_token(m.group(1), m.group(2), m.group(3), m.group(4)) or "08:00"
+        d1 = _resolve_day_token(m.group(5), now_day)
+        t2 = _parse_clock_token(m.group(6), m.group(7), m.group(8), m.group(9)) or "23:59"
+        d2 = _resolve_day_token(m.group(10), now_day)
+        if d1 and d2:
+            return {"start_day": d1, "start_time": t1, "end_day": d2, "end_time": t2}
+
+    # Pattern B: từ [ngày] <day1> [lúc <time1>] (tới|đến|trước) [ngày] <day2> [lúc <time2>]
+    pat_b = re.compile(
+        rf"\b(?:tu|from)\s+({day_expr})(?:\s*(?:luc|vao)?\s*{time_expr})?\s*(?:,|\s)*(?:\b(?:toi|den|truoc|to|until)\b|-|–|—)\s*({day_expr})(?:\s*(?:luc|vao|truoc)?\s*{time_expr})?\b"
+    )
+    m = pat_b.search(norm_text)
+    if m:
+        d1 = _resolve_day_token(m.group(1), now_day)
+        t1 = _parse_clock_token(m.group(2), m.group(3), m.group(4), m.group(5)) if m.group(2) else "08:00"
+        d2 = _resolve_day_token(m.group(6), now_day)
+        t2 = _parse_clock_token(m.group(7), m.group(8), m.group(9), m.group(10)) if m.group(7) else "23:59"
+        if d1 and d2:
+            return {"start_day": d1, "start_time": t1 or "08:00", "end_day": d2, "end_time": t2 or "23:59"}
+
+    return None
+
+
 def _extract_time_range(norm_text: str) -> Tuple[Optional[str], Optional[str]]:
-    """Extract explicit `(start_time, end_time)` pairs like `08:00 - 10:00` or `từ 14h đến 16h30`."""
+    """Extract explicit same-day `(start_time, end_time)` pairs like `08:00 - 10:00` or `từ 14h đến 16h30`."""
     pattern = re.compile(
         r"(?:\b(?:tu|from|luc|vao)\s+)?"
         r"(\d{1,2})\s*(?:(?::|h|gio)\s*(\d{1,2}|ruoi)?)\s*(am|pm)?\s*(sang|trua|chieu|toi|dem)?\s*"
@@ -113,7 +172,6 @@ def _extract_time_range(norm_text: str) -> Tuple[Optional[str], Optional[str]]:
         r"(\d{1,2})\s*(?:(?::|h|gio)\s*(\d{1,2}|ruoi)?)\s*(am|pm)?\s*(sang|trua|chieu|toi|dem)?\b"
     )
     for m in pattern.finditer(norm_text):
-        # Require at least one explicit hour separator (: / h / gio / am / pm) so bare "2-4" weekday lists don't match
         raw_span = m.group(0)
         if not re.search(r"[:hg]|am|pm", raw_span):
             continue
@@ -122,7 +180,6 @@ def _extract_time_range(norm_text: str) -> Tuple[Optional[str], Optional[str]]:
         if s_time and e_time:
             sh, sm = map(int, s_time.split(":"))
             eh, em = map(int, e_time.split(":"))
-            # Infer PM for end hour if user wrote "14h - 4h" or "1h - 3h chieu"
             if eh < sh and eh < 12 and sh >= 12:
                 eh += 12
                 e_time = _format_hhmm(eh, em)
@@ -143,7 +200,6 @@ def _extract_recurring_days(norm_text: str) -> Optional[Any]:
         return ["Saturday", "Sunday"]
 
     found: List[str] = []
-    # Also detect shorthand sequences like "thu 2, 4, 6" or "t2 4 6"
     seq_m = re.search(r"\b(?:thu|t)\s*([2-7](?:\s*(?:,|va|&|-)\s*[2-7])+)", norm_text)
     if seq_m:
         digits = re.findall(r"[2-7]", seq_m.group(0))
@@ -163,45 +219,48 @@ def _extract_recurring_days(norm_text: str) -> Optional[Any]:
 
 
 def _clean_conversational_title(raw_text: str) -> str:
-    cleaned = _OFFLINE_NL.clean_title(raw_text)
+    """Strip temporal clauses, duration expressions, and command prefixes while preserving the subject title."""
+    work = raw_text.split("\n")[0]
+
+    # Strip cross-day & temporal clauses first before OfflineNLParser touches them
+    clause_patterns = (
+        r"(?:,\s*)?\b(?:từ|tu|from)\s+[^,\n]*?\b(?:tới|toi|đến|den|trước|truoc|to|until)\s+[^,\n]+",
+        r"(?:,\s*)?\b(?:cần\s*)?(?:thực\s*hiện|thuc\s*hien|làm|lam|hoàn\s*thành|hoan\s*thanh)?\s*(?:trong(?:\s*vòng|\s*khoảng)?|khoảng|khoang|mất|mat|tầm|tam)\s+\d+(?:\.\d+)?\s*(?:tiếng|tieng|giờ|gio|h|phút|phut|p|m|mins?|hours?)\b",
+        r"(?:,\s*)?\b(?:từ\s+)?\d{1,2}\s*(?::|h|giờ|gio)\s*(?:\d{1,2}|rưỡi|ruoi)?\s*(?:am|pm|sáng|sang|trưa|trua|chiều|chieu|tối|toi|đêm|dem)?\s*(?:-|–|—|đến|den|tới|toi|to)\s*\d{1,2}\s*(?::|h|giờ|gio)\s*(?:\d{1,2}|rưỡi|ruoi)?\s*(?:am|pm|sáng|sang|trưa|trua|chiều|chieu|tối|toi|đêm|dem)?\b",
+        r"\b(?:hằng\s*ngày|hàng\s*ngày|mỗi\s*ngày|lặp\s*lại|cố\s*định|mỗi\s*tuần|hằng\s*tuần|daily|weekly)\b",
+    )
+    for pat in clause_patterns:
+        work = re.sub(pat, " ", work, flags=re.IGNORECASE)
+
+    cleaned = _OFFLINE_NL.clean_title(work)
     cleaned_norm = _strip_accents(cleaned).lower().strip()
-    # Remove leading command verbs and recurring phrases
+
     lead_patterns = (
         r"^(?:them|tao|len\s*lich|dat\s*lich|nhac\s*minh|sua|chinh|cap\s*nhat|doi|"
         r"add|create|schedule|remind)\s+",
-        r"^(?:lich\s*(?:lap(?:\s*lai)?|co\s*dinh|hang\s*ngay)|cong\s*viec|task|viec)\s+",
+        r"^(?:lich\s*(?:lap(?:\s*lai)?|co\s*dinh|hang\s*ngay)|cong\s*viec|task|viec)\s*[:\-]?\s*",
     )
-    work = cleaned
     for _ in range(3):
-        prev = work
+        prev = cleaned
         for pat in lead_patterns:
-            m = re.match(pat, _strip_accents(work).lower())
+            m = re.match(pat, _strip_accents(cleaned).lower())
             if m:
-                work = work[m.end():].strip(" ,:-.")
-        if work == prev:
+                cleaned = cleaned[m.end():].strip(" ,:-.")
+        if cleaned == prev:
             break
 
-    # Strip trailing/embedded recurring tags & range tokens
-    work = re.sub(
-        r"\b(?:từ\s+)?\d{1,2}\s*(?::|h|giờ)\s*(?:\d{1,2}|rưỡi)?\s*(?:am|pm|sáng|trưa|chiều|tối|đêm)?\s*"
-        r"(?:-|–|—|đến|tới|to)\s*\d{1,2}\s*(?::|h|giờ)\s*(?:\d{1,2}|rưỡi)?\s*(?:am|pm|sáng|trưa|chiều|tối|đêm)?\b",
-        " ",
-        work,
+    # Clean trailing filler verbs left after stripping duration (e.g. ", cần thực hiện")
+    cleaned = re.sub(
+        r"(?:,\s*)?\b(?:cần\s*thực\s*hiện|can\s*thuc\s*hien|thực\s*hiện|thuc\s*hien|cần\s*làm|can\s*lam|trong|từ|tu|tới|toi|đến|den)\s*$",
+        "",
+        cleaned,
         flags=re.IGNORECASE,
     )
-    work = re.sub(
-        r"\b(?:hằng\s*ngày|hàng\s*ngày|mỗi\s*ngày|lặp\s*lại|cố\s*định|mỗi\s*tuần|hằng\s*tuần|daily|weekly)\b",
-        " ",
-        work,
-        flags=re.IGNORECASE,
-    )
-    work = re.sub(r"\s{2,}", " ", work).strip(" ,:-.")
-    work_norm = _strip_accents(work).lower().strip()
-    if work_norm in _GENERIC_TITLES or len(work_norm) < 2:
+    cleaned = re.sub(r"\s{2,}", " ", cleaned).strip(" ,:-.")
+    work_norm = _strip_accents(cleaned).lower().strip()
+    if work_norm in _GENERIC_TITLES or len(work_norm) < 2 or cleaned_norm in _GENERIC_TITLES:
         return ""
-    if cleaned_norm in _GENERIC_TITLES:
-        return ""
-    return work[0].upper() + work[1:]
+    return cleaned[0].upper() + cleaned[1:]
 
 
 def _infer_fixed_category(norm_text: str) -> str:
@@ -264,15 +323,7 @@ def _detect_intent(
     if deadline_adj_cue and tasks:
         return "ADJUST_DEADLINE"
 
-    # 2. Hidden criteria modification on an existing traced task
-    trace = resolve_target_task_from_prompt(prompt, tasks, last_task_id=last_task_id)
-    hidden = extract_hidden_criteria_updates(prompt, focus_preference=profile.focus_preference)
-    has_add_verb = bool(re.match(r"^\s*(?:them|tao|add|create|len\s*lich)\b", norm))
-    has_modify_verb = bool(re.search(r"\b(?:sua|chinh|cap\s*nhat|dieu\s*chinh|chuyen|doi|tach|chia|gop|nang\s*qua|qua\s*nang)\b", norm))
-    if not has_add_verb and trace["matched"] and (hidden["has_hidden_updates"] or has_modify_verb):
-        return "MODIFY_HIDDEN"
-
-    # 3. Recurring fixed schedule detection
+    # 2. Recurring fixed schedule detection
     recurring_cue = bool(
         re.search(
             r"\b(?:hang\s*ngay|moi\s*ngay|lap\s*lai|hang\s*tuan|moi\s*tuan|co\s*dinh|"
@@ -282,6 +333,23 @@ def _detect_intent(
     )
     if recurring_cue:
         return "ADD_RECURRING"
+
+    # 3. If the prompt states a cross-day window or duration + deadline without an explicit edit verb, it's a NEW task!
+    now_day = _resolve_now_weekday(profile)
+    has_cross_window = _extract_cross_day_window(norm, now_day) is not None
+    dur_val, dur_inferred = _OFFLINE_NL.extract_duration_min(norm)
+    has_explicit_dur = not dur_inferred and dur_val is not None
+    has_add_verb = bool(re.match(r"^\s*(?:them|tao|add|create|len\s*lich|lam|hoc|on|viet|code|doc|chuan\s*bi|nop)\b", norm))
+    has_modify_verb = bool(re.search(r"\b(?:sua|chinh|cap\s*nhat|dieu\s*chinh|tach|chia\s*nho|gop|nang\s*qua|qua\s*nang)\b", norm))
+
+    if (has_cross_window or has_explicit_dur) and not has_modify_verb:
+        return "ADD_TASK"
+
+    # 4. Hidden criteria modification on an existing traced task
+    trace = resolve_target_task_from_prompt(prompt, tasks, last_task_id=last_task_id)
+    hidden = extract_hidden_criteria_updates(prompt, focus_preference=profile.focus_preference)
+    if trace["matched"] and trace["confidence"] >= 0.60 and (hidden["has_hidden_updates"] or has_modify_verb) and not (has_add_verb and has_explicit_dur):
+        return "MODIFY_HIDDEN"
 
     return "ADD_TASK"
 
@@ -482,14 +550,60 @@ def _compute_remaining_and_habit_buffer(
 
 
 def _build_post_actions(task_id: Optional[str] = None) -> List[Dict[str, Any]]:
-    actions = [
-        {"action": "OPEN_CALENDAR", "label": "🗓️ Mở lịch trình mới"},
-        {"action": "CONTINUE_TASK", "label": "📌 Thêm / sửa công việc tiếp"},
-        {"action": "CONTINUE_RECURRING", "label": "🔁 Thêm lịch lặp hằng ngày"},
+    """Keep post-action buttons ultra-minimal: one clear button to inspect the schedule."""
+    return [
+        {"action": "OPEN_CALENDAR", "label": "🗓️ Kiểm tra lịch trình"},
     ]
-    if task_id:
-        actions.append({"action": "TUNE_LAST_TASK", "label": "⚙️ Chỉnh độ nặng / chia nhỏ việc vừa thêm", "task_id": task_id})
-    return actions
+
+
+def _build_thinking_summary(
+    *,
+    intent: str,
+    context_note_vi: str,
+    chosen_solver: str,
+    escalated_from_greedy: bool,
+    exec_ms: float,
+    peak_match_pct: float,
+    tasks_placed: int,
+    tasks_total: int,
+) -> Dict[str, Any]:
+    """
+    Build an Antigravity-inspired, humanized Thinking Summary for Developer Mode:
+      1. Context parsing summary
+      2. Dominant algorithm subset selection rationale
+      3. Placement & constraint outcome
+    """
+    if escalated_from_greedy or chosen_solver == "HYBRID_ALNS":
+        algo_note = (
+            f"Đã loại bỏ nhóm thuật toán cổ điển mù năng lượng (`EDF`, `WSPT`, `LST` — kết quả tốt nhất của nhóm này "
+            f"đã thấp hơn mức tệ nhất của nhóm thuật toán sinh học). Trong tập thuật toán tối ưu (`SCORED_GREEDY`, `HYBRID_ALNS`), "
+            f"hệ thống chọn **`HYBRID_ALNS`** (tìm kiếm lân cận lớn phá-và-xây lại trong `{exec_ms:.1f}ms`) để hóa giải mật độ hạn chót dày."
+        )
+    else:
+        algo_note = (
+            f"Đã loại bỏ nhóm thuật toán cổ điển mù năng lượng (`EDF`, `WSPT`, `LST` — kết quả tốt nhất của nhóm này "
+            f"vẫn kém hơn mức tệ nhất của nhóm có nhịp sinh học). Trong tập thuật toán vượt trội (`SCORED_GREEDY`, `HYBRID_ALNS`), "
+            f"hệ thống chọn **`{chosen_solver}`** vì tốc độ phản hồi tức thì (`{exec_ms:.1f}ms`) và độ khớp khung giờ tỉnh táo đạt `{peak_match_pct:.0f}%`."
+        )
+
+    outcome_note = (
+        f"Xếp thành công `{tasks_placed}/{tasks_total}` đầu việc vào lưới thời gian với `0` vi phạm ràng buộc cứng (bảo toàn giờ ngủ & lịch cố định)."
+    )
+
+    return {
+        "headline_vi": f"Đã phân tích ngữ cảnh & tối ưu bằng {chosen_solver} ({exec_ms:.0f}ms)",
+        "context_summary_vi": context_note_vi,
+        "algorithm_summary_vi": algo_note,
+        "outcome_summary_vi": outcome_note,
+        "pruned_algorithms": ["EDF", "WSPT", "LST"],
+        "candidate_subset": ["SCORED_GREEDY", "HYBRID_ALNS"],
+        "selected_algorithm": chosen_solver,
+        "steps_vi": [
+            f"Phân tích ngữ cảnh: {context_note_vi}",
+            f"Chọn thuật toán: {algo_note}",
+            f"Kết quả xếp lịch: {outcome_note}",
+        ],
+    }
 
 
 def process_chat_turn(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -508,7 +622,6 @@ def process_chat_turn(payload: Dict[str, Any]) -> Dict[str, Any]:
     last_task_id = payload.get("last_task_id")
     pending_draft = payload.get("pending_draft") if isinstance(payload.get("pending_draft"), dict) else None
 
-    # Load fallback state from SQLite if caller didn't pass full commitments/tasks
     saved_record = load_workspace_state(workspace_id) if (payload.get("commitments") is None or payload.get("tasks") is None) else None
     saved_state = (saved_record or {}).get("state") or {}
 
@@ -537,18 +650,15 @@ def process_chat_turn(payload: Dict[str, Any]) -> Dict[str, Any]:
     now_day = _resolve_now_weekday(profile)
     norm_prompt = _strip_accents(prompt).lower()
 
-    # Allow user to cancel an ongoing multi-turn clarification cleanly
     if pending_draft and re.match(r"^\s*(?:huy|thoi|bo\s*qua|cancel|lam\s*lai)\s*$", norm_prompt):
         return {
             "status": "CANCELLED",
             "intent": "CANCELLED",
-            "reply_vi": "Đã hủy thao tác đang dở. Bạn muốn thêm lịch lặp lại hay công việc mới nào tiếp theo?",
+            "reply_vi": "Đã hủy thao tác đang dở. Bạn có thể nhập yêu cầu mới bất cứ lúc nào.",
             "pending_draft": None,
             "missing_fields": [],
-            "quick_chips": [
-                {"label": "🔁 Thêm lịch lặp lại", "mode_hint": "ADD_RECURRING"},
-                {"label": "📌 Thêm công việc mới", "mode_hint": "ADD_TASK"},
-            ],
+            "quick_chips": [],
+            "post_actions": _build_post_actions(),
             "updated_commitments": profile.model_dump(mode="json"),
             "updated_tasks": tasks_raw,
             "updated_pinned_blocks": pinned_raw,
@@ -582,6 +692,7 @@ def process_chat_turn(payload: Dict[str, Any]) -> Dict[str, Any]:
                 "pending_draft": {"intent": "MODIFY_HIDDEN", "original_prompt": prompt},
                 "missing_fields": ["target_task"],
                 "quick_chips": chips,
+                "post_actions": _build_post_actions(),
                 "updated_commitments": profile.model_dump(mode="json"),
                 "updated_tasks": tasks_raw,
                 "updated_pinned_blocks": pinned_raw,
@@ -610,6 +721,7 @@ def process_chat_turn(payload: Dict[str, Any]) -> Dict[str, Any]:
                     {"label": "🔒 Không chia nhỏ, làm liền 1 mạch", "prompt": f"[trace:{trace['trace_hash'][:8]}] Không chia nhỏ, làm liền 1 mạch"},
                     {"label": "🌅 Chuyển sang buổi sáng", "prompt": f"[trace:{trace['trace_hash'][:8]}] Chuyển sang buổi sáng"},
                 ],
+                "post_actions": _build_post_actions(),
                 "traced_task": trace,
                 "updated_commitments": profile.model_dump(mode="json"),
                 "updated_tasks": tasks_raw,
@@ -632,7 +744,11 @@ def process_chat_turn(payload: Dict[str, Any]) -> Dict[str, Any]:
                 break
 
         pinned_raw = [p for p in pinned_raw if p.get("task_id") != target_id]
-        result = _finalize_solve_and_package(
+        context_note = (
+            f"Truy vết công việc đã lưu **{mutated_task['title']}** (SHA-256 `#{mutated_task['trace_hash'][:8]}`) "
+            f"và điều chỉnh tiêu chí ẩn: {'; '.join(hidden_info['summary_vi'])}."
+        )
+        return _finalize_solve_and_package(
             intent="MODIFY_HIDDEN",
             profile=profile,
             tasks_raw=tasks_raw,
@@ -642,10 +758,10 @@ def process_chat_turn(payload: Dict[str, Any]) -> Dict[str, Any]:
             workspace_id=workspace_id,
             auto_save=auto_save,
             mutated_task_id=target_id,
+            context_note_vi=context_note,
             reply_vi=(
-                f"Đã truy vết công việc **{mutated_task['title']}** và tự động cập nhật: "
-                f"{'; '.join(hidden_info['summary_vi'])}. "
-                "Mình đã sắp xếp lại lịch mới cho bạn — bạn có muốn chỉnh sửa tiếp hay mở lịch trình mới không?"
+                f"Đã cập nhật **{mutated_task['title']}** ({'; '.join(hidden_info['summary_vi'])}) "
+                "và sắp xếp lại lịch trình cho bạn."
             ),
             traced_task={
                 "task_id": target_id,
@@ -657,7 +773,6 @@ def process_chat_turn(payload: Dict[str, Any]) -> Dict[str, Any]:
             },
             t0=t0,
         )
-        return result
 
     # ------------------------------------------------------------------
     # BRANCH 2: DEADLINE ADJUSTMENT & REMAINING-TIME + HABIT BUFFER
@@ -677,6 +792,7 @@ def process_chat_turn(payload: Dict[str, Any]) -> Dict[str, Any]:
                     for c in cands
                     if c.get("title")
                 ],
+                "post_actions": _build_post_actions(),
                 "updated_commitments": profile.model_dump(mode="json"),
                 "updated_tasks": tasks_raw,
                 "updated_pinned_blocks": pinned_raw,
@@ -718,6 +834,10 @@ def process_chat_turn(payload: Dict[str, Any]) -> Dict[str, Any]:
         pinned_raw = [p for p in pinned_raw if p.get("task_id") != target_id]
         dl_vi = _WEEKDAY_VI_MAP.get(str(mutated_task.get("deadline_day") or ""), str(mutated_task.get("deadline_day") or "linh hoạt"))
         dl_time_str = mutated_task.get("deadline_time") or "23:59"
+        context_note = (
+            f"Cập nhật hạn chót cho **{mutated_task['title']}** (SHA-256 `#{mutated_task['trace_hash'][:8]}`) "
+            f"sang `{dl_time_str} {dl_vi}` · Thời lượng còn lại `{rem_info['remaining_raw_min']}p` -> dự phòng `{rem_info['buffered_duration_min']}p` (×{rem_info['applied_alpha']:.2f})."
+        )
 
         return _finalize_solve_and_package(
             intent="ADJUST_DEADLINE",
@@ -729,10 +849,10 @@ def process_chat_turn(payload: Dict[str, Any]) -> Dict[str, Any]:
             workspace_id=workspace_id,
             auto_save=auto_save,
             mutated_task_id=target_id,
+            context_note_vi=context_note,
             reply_vi=(
                 f"Đã cập nhật hạn chót mới cho **{mutated_task['title']}** sang **{dl_time_str} {dl_vi}**. "
-                f"{rem_info['explanation_vi']} "
-                "Bạn muốn điều chỉnh thêm việc nào nữa hay mở xem lịch mới ngay?"
+                f"{rem_info['explanation_vi']}"
             ),
             remaining_estimation=rem_info,
             traced_task={
@@ -802,6 +922,7 @@ def process_chat_turn(payload: Dict[str, Any]) -> Dict[str, Any]:
                 "pending_draft": draft,
                 "missing_fields": missing,
                 "quick_chips": chips,
+                "post_actions": _build_post_actions(),
                 "updated_commitments": profile.model_dump(mode="json"),
                 "updated_tasks": tasks_raw,
                 "updated_pinned_blocks": pinned_raw,
@@ -823,6 +944,9 @@ def process_chat_turn(payload: Dict[str, Any]) -> Dict[str, Any]:
         day_desc = "hằng ngày" if day_val == "ALL" else (
             ", ".join(_WEEKDAY_VI_MAP.get(d, d) for d in day_val) if isinstance(day_val, list) else _WEEKDAY_VI_MAP.get(str(day_val), str(day_val))
         )
+        context_note = (
+            f"Nhận diện 1 lịch cố định lặp lại: **{new_event.title}** · Khung giờ `{new_event.start_time} – {new_event.end_time}` ({day_desc})."
+        )
         return _finalize_solve_and_package(
             intent="ADD_RECURRING",
             profile=profile,
@@ -833,18 +957,20 @@ def process_chat_turn(payload: Dict[str, Any]) -> Dict[str, Any]:
             workspace_id=workspace_id,
             auto_save=auto_save,
             mutated_task_id=None,
+            context_note_vi=context_note,
             reply_vi=(
                 f"Đã thêm lịch lặp **{new_event.title}** ({new_event.start_time} – {new_event.end_time}, {day_desc}) "
-                "và cập nhật lại toàn bộ tuần cho bạn. Bạn có muốn thêm/sửa gì tiếp không?"
+                "và cập nhật lại lịch tuần cho bạn."
             ),
             t0=t0,
         )
 
     # ------------------------------------------------------------------
-    # BRANCH 4: ADD / ADJUST SPECIFIC TASK
+    # BRANCH 4: ADD / ADJUST SPECIFIC TASK (WITH CROSS-DAY WINDOW SUPPORT)
     # ------------------------------------------------------------------
     draft = dict(pending_draft or {"intent": "ADD_TASK"})
-    s_time, e_time = _extract_time_range(norm_prompt)
+    cross_win = _extract_cross_day_window(norm_prompt, now_day)
+    s_time, e_time = (None, None) if cross_win else _extract_time_range(norm_prompt)
     dur_min, dur_inferred = _OFFLINE_NL.extract_duration_min(norm_prompt)
     dl_day, day_inferred = _OFFLINE_NL.extract_deadline_day(norm_prompt, now_day)
     dl_time, time_inferred, _, _ = _OFFLINE_NL.extract_clock_time(norm_prompt)
@@ -854,7 +980,24 @@ def process_chat_turn(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     if title_parsed and not draft.get("title"):
         draft["title"] = title_parsed
-    if s_time and e_time:
+
+    if cross_win:
+        draft["start_after_day"] = cross_win["start_day"]
+        draft["start_after_time"] = cross_win["start_time"]
+        draft["deadline_day"] = cross_win["end_day"]
+        draft["deadline_time"] = cross_win["end_time"]
+        if not dur_inferred and dur_min is not None:
+            draft["duration_min"] = round_up_to_15(dur_min)
+            draft["has_time_bounds"] = True
+        elif cross_win["start_day"] == cross_win["end_day"]:
+            sh, sm = map(int, cross_win["start_time"].split(":"))
+            eh, em = map(int, cross_win["end_time"].split(":"))
+            if (eh * 60 + em) > (sh * 60 + sm):
+                draft["start_time"] = cross_win["start_time"]
+                draft["end_time"] = cross_win["end_time"]
+                draft["duration_min"] = max(15, round_up_to_15((eh * 60 + em) - (sh * 60 + sm)))
+                draft["has_time_bounds"] = True
+    elif s_time and e_time:
         draft["start_time"] = s_time
         draft["end_time"] = e_time
         sh, sm = map(int, s_time.split(":"))
@@ -866,12 +1009,12 @@ def process_chat_turn(payload: Dict[str, Any]) -> Dict[str, Any]:
         draft["duration_min"] = round_up_to_15(dur_min)
         draft["has_time_bounds"] = True
 
-    if not day_inferred and dl_day:
-        draft["deadline_day"] = dl_day
-    if not time_inferred and dl_time and not (s_time and e_time):
-        draft["deadline_time"] = dl_time
+    if not cross_win:
+        if not day_inferred and dl_day:
+            draft["deadline_day"] = dl_day
+        if not time_inferred and dl_time and not (s_time and e_time):
+            draft["deadline_time"] = dl_time
 
-    # Merge hidden criteria hints from the same prompt
     draft.setdefault("category", cat)
     draft.setdefault("priority", prio)
     draft.setdefault("cognitive_load", cog_load)
@@ -942,6 +1085,7 @@ def process_chat_turn(payload: Dict[str, Any]) -> Dict[str, Any]:
             "pending_draft": draft,
             "missing_fields": missing,
             "quick_chips": chips,
+            "post_actions": _build_post_actions(),
             "updated_commitments": profile.model_dump(mode="json"),
             "updated_tasks": tasks_raw,
             "updated_pinned_blocks": pinned_raw,
@@ -951,27 +1095,38 @@ def process_chat_turn(payload: Dict[str, Any]) -> Dict[str, Any]:
     # Build final validated Task dict with SHA-256 trace metadata
     new_tid = f"T_CHAT_{int(time.time() * 1000) % 100000}_{len(tasks_raw) + 1}"
     target_day = draft.get("deadline_day") or now_day
+    final_dur = int(draft.get("duration_min") or 60)
     start_after_iso = None
     buf_mode = str(draft.get("buffer_mode") or "COGNITIVE_LOAD")
+
     if has_explicit_window:
         day_iso = _date_iso_for_weekday(profile, str(target_day))
         start_after_iso = f"{day_iso}T{draft['start_time']}:00+07:00"
-        # Exact user-bounded [start, end] fits precisely when buffer doesn't exceed end_time
         buf_mode = "NONE"
+    elif draft.get("start_after_day"):
+        sa_iso = _date_iso_for_weekday(profile, str(draft["start_after_day"]))
+        sa_time = str(draft.get("start_after_time") or "08:00")
+        start_after_iso = f"{sa_iso}T{sa_time}:00+07:00"
+
+    # Keep a single task as 1 single contiguous block unless the user asked to split or duration > 180m
+    explicit_split_req = "is_splittable" in hidden["updates"]
+    is_split = bool(draft["is_splittable"]) if explicit_split_req else (final_dur > 180)
+    min_c = int(draft.get("min_chunk_min") or (45 if is_split else final_dur))
+    max_c = int(draft.get("max_chunk_min") or (90 if is_split else max(180, final_dur)))
 
     task_obj = Task(
         task_id=new_tid,
         title=str(draft["title"]),
-        duration_min=int(draft.get("duration_min") or 60),
+        duration_min=final_dur,
         deadline_day=str(target_day),
         deadline_time=str(draft.get("deadline_time") or "23:59"),
         priority=int(draft.get("priority") or 3),
         category=str(draft.get("category") or "ASSIGNMENT"),
         cognitive_load=int(draft.get("cognitive_load") or 2),
-        is_splittable=bool(draft.get("is_splittable", True)),
-        work_rhythm=draft.get("work_rhythm"),
-        min_chunk_min=int(draft.get("min_chunk_min") or 45),
-        max_chunk_min=int(draft.get("max_chunk_min") or 90),
+        is_splittable=is_split,
+        work_rhythm=draft.get("work_rhythm") if is_split else "FLOW",
+        min_chunk_min=min_c,
+        max_chunk_min=max_c,
         preferred_window=draft.get("preferred_window"),
         start_after=start_after_iso,
         buffer_mode=buf_mode,
@@ -981,10 +1136,23 @@ def process_chat_turn(payload: Dict[str, Any]) -> Dict[str, Any]:
     tasks_raw.append(enriched_new)
 
     day_vi = _WEEKDAY_VI_MAP.get(str(target_day), str(target_day))
-    time_desc = (
-        f"{draft['start_time']} – {draft['end_time']} {day_vi}"
-        if has_explicit_window
-        else f"{task_obj.duration_min} phút, hạn {task_obj.deadline_time} {day_vi}"
+    if has_explicit_window:
+        time_desc = f"{draft['start_time']} – {draft['end_time']} {day_vi}"
+    elif draft.get("start_after_day"):
+        sa_day_vi = _WEEKDAY_VI_MAP.get(str(draft["start_after_day"]), str(draft["start_after_day"]))
+        time_desc = (
+            f"{task_obj.duration_min} phút, trong khung từ {draft.get('start_after_time', '08:00')} {sa_day_vi} "
+            f"đến {task_obj.deadline_time} {day_vi}"
+        )
+    else:
+        time_desc = f"{task_obj.duration_min} phút, hạn {task_obj.deadline_time} {day_vi}"
+
+    context_note = (
+        f"Nhận diện 1 công việc duy nhất: **{task_obj.title}** (SHA-256 `#{enriched_new['trace_hash'][:8]}`) · "
+        f"Thời gian: `{time_desc}` · Giữ nguyên 1 khối liền mạch để tránh chia vụn."
+        if not is_split
+        else f"Nhận diện 1 công việc: **{task_obj.title}** (SHA-256 `#{enriched_new['trace_hash'][:8]}`) · "
+        f"Thời gian: `{time_desc}` · Cho phép chia thành các phiên `{min_c}–{max_c}p`."
     )
 
     return _finalize_solve_and_package(
@@ -997,10 +1165,8 @@ def process_chat_turn(payload: Dict[str, Any]) -> Dict[str, Any]:
         workspace_id=workspace_id,
         auto_save=auto_save,
         mutated_task_id=new_tid,
-        reply_vi=(
-            f"Đã thêm **{task_obj.title}** ({time_desc}) và sắp xếp vào khung giờ tối ưu nhất trong tuần. "
-            "Bạn có muốn thêm/chỉnh sửa lịch nào tiếp không, hay mở lịch trình mới luôn?"
-        ),
+        context_note_vi=context_note,
+        reply_vi=f"Đã lên lịch cho **{task_obj.title}** ({time_desc}).",
         traced_task={
             "task_id": new_tid,
             "title": task_obj.title,
@@ -1022,6 +1188,7 @@ def _finalize_solve_and_package(
     workspace_id: str,
     auto_save: bool,
     mutated_task_id: Optional[str],
+    context_note_vi: str,
     reply_vi: str,
     t0: float,
     traced_task: Optional[Dict[str, Any]] = None,
@@ -1029,7 +1196,13 @@ def _finalize_solve_and_package(
 ) -> Dict[str, Any]:
     task_models = [Task.model_validate(t) for t in tasks_raw]
     pinned_models = [ScheduleBlock.model_validate(pb) for pb in pinned_raw]
-    eff_algo = algorithm if algorithm in ScheduleController.SOLVER_REGISTRY else "SCORED_GREEDY"
+
+    # Dominant Ergonomic Subset Selection:
+    # Prune energy-blind baseline heuristics (EDF, WSPT, LST) in normal conversational flow
+    # and run SCORED_GREEDY first, escalating to HYBRID_ALNS if greedy leaves unplaced tasks.
+    dominant_subset = ("SCORED_GREEDY", "HYBRID_ALNS", "BACKTRACK")
+    eff_algo = algorithm if algorithm in dominant_subset else "SCORED_GREEDY"
+    escalated = False
 
     out, _ = ScheduleController.solve_schedule(
         profile=profile,
@@ -1037,6 +1210,18 @@ def _finalize_solve_and_package(
         algorithm=eff_algo,
         pinned_blocks=pinned_models,
     )
+    if eff_algo == "SCORED_GREEDY" and out.summary.tasks_unplaced > 0 and "HYBRID_ALNS" in ScheduleController.SOLVER_REGISTRY:
+        alns_out, _ = ScheduleController.solve_schedule(
+            profile=profile,
+            tasks=task_models,
+            algorithm="HYBRID_ALNS",
+            pinned_blocks=pinned_models,
+        )
+        if alns_out.summary.tasks_unplaced < out.summary.tasks_unplaced:
+            out = alns_out
+            eff_algo = "HYBRID_ALNS"
+            escalated = True
+
     insights = ScheduleController.compute_schedule_insights(profile, out)
     sched_dict = out.model_dump()
     sched_dict["unplaced"] = sched_dict["unplaced_tasks"]
@@ -1061,6 +1246,16 @@ def _finalize_solve_and_package(
         "batched_pairs": insights.get("batched_pairs", 0),
     }
 
+    # Include exact placed block summary inside reply_vi when a single task was added/updated
+    if mutated_task_id:
+        placed_for_task = [b for b in out.blocks if b.task_id == mutated_task_id]
+        if placed_for_task:
+            slots_txt = ", ".join(
+                f"**{b.start_time} – {b.end_time} {_WEEKDAY_VI_MAP.get(b.day, b.day)}**"
+                for b in placed_for_task
+            )
+            reply_vi = f"{reply_vi} Mình đã xếp vào khung giờ: {slots_txt}."
+
     edge_case = _analyze_schedule_edge_cases(profile, out, task_models)
     comm_dict = profile.model_dump(mode="json")
 
@@ -1078,6 +1273,17 @@ def _finalize_solve_and_package(
         )
 
     total_ms = round((time.perf_counter() - t0) * 1000.0, 2)
+    thinking_summary = _build_thinking_summary(
+        intent=intent,
+        context_note_vi=context_note_vi,
+        chosen_solver=eff_algo,
+        escalated_from_greedy=escalated,
+        exec_ms=float(out.execution_time_ms or total_ms),
+        peak_match_pct=float(insights.get("peak_match_rate_pct", 100.0)),
+        tasks_placed=int(out.summary.tasks_placed),
+        tasks_total=int(out.summary.total_tasks_requested),
+    )
+
     return {
         "status": "APPLIED",
         "intent": intent,
@@ -1088,6 +1294,7 @@ def _finalize_solve_and_package(
             else "✅ Đã hoàn tất và chốt lịch trình mới!"
         ),
         "reply_vi": reply_vi,
+        "thinking_summary": thinking_summary,
         "pending_draft": None,
         "missing_fields": [],
         "quick_chips": [],

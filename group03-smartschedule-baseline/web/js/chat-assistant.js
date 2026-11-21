@@ -8,6 +8,40 @@
 import { state } from "./state.js";
 import { CATEGORY_LABELS, WINDOW_LABELS, computeBufferPreview, esc } from "./utils.js";
 
+function _renderThinkingStage(thinkingSummary) {
+  if (!state.developerMode || !thinkingSummary) return "";
+  const pruned = Array.isArray(thinkingSummary.pruned_algorithms)
+    ? thinkingSummary.pruned_algorithms.map((p) => (typeof p === "string" ? p : p?.key || "")).filter(Boolean).join(", ")
+    : "EDF, WSPT, LST";
+  const selected = thinkingSummary.selected_algorithm || state.activeSolver || "SCORED_GREEDY";
+
+  return `
+    <details class="chat-thinking-stage" open>
+      <summary class="chat-thinking-summary">
+        <span class="chat-thinking-title">💭 ${esc(thinkingSummary.headline_vi || "Quá trình suy nghĩ & chọn thuật toán")}</span>
+        <span class="badge badge-info mono">${esc(selected)}</span>
+      </summary>
+      <div class="chat-thinking-body">
+        <div class="chat-thinking-step">
+          <strong>1. Đọc ngữ cảnh & tiêu chí ẩn:</strong>
+          <span>${esc(thinkingSummary.context_summary_vi || "")}</span>
+        </div>
+        <div class="chat-thinking-step">
+          <strong>2. Sàng lọc tập thuật toán:</strong>
+          <span>${esc(thinkingSummary.algorithm_summary_vi || "")}</span>
+        </div>
+        <div class="chat-thinking-step">
+          <strong>3. Kết quả thực thi:</strong>
+          <span>${esc(thinkingSummary.outcome_summary_vi || "")}</span>
+        </div>
+        <div class="chat-thinking-pills mono">
+          <span class="thinking-pill is-pruned" title="Trường hợp tốt nhất của nhóm này vẫn kém hơn trường hợp tệ nhất của nhóm có nhịp sinh học">Đã loại: ${esc(pruned)}</span>
+          <span class="thinking-pill is-selected">Tối ưu: ${esc(selected)}</span>
+        </div>
+      </div>
+    </details>`;
+}
+
 function _renderHiddenParamDebugCard(task) {
   if (!state.developerMode || !task) return "";
   const prev = computeBufferPreview(task.duration_min, task.cognitive_load || 2, state.commitments);
@@ -20,7 +54,7 @@ function _renderHiddenParamDebugCard(task) {
 
   return `
     <div class="dev-hidden-card">
-      <div class="dev-hidden-title">🛠️ Thông số ẩn (Developer Mode)</div>
+      <div class="dev-hidden-title">🛠️ Thông số ẩn của công việc</div>
       <div class="dev-hidden-grid mono">
         <span>SHA-256: <strong>${esc(hashShort)}</strong></span>
         <span>Nhịp sinh học: <strong>${esc(WINDOW_LABELS[task.preferred_window || "ANYTIME"] || task.preferred_window || "ANYTIME")}</strong></span>
@@ -111,6 +145,7 @@ function _renderMessageBubble(msg) {
     <div class="chat-msg chat-msg-ai">
       <div class="chat-avatar" aria-hidden="true">AI</div>
       <div class="chat-bubble ai">
+        ${_renderThinkingStage(msg.thinkingSummary)}
         ${finalizedHtml}
         <div class="chat-ai-text">${esc(msg.text).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")}</div>
         ${remHtml}
@@ -122,37 +157,17 @@ function _renderMessageBubble(msg) {
     </div>`;
 }
 
-function _buildTaskQuickReferenceChips() {
-  const tasks = state.tasks || [];
-  if (!tasks.length) return "";
-  return `
-    <div class="chat-trace-strip">
-      <span class="chat-trace-label">Chỉnh nhanh việc đã lưu:</span>
-      <div class="chat-trace-chips">
-        ${tasks
-          .slice(0, 6)
-          .map((t) => {
-            const hashShort = t.trace_hash ? String(t.trace_hash).slice(0, 6) : "";
-            const tag = hashShort ? `[trace:${hashShort}] ` : "";
-            const devMeta = state.developerMode && hashShort ? ` <span class="mono" style="opacity:.7;">#${hashShort}</span>` : "";
-            return `<button type="button" class="chat-trace-pill" data-insert-task-ref="${esc(tag + t.title)}" title="Nhấp để gắn tên công việc vào khung nhập">${esc(t.title)}${devMeta}</button>`;
-          })
-          .join("")}
-      </div>
-    </div>`;
-}
-
 function _renderSuggestionCards(compact = false) {
   return `
     <div class="chat-suggestions ${compact ? "is-compact" : ""}">
-      <button type="button" class="chat-suggest-card" data-suggest-mode="ADD_RECURRING" data-suggest-template="Thêm lịch lặp hằng ngày: ">
+      <button type="button" class="chat-suggest-card ${state.chatModeHint === "ADD_RECURRING" ? "active" : ""}" data-suggest-mode="ADD_RECURRING">
         <div class="chat-suggest-icon">🔁</div>
         <div class="chat-suggest-copy">
           <strong>Thêm / Đổi lịch lặp hằng ngày</strong>
           <span>Lớp học, bữa ăn, giờ ngủ, tập thể dục lặp lại theo tuần</span>
         </div>
       </button>
-      <button type="button" class="chat-suggest-card" data-suggest-mode="ADD_TASK" data-suggest-template="Thêm công việc: ">
+      <button type="button" class="chat-suggest-card ${state.chatModeHint === "ADD_TASK" ? "active" : ""}" data-suggest-mode="ADD_TASK">
         <div class="chat-suggest-icon">📌</div>
         <div class="chat-suggest-copy">
           <strong>Thêm / Chỉnh 1 công việc riêng biệt</strong>
@@ -172,13 +187,18 @@ function _renderChatSurface(container, { compact = false } = {}) {
     MODIFY_HIDDEN: "🧠 Chỉnh tiêu chí ẩn",
     ADJUST_DEADLINE: "⏳ Đổi deadline",
   };
+  const modePlaceholders = {
+    AUTO: "VD: Làm bài tập môn Computational Thinking, từ 19h ngày thứ 3, tới 21h ngày thứ 5, cần thực hiện trong 2 tiếng...",
+    ADD_RECURRING: "Nhập tên lịch lặp & khung giờ (VD: Tập gym từ 17:30 đến 18:30 thứ 2, 4, 6)...",
+    ADD_TASK: "Nhập việc cần làm, khung giờ hoặc thời lượng & hạn chót (VD: Làm bài tập Giải tích 2 tiếng trước 21h thứ 5)...",
+  };
 
   const heroHtml = !hasMessages && !compact
     ? `
       <div class="chat-empty-hero">
-        <div class="chat-hero-badge">Trợ lý lịch trình thông minh</div>
+        <div class="chat-hero-badge">Trợ lý xếp lịch</div>
         <h1>Hôm nay bạn muốn sắp xếp lịch trình thế nào?</h1>
-        <p>Chỉ cần nhắn tự nhiên việc cần làm cùng khung giờ (hoặc hạn chót). Nếu thiếu thông tin, mình sẽ hỏi lại nhẹ nhàng và xếp gọn cho bạn trong vài giây.</p>
+        <p>Nhắn tự nhiên việc cần làm cùng khung giờ (hoặc hạn chót). Nếu thiếu thông tin, mình sẽ hỏi lại ngắn gọn.</p>
         ${_renderSuggestionCards(false)}
       </div>`
     : "";
@@ -187,10 +207,10 @@ function _renderChatSurface(container, { compact = false } = {}) {
     ? `
       <div class="copilot-head">
         <div>
-          <strong>Trợ lý chỉnh lịch trực tiếp</strong>
-          <div style="font-size:11.5px;color:var(--p-muted);">Nhắn để dời, thêm hoặc gỡ kẹt — lịch bên trái sẽ đổi mượt theo</div>
+          <strong>Trợ lý tinh chỉnh trực tiếp</strong>
+          <div style="font-size:11.5px;color:var(--p-muted);">Nhắn để dời, thêm hoặc gỡ kẹt ngay trên lịch</div>
         </div>
-        <button type="button" class="btn btn-sm btn-ghost" id="btnCopilotExpandChat" title="Mở rộng ra khung chat chính">⤢</button>
+        <button type="button" class="btn btn-sm btn-ghost" id="btnToggleCopilotDrawer" title="Thu gọn trợ lý để mở rộng lịch trình" aria-label="Thu gọn trợ lý">⇥</button>
       </div>
       ${!hasMessages ? _renderSuggestionCards(true) : ""}`
     : "";
@@ -212,7 +232,7 @@ function _renderChatSurface(container, { compact = false } = {}) {
 
   const pendingBadge = state.pendingChatDraft
     ? `<div class="chat-mode-pill is-pending">
-         <span>Đang hỏi bổ sung cho: <strong>${esc(state.pendingChatDraft.title || "lịch mới")}</strong></span>
+         <span>Đang bổ sung thông tin cho: <strong>${esc(state.pendingChatDraft.title || "lịch mới")}</strong></span>
          <button type="button" data-cancel-pending-draft aria-label="Hủy thao tác đang dở">✕ Hủy</button>
        </div>`
     : "";
@@ -226,13 +246,11 @@ function _renderChatSurface(container, { compact = false } = {}) {
       </div>
       <div class="chat-composer-wrap">
         ${activeModeBadge || pendingBadge ? `<div class="chat-status-pills">${activeModeBadge}${pendingBadge}</div>` : ""}
-        ${_buildTaskQuickReferenceChips()}
-        ${hasMessages && !compact ? _renderSuggestionCards(true) : ""}
         <form class="chat-composer-form" data-chat-form>
           <textarea class="chat-input"
                     data-chat-input
                     rows="${compact ? 2 : 1}"
-                    placeholder="VD: Làm bài tập Toán từ 19:00 đến 20:30 thứ 5, hoặc: Bài tập Lý nặng quá chia nhỏ ra giúp mình..."
+                    placeholder="${esc(modePlaceholders[state.chatModeHint] || modePlaceholders.AUTO)}"
                     ${state.chatBusy ? "disabled" : ""}></textarea>
           <button type="submit" class="btn btn-primary chat-send-btn" ${state.chatBusy ? "disabled" : ""}>
             ${state.chatBusy ? "Đang xếp..." : "Gửi"}
@@ -250,8 +268,8 @@ function _wireChatContainer(container, callbacks) {
   const inputEl = container.querySelector("[data-chat-input]");
   const formEl = container.querySelector("[data-chat-form]");
 
-  container.querySelector("#btnCopilotExpandChat")?.addEventListener("click", () => {
-    callbacks.onOpenChatView?.();
+  container.querySelector("#btnToggleCopilotDrawer")?.addEventListener("click", () => {
+    callbacks.onToggleCopilotDrawer?.();
   });
 
   formEl?.addEventListener("submit", (e) => {
@@ -272,13 +290,11 @@ function _wireChatContainer(container, callbacks) {
   container.querySelectorAll("[data-suggest-mode]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const mode = btn.getAttribute("data-suggest-mode");
-      const tmpl = btn.getAttribute("data-suggest-template") || "";
-      state.chatModeHint = mode;
+      state.chatModeHint = state.chatModeHint === mode ? "AUTO" : mode;
       state.pendingChatDraft = null;
       renderChatWorkspaces(callbacks);
       const nextInp = container.querySelector("[data-chat-input]");
       if (nextInp) {
-        nextInp.value = tmpl;
         nextInp.focus();
       }
     });
@@ -293,15 +309,6 @@ function _wireChatContainer(container, callbacks) {
     callbacks.onSendChatPrompt("hủy", state.chatModeHint);
   });
 
-  container.querySelectorAll("[data-insert-task-ref]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const refTxt = btn.getAttribute("data-insert-task-ref") || "";
-      if (!inputEl) return;
-      inputEl.value = `${refTxt}: ${inputEl.value}`.trimStart();
-      inputEl.focus();
-    });
-  });
-
   container.querySelectorAll("[data-chat-chip-prompt]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const p = btn.getAttribute("data-chat-chip-prompt");
@@ -313,24 +320,8 @@ function _wireChatContainer(container, callbacks) {
   container.querySelectorAll("[data-chat-post-action]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const act = btn.getAttribute("data-chat-post-action");
-      const tid = btn.getAttribute("data-chat-post-task");
       if (act === "OPEN_CALENDAR") {
         callbacks.onOpenCalendarView?.();
-      } else if (act === "CONTINUE_TASK") {
-        state.chatModeHint = "ADD_TASK";
-        renderChatWorkspaces(callbacks);
-        container.querySelector("[data-chat-input]")?.focus();
-      } else if (act === "CONTINUE_RECURRING") {
-        state.chatModeHint = "ADD_RECURRING";
-        renderChatWorkspaces(callbacks);
-        container.querySelector("[data-chat-input]")?.focus();
-      } else if (act === "TUNE_LAST_TASK" && tid) {
-        const taskObj = (state.tasks || []).find((t) => t.task_id === tid);
-        const ref = taskObj ? `[trace:${String(taskObj.trace_hash || "").slice(0, 8)}] ${taskObj.title}` : tid;
-        if (inputEl) {
-          inputEl.value = `${ref} nặng quá, chia nhỏ ra và xếp lúc mình tỉnh táo nhất`;
-          inputEl.focus();
-        }
       }
     });
   });

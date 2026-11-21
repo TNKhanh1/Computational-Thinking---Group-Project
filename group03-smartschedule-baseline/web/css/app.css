@@ -1362,9 +1362,24 @@ body:not(.view-calendar-active):not(.app-developer-mode) .calendar-context-only 
   display: none !important;
 }
 
+/* Brand Home Click Target */
+.brand-home-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+  border-radius: var(--r-md);
+  padding: 3px 6px;
+  transition: background-color var(--t-fast) var(--ease-out);
+}
+.brand-home-btn:hover {
+  background: var(--p-surface);
+}
+
 /* Left Vertical Collapsible Taskbar Slider */
 .left-nav-sidebar {
-  width: 256px;
+  width: 244px;
   flex-shrink: 0;
   position: sticky;
   top: 72px;
@@ -1381,23 +1396,10 @@ body:not(.view-calendar-active):not(.app-developer-mode) .calendar-context-only 
   box-shadow: var(--sh-sm);
   overflow-y: auto;
   overflow-x: hidden;
-  transition: width 240ms var(--ease-out), padding 240ms var(--ease-out);
 }
 
 .left-nav-sidebar.collapsed {
-  width: 66px;
-  padding: 14px 10px;
-}
-.left-nav-sidebar.collapsed .left-nav-label,
-.left-nav-sidebar.collapsed .left-nav-heading,
-.left-nav-sidebar.collapsed .left-nav-weeks,
-.left-nav-sidebar.collapsed .dev-task-inspector-wrap {
-  display: none;
-}
-.left-nav-sidebar.collapsed .left-nav-item,
-.left-nav-sidebar.collapsed .dev-mode-switch {
-  justify-content: center;
-  padding: 10px;
+  display: none !important;
 }
 
 .left-nav-section {
@@ -1593,10 +1595,14 @@ body:not(.view-calendar-active):not(.app-developer-mode) .calendar-context-only 
   padding: 10px 12px;
   border-radius: var(--r-md);
 }
-.chat-suggest-card:hover {
+.chat-suggest-card:hover,
+.chat-suggest-card.active {
   transform: translateY(-2px);
   border-color: var(--p-accent);
   box-shadow: var(--sh-md);
+}
+.chat-suggest-card.active {
+  background: var(--p-accent-soft);
 }
 .chat-suggest-icon {
   width: 36px;
@@ -1863,12 +1869,88 @@ body:not(.view-calendar-active):not(.app-developer-mode) .calendar-context-only 
   height: 38px;
 }
 
+/* Antigravity-Style Summarized Thinking Stage (Developer Mode) */
+.chat-thinking-stage {
+  border: 1px solid var(--p-accent-border);
+  background: var(--p-card-subtle);
+  border-radius: var(--r-md);
+  padding: 8px 12px;
+  font-size: 12px;
+}
+.chat-thinking-summary {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-weight: 700;
+  color: var(--p-accent);
+  user-select: none;
+}
+.chat-thinking-body {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--p-line);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--p-ink-soft);
+  line-height: 1.45;
+}
+.chat-thinking-step {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.chat-thinking-step strong {
+  color: var(--p-ink);
+  font-size: 11.5px;
+}
+.chat-thinking-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+.thinking-pill {
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  font-size: 11px;
+}
+.thinking-pill.is-pruned {
+  background: var(--st-danger-bg);
+  color: var(--st-danger);
+  border: 1px solid var(--st-danger-border);
+}
+.thinking-pill.is-selected {
+  background: var(--st-ok-bg);
+  color: var(--st-ok);
+  border: 1px solid var(--st-ok-border);
+  font-weight: 700;
+}
+
 /* Split Calendar + Right Docked Copilot Drawer (Google Docs Style) */
 .calendar-with-copilot-layout {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 360px;
   gap: 16px;
   align-items: start;
+}
+.calendar-with-copilot-layout.copilot-collapsed {
+  grid-template-columns: minmax(0, 1fr);
+}
+.calendar-with-copilot-layout.copilot-collapsed .calendar-copilot-drawer {
+  display: none !important;
+}
+.copilot-expand-fab {
+  position: fixed;
+  right: 22px;
+  bottom: 24px;
+  z-index: 45;
+  box-shadow: var(--sh-lg);
+  border-radius: var(--r-pill);
+  padding: 10px 16px;
 }
 .calendar-main-stage {
   min-width: 0;

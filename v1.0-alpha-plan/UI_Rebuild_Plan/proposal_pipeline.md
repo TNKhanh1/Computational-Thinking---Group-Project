@@ -21,12 +21,14 @@ flowchart LR
     ThanhTrai -->|"3. Công tắc cho nhóm làm app"| CheDoDev["🛠️ Chế Độ Nhà Phát Triển (Developer Mode)\n(Bật lên mới thấy các thông số ẩn)"]
 ```
 
-### Thanh Trượt Dọc Bên Trái (Taskbar Slider)
-- Nằm gọn ở mép trái màn hình, có thể **bấm thu gọn thành một dải biểu tượng nhỏ** hoặc **kéo mở ra** bất cứ lúc nào để không chiếm diện tích.
-- Chỉ có **3 lựa chọn rõ ràng**:
-  1. **💬 Khung Trò Chuyện (Mặc định):** Quay về màn hình chat lớn để tiếp tục nhắn cho trợ lý.
-  2. **🗓️ Lịch Trình Các Tuần:** Mở bảng lịch tuần trực quan để xem thời gian biểu của tuần này, tuần trước hoặc tuần sau.
-  3. **🛠️ Chế Độ Nhà Phát Triển (Developer Mode):** Một công tắc nhỏ nằm ở góc dưới cùng dành riêng cho nhóm phát triển kiểm tra hệ thống (người dùng bình thường sẽ không bị làm phiền).
+### Thanh Trượt Dọc Bên Trái & Nút Trang Chủ SmartSchedule
+- Bấm vào logo **`SS SmartSchedule`** ở góc trên bên trái sẽ luôn đưa bạn quay thẳng về **`Trợ lý xếp lịch`**.
+- Khi bấm đóng thanh trượt bên trái, toàn bộ thanh trượt (kể cả hộp Developer Mode ở dưới cùng) sẽ **ẩn đi hoàn toàn**, trả lại 100% không gian thoáng đãng cho màn hình chính.
+- Đã lược bỏ mục *"Chuyển nhanh tuần"* ở thanh bên trái và bỏ mục *"Nền năng lượng sinh học"* / *"Tiện ích nhanh"* trong nút Cài đặt góc phải trên để giao diện tinh gọn tối đa.
+- Chỉ giữ lại các lựa chọn cốt lõi:
+  1. **💬 Trợ lý xếp lịch (Mặc định):** Quay về màn hình trò chuyện chính.
+  2. **🗓️ Lịch Trình Tuần:** Mở bảng lịch tuần trực quan đi kèm khung **`Trợ lý tinh chỉnh trực tiếp`** ở bên phải (bấm nút mũi tên `⇥` sẽ thu gọn khung chat phải vào trong để bảng lịch mở rộng toàn màn hình).
+  3. **🛠️ Developer Mode:** Khi bật lên, trợ lý sẽ hiển thị thêm hộp **💭 Quá trình suy nghĩ (Thinking Stage)** tóm tắt dễ hiểu cách AI hiểu câu lệnh (kể cả các câu phức hợp như *"từ 19h thứ 3 tới 21h thứ 5, làm trong 2 tiếng"* là 1 việc duy nhất) và lý do AI loại bỏ các thuật toán cơ bản để chọn thuật toán tối ưu theo nhịp sinh học, kèm nút **`🗓️ Kiểm tra lịch trình`** ngay dưới mỗi câu trả lời.
 
 ---
 

@@ -21,10 +21,12 @@
           <button type="button" class="btn btn-ghost btn-icon" id="btnToggleLeftSidebar" title="Bật / Tắt thanh điều hướng bên trái" aria-label="Bật / Tắt thanh bên trái" aria-expanded="true">
             <svg class="icon" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
           </button>
-          <div class="brand-mark" aria-hidden="true">SS</div>
-          <div class="brand-title">
-            <strong>SmartSchedule</strong>
-            <span id="activeSuiteBadge" class="dev-mode-only">Đang tải...</span>
+          <div class="brand-home-btn" id="btnBrandHome" role="button" tabindex="0" title="Quay về Trợ lý xếp lịch" aria-label="Quay về Trợ lý xếp lịch">
+            <div class="brand-mark" aria-hidden="true">SS</div>
+            <div class="brand-title">
+              <strong>SmartSchedule</strong>
+              <span id="activeSuiteBadge" class="dev-mode-only">Đang tải...</span>
+            </div>
           </div>
 
           <div class="week-pill calendar-context-only" id="topbarWeekPill">
@@ -117,18 +119,8 @@
                   <span>Ẩn khung giờ ngủ (00–06h)</span>
                   <input type="checkbox" id="chkSettingHideSleep" checked />
                 </label>
-                <label class="settings-toggle">
-                  <span>Nền năng lượng sinh học</span>
-                  <input type="checkbox" id="chkSettingEnergy" checked />
-                </label>
-              </div>
-
-              <div class="settings-section">
-                <div class="popover-section-title">Tiện ích nhanh</div>
-                <button type="button" class="settings-action" id="btnOpenDisruption">
-                  <span>Báo sự cố đột xuất & Sửa lịch</span>
-                  <svg class="icon" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>
-                </button>
+                <input type="checkbox" id="chkSettingEnergy" class="sr-only" hidden checked />
+                <button type="button" id="btnOpenDisruption" class="sr-only" hidden aria-hidden="true"></button>
               </div>
 
               <div class="settings-section" id="exportPopover">
@@ -160,9 +152,9 @@
       <aside class="left-nav-sidebar" id="leftNavSidebar" aria-label="Thanh điều hướng chính">
         <div class="left-nav-section">
           <div class="left-nav-heading">Không gian làm việc</div>
-          <button type="button" class="left-nav-item active" id="navBtnChat" data-view-tab="chat" title="Khung Chatbot chính">
+          <button type="button" class="left-nav-item active" id="navBtnChat" data-view-tab="chat" title="Trợ lý xếp lịch">
             <span class="left-nav-ico" aria-hidden="true">💬</span>
-            <span class="left-nav-label">Khung Chatbot</span>
+            <span class="left-nav-label">Trợ lý xếp lịch</span>
           </button>
           <button type="button" class="left-nav-item" id="navBtnCalendar" data-view-tab="calendar" title="Xem lịch trình các tuần">
             <span class="left-nav-ico" aria-hidden="true">🗓️</span>
@@ -172,16 +164,6 @@
             <span class="left-nav-ico" aria-hidden="true">📋</span>
             <span class="left-nav-label">Danh Sách Việc</span>
           </button>
-        </div>
-
-        <div class="left-nav-section left-nav-weeks">
-          <div class="left-nav-heading">Chuyển nhanh tuần</div>
-          <div class="left-week-pills">
-            <button type="button" class="btn btn-sm btn-ghost" id="btnSideWeekPrev" title="Tuần trước">‹ Trước</button>
-            <button type="button" class="btn btn-sm btn-tonal" id="btnSideWeekCurrent" title="Tuần hiện tại">Tuần này</button>
-            <button type="button" class="btn btn-sm btn-ghost" id="btnSideWeekNext" title="Tuần sau">Sau ›</button>
-          </div>
-          <div class="left-nav-stat" id="leftSidebarTaskBadge">0 công việc đang theo dõi</div>
         </div>
 
         <!-- DEVELOPER MODE TOGGLE & HIDDEN PARAMETER INSPECTOR -->
@@ -211,9 +193,12 @@
 
         <!-- CALENDAR + RIGHT DOCKED AI COPILOT -->
         <div class="view-panel" id="viewCalendar" role="tabpanel">
-          <div class="calendar-with-copilot-layout">
+          <div class="calendar-with-copilot-layout" id="calendarCopilotLayout">
             <div class="calendar-main-stage" id="calendarMainStage"></div>
-            <aside class="calendar-copilot-drawer" id="calendarCopilotDrawer" aria-label="Trợ lý chỉnh lịch trực tiếp"></aside>
+            <aside class="calendar-copilot-drawer" id="calendarCopilotDrawer" aria-label="Trợ lý tinh chỉnh trực tiếp"></aside>
+            <button type="button" class="btn btn-primary copilot-expand-fab" id="btnExpandCopilotDrawer" title="Mở lại Trợ lý tinh chỉnh trực tiếp" hidden>
+              💬 Mở trợ lý
+            </button>
           </div>
         </div>
 

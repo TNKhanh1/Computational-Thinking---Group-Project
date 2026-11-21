@@ -146,7 +146,73 @@ def test_chat_turn_multi_turn_clarification_and_recurring_schedule(tmp_path, mon
     assert d2["execution_time_ms"] < 10000.0
     fixed = d2["updated_commitments"]["fixed_events"]
     assert any(ev["start_time"] == "18:00" and ev["end_time"] == "19:00" for ev in fixed)
-    assert len(d2["post_actions"]) >= 2
+    assert any(act["action"] == "OPEN_CALENDAR" and "Kiểm tra lịch trình" in act["label"] for act in d2["post_actions"])
+
+
+def test_cross_day_window_single_task_parsing_and_thinking_stage(tmp_path, monkeypatch) -> None:
+    """User prompt 'từ 19h ngày thứ 3, tới 21h ngày thứ 5, cần thực hiện trong 2 tiếng' must be 1 task, not 3."""
+    monkeypatch.setenv("SMARTSCHEDULE_DB_PATH", str(tmp_path / "chat_cross_day.db"))
+    comm = _base_commitments()
+    preset_tasks = [
+        enrich_task_trace_metadata(
+            {
+                "task_id": "T_P1",
+                "title": "Đọc tài liệu tham khảo",
+                "duration_min": 60,
+                "deadline_day": "Wednesday",
+                "category": "SELF_STUDY",
+            }
+        ),
+        enrich_task_trace_metadata(
+            {
+                "task_id": "T_P2",
+                "title": "Ôn thi giữa kỳ Đại số tuyến tính",
+                "duration_min": 90,
+                "deadline_day": "Friday",
+                "category": "EXAM_PREP",
+            }
+        ),
+        enrich_task_trace_metadata(
+            {
+                "task_id": "T_P3",
+                "title": "Nộp bài tập nhóm Vật lý đại cương",
+                "duration_min": 90,
+                "deadline_day": "Thursday",
+                "category": "ASSIGNMENT",
+            }
+        ),
+    ]
+
+    r = client.post(
+        "/api/chat/turn",
+        json={
+            "prompt": "Làm bài tập môn Computational Thinking, từ 19h ngày thứ 3, tới 21h ngày thứ 5, cần thực hiện trong 2 tiếng",
+            "commitments": comm,
+            "tasks": preset_tasks,
+            "auto_save": False,
+        },
+    )
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["status"] == "APPLIED", f"Expected APPLIED single task, got: {d}"
+    assert d["intent"] == "ADD_TASK"
+    assert len(d["updated_tasks"]) == len(preset_tasks) + 1
+
+    new_task = [t for t in d["updated_tasks"] if t["task_id"] == d["mutated_task_id"]][0]
+    assert "Computational Thinking" in new_task["title"]
+    assert new_task["duration_min"] == 120
+    assert new_task["deadline_day"] == "Thursday"
+    assert new_task["deadline_time"] == "21:00"
+    assert new_task["is_splittable"] is False
+    assert new_task["start_after"] is not None and "2026-11-03T19:00" in new_task["start_after"]
+
+    # Verify Developer Mode Thinking Stage summary is returned with dominant algorithm pruning
+    ts = d["thinking_summary"]
+    assert ts is not None
+    assert ts["selected_algorithm"] in ("SCORED_GREEDY", "HYBRID_ALNS")
+    pruned_keys = {p if isinstance(p, str) else p["key"] for p in ts["pruned_algorithms"]}
+    assert {"EDF", "WSPT", "LST"}.issubset(pruned_keys)
+    assert any(act["label"] == "🗓️ Kiểm tra lịch trình" for act in d["post_actions"])
 
 
 def test_chat_turn_modify_hidden_via_sha256_and_deadline_remaining_buffer(tmp_path, monkeypatch) -> None:
@@ -289,6 +355,7 @@ def test_chat_first_ui_shell_left_sidebar_copilot_and_dev_mode() -> None:
     """Verify UI serves Antigravity-style default chat, left sidebar slider, calendar right copilot, and Developer Mode."""
     html = client.get("/").text
     for required_id in (
+        "btnBrandHome",
         "leftNavSidebar",
         "btnToggleLeftSidebar",
         "navBtnChat",
@@ -298,8 +365,13 @@ def test_chat_first_ui_shell_left_sidebar_copilot_and_dev_mode() -> None:
         "viewChat",
         "calendarMainStage",
         "calendarCopilotDrawer",
+        "btnExpandCopilotDrawer",
     ):
         assert required_id in html, f"Missing Chat-First UI element: {required_id}"
+
+    assert "Trợ lý xếp lịch" in html
+    assert "Chuyển nhanh tuần" not in html
+    assert "Nền năng lượng sinh học" not in html
 
     # Default entry view must be #viewChat active (not #viewCalendar active)
     assert '<div class="view-panel active" id="viewChat"' in html
@@ -310,8 +382,14 @@ def test_chat_first_ui_shell_left_sidebar_copilot_and_dev_mode() -> None:
     assert "renderChatWorkspaces" in chat_js.text
     assert "renderDevHiddenTaskInspector" in chat_js.text
     assert "dev-hidden-card" in chat_js.text
+    assert "chat-thinking-stage" in chat_js.text
+    assert "btnToggleCopilotDrawer" in chat_js.text
+    assert "Chỉnh nhanh việc đã lưu" not in chat_js.text
+    assert "data-suggest-template" not in chat_js.text
 
     app_js = client.get("/app.js").text
     assert "handleChatPrompt" in app_js
     assert "setDeveloperMode" in app_js
     assert "setLeftSidebarOpen" in app_js
+    assert "setCopilotCollapsed" in app_js
+    assert "Kiểm tra lịch trình" in app_js

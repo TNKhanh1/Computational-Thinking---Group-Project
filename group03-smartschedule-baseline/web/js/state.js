@@ -47,6 +47,7 @@ export const state = {
   // UI view, Left Taskbar Slider & Developer Mode
   activeView: "chat", // chat (default entry) | calendar | list | weights | benchmark | showcase
   leftSidebarOpen: true,
+  copilotCollapsed: false,
   developerMode: false,
   devPanelOpen: false,
   theme: localStorage.getItem("smartschedule_theme") || "botanical", // botanical | light | dark
