@@ -209,8 +209,7 @@ export function renderListView(container, callbacks) {
             </div>
             <div class="chrono-item-actions">
               <button type="button" class="btn btn-sm" data-list-pin="${esc(b.block_id)}">${it.isPinned ? "Bỏ ghim" : "Ghim"}</button>
-              <button type="button" class="btn btn-sm" data-list-checkin="${esc(b.block_id)}">Check-in</button>
-              <button type="button" class="btn btn-sm" data-list-timer="${esc(b.block_id)}">Đếm giờ</button>
+              <button type="button" class="btn btn-sm" data-list-checkin="${esc(b.block_id)}">Hoàn thành</button>
               <button type="button" class="btn btn-sm btn-tonal" data-list-inspect="${esc(b.block_id)}">Chi tiết</button>
             </div>
           </div>`;
@@ -290,8 +289,5 @@ export function renderListView(container, callbacks) {
   );
   container.querySelectorAll("[data-list-checkin]").forEach((btn) =>
     btn.addEventListener("click", () => callbacks.onInspectBlock(btn.getAttribute("data-list-checkin"), "checkin"))
-  );
-  container.querySelectorAll("[data-list-timer]").forEach((btn) =>
-    btn.addEventListener("click", () => callbacks.onInspectBlock(btn.getAttribute("data-list-timer"), "timer"))
   );
 }

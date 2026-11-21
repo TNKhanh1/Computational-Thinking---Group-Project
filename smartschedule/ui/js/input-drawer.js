@@ -12,6 +12,7 @@ import {
   FOCUS_PROFILES,
   LOAD_LABELS,
   PRIORITY_LABELS,
+  USER_LOAD_LABELS,
   WEEKDAYS_EN,
   WEEKDAYS_VI_SHORT,
   WINDOW_LABELS,
@@ -21,6 +22,7 @@ import {
   dateAndTimeToDeadlineDay,
   esc,
   fmtISODate,
+  humanizeWeekdaysVi,
   parseWeekStartDate,
 } from "./utils.js";
 
@@ -108,8 +110,15 @@ function renderTasksTab(bodyEl, modalRoot, callbacks) {
         <div style="min-width:0;">
           <strong>${esc(t.title)}</strong>
           <div class="mono" style="font-size:11px;color:var(--p-muted);">
-            ${esc(t.task_id)} · ${t.duration_min}p · P${t.priority} · L${t.cognitive_load || 2} · ${esc(CATEGORY_LABELS[t.category] || t.category)}
-            ${t.deadline_day ? `· Hạn ${esc(t.deadline_day)} ${esc(t.deadline_time || "")}` : "· Linh hoạt"}
+            ${
+              state.developerMode
+                ? `${esc(t.task_id)} · ${t.duration_min}p · P${t.priority} · L${t.cognitive_load || 2} · ${esc(CATEGORY_LABELS[t.category] || t.category)}${
+                    t.deadline_day ? ` · Hạn ${esc(t.deadline_day)} ${esc(t.deadline_time || "")}` : " · Linh hoạt"
+                  }`
+                : `${t.duration_min}p · Ưu tiên ${t.priority}/5 · ${esc(USER_LOAD_LABELS[t.cognitive_load || 2] || "Mức vừa")} · ${esc(
+                    CATEGORY_LABELS[t.category] || t.category
+                  )}${t.deadline_day ? ` · Hạn ${esc(humanizeWeekdaysVi(t.deadline_day))} ${esc(t.deadline_time || "")}` : " · Linh hoạt"}`
+            }
           </div>
         </div>
         <div style="display:flex;gap:6px;flex-shrink:0;">
@@ -195,15 +204,15 @@ function renderTasksTab(bodyEl, modalRoot, callbacks) {
         <div style="display:flex;flex-direction:column;gap:12px;">
           <div class="form-grid-2">
             <div class="field">
-              <label for="inpTaskLoad">Độ nặng đầu óc (cognitive_load)</label>
+              <label for="inpTaskLoad">${state.developerMode ? "Độ nặng đầu óc (cognitive_load)" : "Mức tập trung cần thiết"}</label>
               <select id="inpTaskLoad" class="select">
                 ${[1, 2, 3]
-                  .map((l) => `<option value="${l}" ${initLoad === l ? "selected" : ""}>${LOAD_LABELS[l]}</option>`)
+                  .map((l) => `<option value="${l}" ${initLoad === l ? "selected" : ""}>${state.developerMode ? LOAD_LABELS[l] : USER_LOAD_LABELS[l]}</option>`)
                   .join("")}
               </select>
             </div>
             <div class="field">
-              <label for="inpTaskWindow">Khung giờ muốn làm (preferred_window)</label>
+              <label for="inpTaskWindow">${state.developerMode ? "Khung giờ muốn làm (preferred_window)" : "Khung giờ bạn muốn làm"}</label>
               <select id="inpTaskWindow" class="select">
                 ${Object.entries(WINDOW_LABELS)
                   .map(([k, lbl]) => `<option value="${k}" ${(editing?.preferred_window || "ANYTIME") === k ? "selected" : ""}>${lbl}</option>`)
@@ -213,7 +222,7 @@ function renderTasksTab(bodyEl, modalRoot, callbacks) {
           </div>
 
           <div class="field">
-            <label>Cách chia buổi học (Gộp gọn is_splittable + work_rhythm)</label>
+            <label>${state.developerMode ? "Cách chia buổi học (Gộp gọn is_splittable + work_rhythm)" : "Cách chia buổi học"}</label>
             <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;">
               <label class="toggle-label"><input type="radio" name="radSplitMode" value="single" ${!initSplit ? "checked" : ""} /> 🔒 Làm liền 1 buổi</label>
               <label class="toggle-label"><input type="radio" name="radSplitMode" value="split" ${initSplit ? "checked" : ""} /> ✂️ Chia nhiều phiên</label>
@@ -234,7 +243,7 @@ function renderTasksTab(bodyEl, modalRoot, callbacks) {
 
           <div class="form-grid-2">
             <div class="field">
-              <label>Không làm trước (start_after — Ngày & Giờ)</label>
+              <label>${state.developerMode ? "Không làm trước (start_after — Ngày & Giờ)" : "Thời điểm sớm nhất có thể bắt đầu"}</label>
               <div style="display:grid;grid-template-columns:1fr 110px;gap:6px;">
                 <input type="date" id="inpStartAfterDate" class="input mono" min="${minDate}" max="${maxDate}" value="${editStartDate}" />
                 <input type="time" id="inpStartAfterTime" class="input mono" value="${editStartTime}" />
@@ -252,7 +261,7 @@ function renderTasksTab(bodyEl, modalRoot, callbacks) {
           </div>
 
           <div class="field">
-            <label>Phải làm sau công việc (depends_on — chọn theo tên)</label>
+            <label>${state.developerMode ? "Phải làm sau công việc (depends_on — chọn theo tên)" : "Phải làm sau công việc khác"}</label>
             <div class="pill-choices" id="dependsOnChoices">
               ${
                 otherTasks.length > 0

@@ -517,10 +517,11 @@ class ScheduleController:
         extra_minutes: int = 0,
         overrun_pct: float = 0.0,
         algorithm: str = "EDF",
+        target_duration_min: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         Fix A9 (Scenario T05 / Use Case UC9):
-        1. Re-compute buffered estimate after adding overrun to raw estimate (Feature 001 FR7).
+        1. Re-compute buffered estimate after adding overrun (or setting target duration) to raw estimate (Feature 001 FR7).
         2. Repair the schedule locally using LocalRepairEngine.repair_overrun() instead of Full Rebuild
            so unaffected blocks keep high stability (>= 90% Pattern 8).
         """
@@ -535,7 +536,9 @@ class ScheduleController:
             t_copy = t.model_copy(deep=True)
             if t_copy.task_id == task_id:
                 target_old_min = t_copy.get_planned_duration_min()
-                if extra_minutes > 0:
+                if target_duration_min is not None and target_duration_min > 0:
+                    raw_new = max(15, int(target_duration_min))
+                elif extra_minutes > 0:
                     raw_new = t_copy.duration_min + extra_minutes
                 elif overrun_pct > 0:
                     raw_new = int(round(t_copy.duration_min * (1.0 + overrun_pct / 100.0)))

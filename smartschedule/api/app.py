@@ -565,12 +565,16 @@ def api_repair_schedule(payload: Dict[str, Any] = Body(...)):
 @app.post("/api/progress")
 @app.post("/api/overrun")
 def api_task_overrun(payload: Dict[str, Any] = Body(...)):
-    """Simulate Task Duration Overrun (Scenario T05 / Use Case UC9)."""
+    """Simulate Task Duration Overrun or Set Target Task Duration (Scenario T05 / Use Case UC9)."""
     try:
         profile, tasks, algorithm, _ = _extract_profile_and_tasks(payload)
         task_id = str(payload.get("task_id") or payload.get("block_id") or (tasks[0].task_id if tasks else ""))
         extra_min = int(payload.get("extra_min") or payload.get("extra_minutes") or 0)
         overrun_pct = float(payload.get("overrun_pct") or 30.0)
+        raw_target_dur = payload.get("target_duration_min")
+        if raw_target_dur is None:
+            raw_target_dur = payload.get("set_duration_min")
+        target_duration_min = max(15, int(raw_target_dur)) if raw_target_dur is not None else None
 
         res = ScheduleController.handle_task_overrun(
             profile=profile,
@@ -579,6 +583,7 @@ def api_task_overrun(payload: Dict[str, Any] = Body(...)):
             extra_minutes=extra_min,
             overrun_pct=overrun_pct,
             algorithm=algorithm,
+            target_duration_min=target_duration_min,
         )
         return {
             "task_id": res["task_id"],

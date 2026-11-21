@@ -8,7 +8,7 @@
  */
 
 import { state } from "./state.js";
-import { CATEGORY_LABELS, LOAD_LABELS, WEEKDAYS_EN, esc, formatDeadlineCountdown, resolveNowSlot } from "./utils.js";
+import { CATEGORY_LABELS, LOAD_LABELS, USER_LOAD_LABELS, WEEKDAYS_EN, esc, formatDeadlineCountdown, humanizeWeekdaysVi, resolveNowSlot } from "./utils.js";
 
 export function showToast(message, tone = "ok") {
   const stack = document.getElementById("toastStack");
@@ -175,158 +175,203 @@ export function renderTestSuitePopover(popoverEl, callbacks) {
   });
 }
 
+function _humanizeBlockReason(reasonObj, block) {
+  const code = typeof reasonObj === "string" ? "REASON" : String(reasonObj?.code || "INFO").toUpperCase();
+  const rawText = typeof reasonObj === "string" ? reasonObj : String(reasonObj?.text || "");
+  const load = Number(block?.cognitive_load || 2);
+  const loadDesc = USER_LOAD_LABELS[load] || "Mức vừa";
+  const energyVal = Number(reasonObj?.energy_level ?? block?.energy_level);
+  const slotEnergyDesc = Number.isFinite(energyVal)
+    ? energyVal >= 2.5
+      ? "khung giờ tỉnh táo cao"
+      : energyVal >= 1.7
+        ? "khung giờ tập trung vừa"
+        : "khung giờ trống phù hợp"
+    : "khung giờ trống phù hợp";
+
+  if (code === "BEFORE_DEADLINE") {
+    const dueLabel = humanizeWeekdaysVi(reasonObj?.due || block?.deadline_str || "");
+    return {
+      tag: "Kịp hạn",
+      text: dueLabel ? `Hoàn thành kịp trước hạn chót (${dueLabel}).` : "Hoàn thành kịp trước hạn chót.",
+    };
+  }
+  if (code === "ENERGY_MATCH") {
+    return {
+      tag: "Nhịp sinh học",
+      text: `Phù hợp với ${slotEnergyDesc} trong ngày của bạn.`,
+    };
+  }
+  if (code === "ENERGY_FALLBACK") {
+    return {
+      tag: "Kịp tiến độ",
+      text: "Giờ tỉnh táo nhất đã kín nên app xếp vào khung giờ trống sớm nhất để bạn kịp hạn.",
+    };
+  }
+  if (code === "BREAK_AFTER") {
+    const mins = Number(reasonObj?.rest_min || 15);
+    return {
+      tag: "Nghỉ ngơi",
+      text: `Tự động chừa ${mins} phút nghỉ giải lao ngay sau phiên học dài để tránh mệt mỏi.`,
+    };
+  }
+  if (code === "ESTIMATE_BUFFER") {
+    const est = reasonObj?.estimate_min;
+    const plan = reasonObj?.planned_min;
+    return {
+      tag: "Dự phòng giờ",
+      text:
+        est && plan
+          ? `Đã tính sẵn thêm thời gian dự phòng (${est}p → ${plan}p) phòng khi làm lâu hơn dự kiến.`
+          : "Đã cộng thêm thời gian dự phòng để hạn chế trễ dây chuyền.",
+    };
+  }
+  if (code === "BATCHED_CATEGORY") {
+    const cat = CATEGORY_LABELS[reasonObj?.category] || reasonObj?.category || "cùng nhóm";
+    return {
+      tag: "Học liền mạch",
+      text: `Đặt gần công việc thuộc nhóm ${cat} để giữ mạch tập trung, đỡ phải chuyển qua lại nhiều chủ đề.`,
+    };
+  }
+  if (code === "AFTER_PREREQ") {
+    const depIds = Array.isArray(reasonObj?.depends_on) ? reasonObj.depends_on : [];
+    const depNames = depIds
+      .map((id) => state.tasks.find((t) => t.task_id === id)?.title || id)
+      .filter(Boolean);
+    return {
+      tag: "Đúng thứ tự",
+      text: depNames.length
+        ? `Xếp sau khi bạn đã hoàn thành việc cần làm trước: ${depNames.join(", ")}.`
+        : "Xếp đúng sau công việc cần hoàn thành trước đó.",
+    };
+  }
+  if (code === "CRUNCH_RELAXED") {
+    return {
+      tag: "Lịch dày",
+      text: "Tuần này nhiều việc sát hạn nên app rút bớt khoảng nghỉ đệm để bạn vẫn làm kịp.",
+    };
+  }
+  if (code === "OVERRUN_EXTENSION" || code === "MOVED_BY_REPAIR") {
+    return {
+      tag: "Điều chỉnh lịch",
+      text: "Đã tự động sắp xếp lại khung giờ sau khi cập nhật lịch trình hoặc thời lượng.",
+    };
+  }
+  if (
+    ["SCORED_GREEDY", "HYBRID_ALNS", "BACKTRACK", "WSPT", "LST", "EDF", "EARLIEST_FREE_GAP"].includes(code) ||
+    rawText.trim().startsWith("[")
+  ) {
+    const prio = Number(reasonObj?.priority ?? block?.priority ?? 3);
+    const prioText = prio >= 5 ? "rất cao" : prio === 4 ? "cao" : prio === 3 ? "trung bình" : "linh hoạt";
+    return {
+      tag: "Ưu tiên xếp lịch",
+      text: `Việc này có mức ưu tiên ${prioText} (${loadDesc.toLowerCase()}) nên được xếp vào ${slotEnergyDesc}.`,
+    };
+  }
+
+  return {
+    tag: "Lý do xếp lịch",
+    text: humanizeWeekdaysVi(rawText.replace(/^\[[^\]]+\]\s*/, "").trim() || "Phù hợp với quỹ thời gian trống hiện có của bạn."),
+  };
+}
+
 export function renderBlockInspectorModal(modalEl, block, focusSection, callbacks) {
+  const isDev = Boolean(state.developerMode);
   const nowSlot = resolveNowSlot(state.commitments);
   const pinnedIds = new Set((state.pinnedBlocks || []).map((b) => b.block_id));
   const isPinned = pinnedIds.has(block.block_id) || block.state === "PINNED";
   const doneInfo = state.completedBlocks[block.block_id];
+  const srcTask = state.tasks.find((t) => t.task_id === block.task_id);
+  const currentTaskDur = Math.max(15, Number(srcTask?.duration_min || block.duration_min || 60));
   const load = Number(block.cognitive_load || 2);
+  const energyVal = Number(block.energy_level);
+  const userEnergyLabel = Number.isFinite(energyVal)
+    ? energyVal >= 2.5
+      ? "Giờ tỉnh táo cao"
+      : energyVal >= 1.7
+        ? "Giờ tập trung vừa"
+        : "Giờ năng lượng thấp"
+    : "Khung giờ trong ngày";
 
   const reasonsHtml = (block.reasons || []).length
     ? (block.reasons || [])
         .map((r) => {
-          const code = typeof r === "string" ? "REASON" : r.code || "INFO";
-          const text = typeof r === "string" ? r : r.text || JSON.stringify(r);
+          if (isDev) {
+            const code = typeof r === "string" ? "REASON" : r.code || "INFO";
+            const text = typeof r === "string" ? r : r.text || JSON.stringify(r);
+            return `<div class="summary-row" style="align-items:flex-start;">
+              <span class="badge badge-neutral mono">${esc(code)}</span>
+              <span style="flex:1;">${esc(text)}</span>
+            </div>`;
+          }
+          const friendly = _humanizeBlockReason(r, block);
           return `<div class="summary-row" style="align-items:flex-start;">
-            <span class="badge badge-neutral mono">${esc(code)}</span>
-            <span style="flex:1;">${esc(text)}</span>
+            <span class="badge badge-neutral">${esc(friendly.tag)}</span>
+            <span style="flex:1;">${esc(friendly.text)}</span>
           </div>`;
         })
         .join("")
-    : `<div style="font-size:12.5px;color:var(--p-muted);">Xếp theo thứ tự ưu tiên của thuật toán ${esc(state.activeSolver)}.</div>`;
-
-  // Initialize timer for this block if different
-  if (state.timer.blockId !== block.block_id) {
-    if (state.timer.intervalId) clearInterval(state.timer.intervalId);
-    state.timer = {
-      blockId: block.block_id,
-      totalSec: 25 * 60,
-      remainingSec: 25 * 60,
-      running: false,
-      intervalId: null,
-    };
-  }
-
-  const fmtTimer = (sec) => {
-    const m = Math.floor(sec / 60);
-    const s = sec % 60;
-    return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-  };
+    : `<div style="font-size:12.5px;color:var(--p-muted);">${
+        isDev
+          ? `Xếp theo thứ tự ưu tiên của thuật toán ${esc(state.activeSolver)}.`
+          : "Được xếp vào khung giờ trống phù hợp nhất với độ ưu tiên và hạn hoàn thành của bạn."
+      }</div>`;
 
   modalEl.querySelector("#blockModalTitle").textContent = block.title || block.task_id;
   const body = modalEl.querySelector("#blockModalBody");
   body.innerHTML = `
     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-      <span class="badge badge-dark mono">${esc(block.day)} ${esc(block.start_time)}–${esc(block.end_time)} (${block.duration_min}p)</span>
+      <span class="badge badge-dark mono">${esc(isDev ? block.day : humanizeWeekdaysVi(block.day))} ${esc(block.start_time)}–${esc(block.end_time)} (${block.duration_min}p)</span>
       <span class="badge badge-neutral">${esc(CATEGORY_LABELS[block.category] || block.category)}</span>
-      <span class="badge ${load === 3 ? "badge-danger" : load === 2 ? "badge-warn" : "badge-ok"}">${LOAD_LABELS[load] || `L${load}`}</span>
-      <span class="badge badge-info">Năng lượng E${block.energy_level || "?"}</span>
+      <span class="badge ${load === 3 ? "badge-danger" : load === 2 ? "badge-warn" : "badge-ok"}">${isDev ? LOAD_LABELS[load] || `L${load}` : USER_LOAD_LABELS[load] || "Mức vừa"}</span>
+      <span class="badge badge-info">${isDev ? `Năng lượng E${block.energy_level || "?"}` : esc(userEnergyLabel)}</span>
       <span class="badge badge-neutral">${esc(formatDeadlineCountdown(block.deadline_slot, nowSlot))}</span>
       ${isPinned ? `<span class="badge badge-dark">📌 Đã ghim</span>` : ""}
     </div>
 
     <!-- Tại sao xếp giờ này? -->
     <div style="display:flex;flex-direction:column;gap:6px;">
-      <h4>Tại sao thuật toán xếp giờ này?</h4>
+      <h4>${isDev ? "Tại sao thuật toán xếp giờ này?" : "Vì sao ứng dụng chọn khung giờ này?"}</h4>
       <div style="display:flex;flex-direction:column;gap:6px;">${reasonsHtml}</div>
     </div>
 
-    <!-- Focus Timer -->
-    <div class="timer-box" id="secFocusTimer">
-      <div>
-        <div style="font-size:11.5px;color:var(--p-inv-muted);text-transform:uppercase;letter-spacing:.04em;">Focus Timer</div>
-        <div class="timer-clock mono" id="timerClockDisplay">${fmtTimer(state.timer.remainingSec)}</div>
-      </div>
-      <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end;">
-        <div style="display:flex;gap:4px;">
-          ${[25, 45, 90]
-            .map(
-              (m) =>
-                `<button type="button" class="btn btn-sm" style="background:#2f3747;border-color:#414b5e;color:#fff;" data-timer-preset="${m}">${m}p</button>`
-            )
-            .join("")}
-        </div>
-        <div style="display:flex;gap:6px;">
-          <button type="button" class="btn btn-primary btn-sm" id="btnTimerToggle">${state.timer.running ? "Tạm dừng" : "Bắt đầu"}</button>
-          <button type="button" class="btn btn-sm" style="background:#2f3747;border-color:#414b5e;color:#fff;" id="btnTimerReset">Đặt lại</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Check-in thực tế M7 & Báo phát sinh -->
+    <!-- Check-in thực tế & Điều chỉnh thời lượng -->
     <div class="form-grid-2">
       <div class="card" style="padding:14px;display:flex;flex-direction:column;gap:8px;" id="secCheckinM7">
-        <h4>Check-in thời gian thực tế (M7)</h4>
+        <h4>${isDev ? "Check-in thời gian thực tế (M7)" : "Xác nhận hoàn thành"}</h4>
         <div class="field">
-          <label for="inpActualMin">Số phút thực tế đã làm</label>
+          <label for="inpActualMin">Số phút thực tế bạn đã làm</label>
           <input type="number" id="inpActualMin" class="input mono" min="5" step="5" value="${doneInfo?.actual_min || block.duration_min}" />
         </div>
-        <button type="button" class="btn btn-primary btn-sm" id="btnSubmitCheckin">Ghi nhận hoàn thành M7</button>
+        <button type="button" class="btn btn-primary btn-sm" id="btnSubmitCheckin">${isDev ? "Ghi nhận hoàn thành M7 (xóa khỏi lịch)" : "Đã làm xong &amp; xóa khỏi lịch"}</button>
+        <span style="font-size:11px;color:var(--p-muted);">Lưu thời gian thực tế và giải phóng khung giờ cho việc khác.</span>
       </div>
 
-      <div class="card" style="padding:14px;display:flex;flex-direction:column;gap:8px;">
-        <h4>Báo phát sinh / Tràn giờ (Overrun)</h4>
+      <div class="card" style="padding:14px;display:flex;flex-direction:column;gap:10px;">
+        <h4>${isDev ? "Báo phát sinh / Đặt lại thời lượng" : "Thay đổi thời lượng việc này"}</h4>
         <div class="field">
-          <label for="inpOverrunExtra">Cần thêm bao nhiêu phút?</label>
-          <input type="number" id="inpOverrunExtra" class="input mono" min="15" step="15" value="30" />
+          <label for="inpOverrunExtra">Cần thêm bao nhiêu phút phát sinh?</label>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <input type="number" id="inpOverrunExtra" class="input mono" min="15" step="15" value="30" style="width:92px;" />
+            <button type="button" class="btn btn-danger btn-sm" id="btnTriggerOverrun" style="flex:1;">Thêm giờ &amp; xếp lại</button>
+          </div>
         </div>
-        <button type="button" class="btn btn-danger btn-sm" id="btnTriggerOverrun">Sửa lịch cho phần tràn</button>
+        <div class="field" style="border-top:1px solid var(--p-line);padding-top:10px;">
+          <label for="inpSetTaskDuration">Tự đặt lại tổng thời lượng (phút)</label>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <input type="number" id="inpSetTaskDuration" class="input mono" min="15" step="15" value="${currentTaskDur}" style="width:92px;" />
+            <button type="button" class="btn btn-sm" id="btnSetTaskDuration" style="flex:1;border-color:var(--p-accent);color:var(--p-accent);">Đặt thời lượng mới</button>
+          </div>
+          <span style="font-size:11px;color:var(--p-muted);">Đang đặt: ${currentTaskDur}p (làm tròn lên bội 15p &amp; tự xếp lại lịch).</span>
+        </div>
       </div>
     </div>
 
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;padding-top:8px;border-top:1px solid var(--p-line);">
-      <button type="button" class="btn" id="btnModalTogglePin">${isPinned ? "Bỏ ghim cố định" : "Ghim cố định giờ này (PINNED)"}</button>
+      <button type="button" class="btn" id="btnModalTogglePin">${isPinned ? "Bỏ ghim cố định" : isDev ? "Ghim cố định giờ này (PINNED)" : "Ghim cố định khung giờ này"}</button>
       <button type="button" class="btn btn-ghost" id="btnCloseBlockModalFooter">Đóng</button>
     </div>
   `;
-
-  // Wire timer
-  const clockEl = body.querySelector("#timerClockDisplay");
-  const toggleBtn = body.querySelector("#btnTimerToggle");
-  body.querySelectorAll("[data-timer-preset]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      if (state.timer.intervalId) clearInterval(state.timer.intervalId);
-      const mins = Number(btn.getAttribute("data-timer-preset"));
-      state.timer.totalSec = mins * 60;
-      state.timer.remainingSec = mins * 60;
-      state.timer.running = false;
-      state.timer.intervalId = null;
-      clockEl.textContent = fmtTimer(state.timer.remainingSec);
-      toggleBtn.textContent = "▶ Bắt đầu";
-    });
-  });
-
-  toggleBtn.addEventListener("click", () => {
-    if (state.timer.running) {
-      clearInterval(state.timer.intervalId);
-      state.timer.intervalId = null;
-      state.timer.running = false;
-      toggleBtn.textContent = "▶ Tiếp tục";
-    } else {
-      state.timer.running = true;
-      toggleBtn.textContent = "⏸ Tạm dừng";
-      state.timer.intervalId = setInterval(() => {
-        if (state.timer.remainingSec > 0) {
-          state.timer.remainingSec -= 1;
-          const liveClock = document.getElementById("timerClockDisplay");
-          if (liveClock) liveClock.textContent = fmtTimer(state.timer.remainingSec);
-        } else {
-          clearInterval(state.timer.intervalId);
-          state.timer.running = false;
-          showToast(`⏱️ Hết phiên Focus cho "${block.title}"! Hãy Check-in M7.`, "ok");
-        }
-      }, 1000);
-    }
-  });
-
-  body.querySelector("#btnTimerReset").addEventListener("click", () => {
-    if (state.timer.intervalId) clearInterval(state.timer.intervalId);
-    state.timer.remainingSec = state.timer.totalSec;
-    state.timer.running = false;
-    state.timer.intervalId = null;
-    clockEl.textContent = fmtTimer(state.timer.remainingSec);
-    toggleBtn.textContent = "▶ Bắt đầu";
-  });
 
   body.querySelector("#btnModalTogglePin").addEventListener("click", () => callbacks.onTogglePin(block.block_id));
   body.querySelector("#btnSubmitCheckin").addEventListener("click", () => {
@@ -337,6 +382,15 @@ export function renderBlockInspectorModal(modalEl, block, focusSection, callback
     const extraMin = Math.max(15, Number(body.querySelector("#inpOverrunExtra").value) || 30);
     callbacks.onOverrunBlock(block, extraMin);
   });
+  body.querySelector("#btnSetTaskDuration").addEventListener("click", () => {
+    const rawMin = Number(body.querySelector("#inpSetTaskDuration").value);
+    if (!Number.isFinite(rawMin) || rawMin < 15) {
+      showToast("Thời lượng mới phải tối thiểu 15 phút.", "danger");
+      return;
+    }
+    const targetMin = Math.max(15, Math.ceil(rawMin / 15) * 15);
+    callbacks.onSetTaskDuration?.(block, targetMin);
+  });
   body.querySelector("#btnCloseBlockModalFooter").addEventListener("click", () => callbacks.onClose());
 
   if (focusSection === "checkin") {
@@ -345,6 +399,7 @@ export function renderBlockInspectorModal(modalEl, block, focusSection, callback
 }
 
 export function renderDisruptionModal(modalEl, callbacks) {
+  const isDev = Boolean(state.developerMode);
   const preset = state.disruptionPreset || {
     title: "Họp nhóm đột xuất khẩn cấp",
     day_of_week: "Tuesday",
@@ -354,18 +409,22 @@ export function renderDisruptionModal(modalEl, callbacks) {
   const body = modalEl.querySelector("#disruptionModalBody");
   body.innerHTML = `
     <p style="font-size:13px;color:var(--p-muted);">
-      Chèn một sự kiện đột xuất vào lịch và chạy <strong>Local Repair (Sửa cục bộ giữ ổn định)</strong> hoặc <strong>Full Rebuild</strong> qua <code>POST /api/repair</code>.
+      ${
+        isDev
+          ? "Chèn một sự kiện đột xuất vào lịch và chạy <strong>Local Repair (Sửa cục bộ giữ ổn định)</strong> hoặc <strong>Full Rebuild</strong> qua <code>POST /api/repair</code>."
+          : "Thêm một việc đột xuất vào lịch và chọn cách sắp xếp lại các buổi bị trùng sao cho ít xáo trộn nhất."
+      }
     </p>
     <form id="frmDisruption" style="display:flex;flex-direction:column;gap:12px;">
       <div class="field">
-        <label for="inpDisTitle">Tên sự cố / Sự kiện đột xuất</label>
+        <label for="inpDisTitle">Tên sự cố / Việc đột xuất</label>
         <input type="text" id="inpDisTitle" class="input" value="${esc(preset.title)}" required />
       </div>
       <div class="form-grid-3">
         <div class="field">
           <label for="inpDisDay">Thứ</label>
           <select id="inpDisDay" class="select">
-            ${WEEKDAYS_EN.map((d) => `<option value="${d}" ${preset.day_of_week === d ? "selected" : ""}>${d}</option>`).join("")}
+            ${WEEKDAYS_EN.map((d) => `<option value="${d}" ${preset.day_of_week === d ? "selected" : ""}>${esc(isDev ? d : humanizeWeekdaysVi(d))}</option>`).join("")}
           </select>
         </div>
         <div class="field">
@@ -380,9 +439,9 @@ export function renderDisruptionModal(modalEl, callbacks) {
       <div class="field">
         <label for="inpDisMode">Chế độ sửa lịch</label>
         <select id="inpDisMode" class="select">
-          <option value="LOCAL_INSERTION">Local Repair (Ưu tiên giữ nguyên các block không bị đụng)</option>
-          <option value="RIPPLE_SHIFT">Ripple Shift (Đẩy tịnh tiến dây chuyền)</option>
-          <option value="FULL_REBUILD">Full Rebuild (Xếp lại toàn bộ tuần)</option>
+          <option value="LOCAL_INSERTION">${isDev ? "Local Repair (Ưu tiên giữ nguyên các block không bị đụng)" : "Sửa cục bộ (Giữ nguyên các buổi không bị trùng)"}</option>
+          <option value="RIPPLE_SHIFT">${isDev ? "Ripple Shift (Đẩy tịnh tiến dây chuyền)" : "Dời dây chuyền (Đẩy nối tiếp các buổi phía sau)"}</option>
+          <option value="FULL_REBUILD">${isDev ? "Full Rebuild (Xếp lại toàn bộ tuần)" : "Sắp xếp lại toàn bộ tuần"}</option>
         </select>
       </div>
       <div style="display:flex;justify-content:flex-end;gap:8px;">
@@ -409,18 +468,21 @@ export function renderDisruptionModal(modalEl, callbacks) {
 }
 
 export function renderOverloadModal(modalEl, callbacks) {
+  const isDev = Boolean(state.developerMode);
   const sched = state.currentSchedule;
   const options = sched?.overload_options || [
-    { option_id: "O1", code: "DEFER_LOW_PRIORITY", title: "O1 · Tạm hoãn việc ưu tiên thấp", description: "Giữ lại các việc Priority cao kịp deadline." },
-    { option_id: "O2", code: "REDUCE_SCOPE", title: "O2 · Cắt gọn thời lượng dự phòng", description: "Giảm thời lượng việc linh hoạt để vừa sức chứa." },
-    { option_id: "O3", code: "SPLIT_CHUNKS", title: "O3 · Bật chia nhỏ phiên (Splittable)", description: "Cho phép chia nhỏ các task lớn để lấp khe trống." },
-    { option_id: "O4", code: "RELAX_BUFFER", title: "O4 · Giảm hệ số đệm tạm thời", description: "Giải phóng slot đệm trong tuần quá tải." },
+    { option_id: "O1", code: "DEFER_LOW_PRIORITY", title: "Tạm hoãn việc ít quan trọng hơn", description: "Giữ lại các việc quan trọng để kịp hạn chót." },
+    { option_id: "O2", code: "REDUCE_SCOPE", title: "Rút gọn thời lượng dự kiến", description: "Giảm thời lượng việc linh hoạt cho vừa quỹ thời gian." },
+    { option_id: "O3", code: "SPLIT_CHUNKS", title: "Bật chia nhỏ thành nhiều buổi", description: "Cho phép cắt nhỏ các việc dài để lấp vừa khe trống." },
+    { option_id: "O4", code: "RELAX_BUFFER", title: "Giảm bớt thời gian dự phòng", description: "Giải phóng thêm thời gian trống trong tuần quá tải." },
   ];
 
   const body = modalEl.querySelector("#overloadModalBody");
   body.innerHTML = `
     <p style="font-size:13px;color:var(--p-muted);">
-      Chọn một phương án để <strong>xem thử trực tiếp bằng khối nét đứt</strong> trên lịch trước khi quyết định áp dụng (<code>POST /api/overload/preview</code>).
+      Chọn một phương án để <strong>xem thử trực tiếp bằng khối nét đứt</strong> trên lịch trước khi quyết định áp dụng${
+        isDev ? " (<code>POST /api/overload/preview</code>)" : ""
+      }.
     </p>
     <div style="display:flex;flex-direction:column;gap:8px;">
       ${options

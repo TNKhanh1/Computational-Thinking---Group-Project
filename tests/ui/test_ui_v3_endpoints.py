@@ -141,3 +141,57 @@ def test_import_ics_and_calibration():
     cal = client.get("/api/tasks/calibration")
     assert cal.status_code == 200
     assert "sample_count" in cal.json()
+
+
+def test_overrun_set_target_duration_and_ui_controls():
+    from pathlib import Path
+
+    minh = client.get("/api/presets").json()["presets"]["minh"]
+    target_task = minh["tasks"][0]
+
+    # Expand task directly via target_duration_min (with 15m round-up: 140 -> 150)
+    res_up = client.post(
+        "/api/overrun",
+        json={
+            "commitments": minh["commitments"],
+            "tasks": minh["tasks"],
+            "algorithm": "SCORED_GREEDY",
+            "task_id": target_task["task_id"],
+            "target_duration_min": 140,
+        },
+    )
+    assert res_up.status_code == 200, res_up.text
+    up_data = res_up.json()
+    assert up_data["new_estimate_min"] == 150
+    assert up_data["after_schedule"]["metrics"]["hard_violations"] == 0
+
+    # Shrink task directly via target_duration_min (to 45p)
+    res_down = client.post(
+        "/api/overrun",
+        json={
+            "commitments": minh["commitments"],
+            "tasks": minh["tasks"],
+            "algorithm": "SCORED_GREEDY",
+            "task_id": target_task["task_id"],
+            "target_duration_min": 45,
+        },
+    )
+    assert res_down.status_code == 200, res_down.text
+    down_data = res_down.json()
+    assert down_data["new_estimate_min"] == 45
+    assert down_data["after_schedule"]["metrics"]["hard_violations"] == 0
+
+    # Verify UI modal and handler expose custom task duration controls,
+    # user-friendly reason humanization, completion cleanup, and no modal Focus Timer clutter
+    modals_js = Path("smartschedule/ui/js/modals.js").read_text(encoding="utf-8")
+    app_js = Path("smartschedule/ui/app.js").read_text(encoding="utf-8")
+    input_js = Path("smartschedule/ui/js/input-drawer.js").read_text(encoding="utf-8")
+    list_js = Path("smartschedule/ui/js/render-list.js").read_text(encoding="utf-8")
+    assert "inpSetTaskDuration" in modals_js
+    assert "btnSetTaskDuration" in modals_js
+    assert "_humanizeBlockReason" in modals_js
+    assert "secFocusTimer" not in modals_js
+    assert "data-list-timer" not in list_js
+    assert "handleSetTaskDuration" in app_js
+    assert "_completeBlockAndFreeSchedule" in app_js
+    assert "USER_LOAD_LABELS" in input_js

@@ -23,6 +23,29 @@ export const WEEKDAYS_VI_FULL = [
   "Chủ Nhật",
 ];
 
+export const WEEKDAY_VI_BY_EN = {
+  monday: "Thứ Hai",
+  tuesday: "Thứ Ba",
+  wednesday: "Thứ Tư",
+  thursday: "Thứ Năm",
+  friday: "Thứ Sáu",
+  saturday: "Thứ Bảy",
+  sunday: "Chủ Nhật",
+};
+
+export function humanizeWeekdaysVi(text) {
+  let out = String(text ?? "");
+  out = out.replace(
+    /\bNext\s+(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\b/gi,
+    (_, d) => `${WEEKDAY_VI_BY_EN[d.toLowerCase()] || d} tuần sau`
+  );
+  out = out.replace(
+    /\b(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\b/gi,
+    (m) => WEEKDAY_VI_BY_EN[m.toLowerCase()] || m
+  );
+  return out;
+}
+
 export const CATEGORY_LABELS = {
   EXAM: "Thi cử",
   PROJECT: "Đồ án",
@@ -50,6 +73,12 @@ export const LOAD_LABELS = {
   3: "L3 · Tập trung sâu",
   2: "L2 · Trung bình",
   1: "L1 · Nhẹ",
+};
+
+export const USER_LOAD_LABELS = {
+  3: "Tập trung sâu",
+  2: "Mức vừa",
+  1: "Nhẹ nhàng",
 };
 
 export const WINDOW_LABELS = {
@@ -267,13 +296,13 @@ export function computeSleepHours(startHHMM, endHHMM) {
 }
 
 export function formatDeadlineCountdown(deadlineSlot, nowSlot) {
-  if (deadlineSlot == null) return "Linh hoạt";
+  if (deadlineSlot == null) return "Không giới hạn hạn nộp";
   const diffMin = (deadlineSlot - nowSlot) * 15;
   if (diffMin <= 0) return "Đã tới hạn";
   const days = Math.floor(diffMin / 1440);
   const hours = Math.floor((diffMin % 1440) / 60);
-  if (days > 0) return `Còn ${days}d ${hours}h`;
-  return `Còn ${hours}h ${diffMin % 60}p`;
+  if (days > 0) return `Còn ${days} ngày ${hours} giờ`;
+  return `Còn ${hours} giờ ${diffMin % 60} phút`;
 }
 
 export function formatMinutesLabel(min) {

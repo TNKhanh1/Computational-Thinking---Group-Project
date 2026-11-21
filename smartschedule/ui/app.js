@@ -475,54 +475,156 @@ async function handleTogglePin(blockId) {
   await persistWorkspace(true);
 }
 
+async function _completeBlockAndFreeSchedule(block, actualMin, { closeInspector = false } = {}) {
+  const res = await api.completeTask({
+    task_id: block.task_id,
+    category: block.category,
+    workspace_id: state.workspaceId,
+    estimated_min: block.duration_min,
+    actual_duration_min: actualMin,
+    completed: true,
+  });
+
+  const allBlocks = state.currentSchedule?.blocks || [];
+  const sameTaskBlocks = allBlocks.filter((b) => b.task_id === block.task_id);
+  const taskIdx = state.tasks.findIndex((t) => t.task_id === block.task_id);
+  let fullyRemoved = false;
+
+  if (taskIdx >= 0) {
+    const task = state.tasks[taskIdx];
+    if (sameTaskBlocks.length <= 1) {
+      state.tasks.splice(taskIdx, 1);
+      state.pinnedBlocks = (state.pinnedBlocks || []).filter((p) => p.task_id !== block.task_id);
+      fullyRemoved = true;
+    } else {
+      const totalPlannedMin = Math.max(
+        15,
+        sameTaskBlocks.reduce((acc, b) => acc + Math.max(15, Number(b.duration_min || 0)), 0)
+      );
+      const completedShareRaw = Math.round(Number(task.duration_min || totalPlannedMin) * (Number(block.duration_min || 0) / totalPlannedMin));
+      const remainingRaw = Number(task.duration_min || 0) - Math.max(15, completedShareRaw);
+      if (remainingRaw < 15) {
+        state.tasks.splice(taskIdx, 1);
+        state.pinnedBlocks = (state.pinnedBlocks || []).filter((p) => p.task_id !== block.task_id);
+        fullyRemoved = true;
+      } else {
+        task.duration_min = Math.ceil(remainingRaw / 15) * 15;
+        state.pinnedBlocks = (state.pinnedBlocks || []).filter((p) => p.block_id !== block.block_id);
+      }
+    }
+  } else {
+    const habits = state.commitments.personal_habits || [];
+    const hIdx = habits.findIndex(
+      (h) => block.task_id === h.habit_id || String(block.task_id || "").startsWith(`${h.habit_id}_`)
+    );
+    if (hIdx >= 0) {
+      if (Number(habits[hIdx].frequency_per_week || 1) <= 1) {
+        habits.splice(hIdx, 1);
+      } else {
+        habits[hIdx].frequency_per_week = Number(habits[hIdx].frequency_per_week) - 1;
+      }
+      state.pinnedBlocks = (state.pinnedBlocks || []).filter((p) => p.block_id !== block.block_id);
+      fullyRemoved = true;
+    }
+  }
+
+  delete state.completedBlocks[block.block_id];
+  if (closeInspector) closeModal("blockModal");
+  invalidateSolverCaches();
+  await refreshCalibrationAdvisory();
+  await solveActiveSolver(true);
+  await persistWorkspace(true);
+
+  const ratioSuffix = state.developerMode ? ` (tỷ lệ ${res.overrun_ratio}x)` : "";
+  if (fullyRemoved) {
+    showToast(`✔️ Đã hoàn thành "${block.title}" (${actualMin}p)${ratioSuffix} — đã xóa task & giải phóng lịch.`, "ok");
+  } else {
+    showToast(`✔️ Đã xong 1 phần "${block.title}" (${actualMin}p)${ratioSuffix} — đã cập nhật phần còn lại.`, "ok");
+  }
+  return res;
+}
+
 async function handleCheckinBlock(block, actualMin) {
   try {
-    const res = await api.completeTask({
+    await _completeBlockAndFreeSchedule(block, actualMin, { closeInspector: true });
+  } catch (err) {
+    showToast(`Lỗi ghi nhận hoàn thành: ${err.message}`, "danger");
+  }
+}
+
+async function _applyTaskDurationMutation(block, { extraMin = 0, targetDurationMin = null } = {}) {
+  const isSetMode = Number.isFinite(targetDurationMin) && targetDurationMin > 0;
+  const task = state.tasks.find((t) => t.task_id === block.task_id);
+  const habit = !task
+    ? (state.commitments.personal_habits || []).find(
+        (h) => block.task_id === h.habit_id || String(block.task_id || "").startsWith(`${h.habit_id}_`)
+      )
+    : null;
+
+  if (!task && !habit) {
+    showToast("Không tìm thấy công việc gốc để điều chỉnh thời lượng.", "danger");
+    return;
+  }
+
+  let shiftedCount = 0;
+  let updatedEstimateMin = isSetMode ? targetDurationMin : Math.max(15, Number(block.duration_min || 60) + extraMin);
+
+  if (task) {
+    const payload = {
+      commitments: state.commitments,
+      tasks: state.tasks,
+      algorithm: state.activeSolver,
       task_id: block.task_id,
-      category: block.category,
-      workspace_id: state.workspaceId,
-      estimated_min: block.duration_min,
-      actual_duration_min: actualMin,
-      completed: true,
-    });
-    state.completedBlocks[block.block_id] = {
-      actual_min: actualMin,
-      completed_at: new Date().toISOString(),
     };
-    await refreshCalibrationAdvisory();
-    closeModal("blockModal");
-    await persistWorkspace(true);
-    renderAll();
+    if (isSetMode) {
+      payload.target_duration_min = targetDurationMin;
+    } else {
+      payload.extra_min = extraMin;
+    }
+    const res = await api.overrun(payload);
+    updatedEstimateMin = res.new_estimate_min ?? res.new_duration_min ?? updatedEstimateMin;
+    task.duration_min = updatedEstimateMin;
+    shiftedCount = res.shifted_blocks_count || 0;
+  } else if (habit) {
+    const prevHabitDur = Math.max(15, Number(habit.duration_min || 30));
+    updatedEstimateMin = isSetMode ? targetDurationMin : prevHabitDur + extraMin;
+    habit.duration_min = updatedEstimateMin;
+  }
+
+  // Drop stale pins on the modified task so H1/duration checks remain consistent when re-solving
+  state.pinnedBlocks = (state.pinnedBlocks || []).filter((p) => p.task_id !== block.task_id);
+
+  closeModal("blockModal");
+  invalidateSolverCaches();
+  await solveActiveSolver(true);
+  await persistWorkspace(true);
+
+  if (isSetMode) {
     showToast(
-      `✔️ Đã ghi nhận thời gian thực tế (${actualMin}p vs ${block.duration_min}p, tỷ lệ ${res.overrun_ratio}x).`,
+      `⏱️ Đã đặt lại thời lượng "${block.title}" thành ${updatedEstimateMin}p (${shiftedCount} phiên điều chỉnh).`,
       "ok"
     );
-  } catch (err) {
-    showToast(`Lỗi ghi nhận: ${err.message}`, "danger");
+  } else {
+    showToast(
+      `Đã cập nhật thêm +${extraMin}p cho "${block.title}" (${shiftedCount} phiên được điều chỉnh).`,
+      "warn"
+    );
   }
 }
 
 async function handleOverrunBlock(block, extraMin) {
   try {
-    const res = await api.overrun({
-      commitments: state.commitments,
-      tasks: state.tasks,
-      algorithm: state.activeSolver,
-      task_id: block.task_id,
-      extra_min: extraMin,
-    });
-    const task = state.tasks.find((t) => t.task_id === block.task_id);
-    if (task) task.duration_min = res.new_duration_min;
-    closeModal("blockModal");
-    invalidateSolverCaches();
-    await solveActiveSolver(true);
-    await persistWorkspace(true);
-    showToast(
-      `Đã cập nhật thêm +${extraMin}p cho "${block.title}" (${res.shifted_blocks_count} phiên được điều chỉnh).`,
-      "warn"
-    );
+    await _applyTaskDurationMutation(block, { extraMin });
   } catch (err) {
     showToast(`Lỗi xử lý tràn giờ: ${err.message}`, "danger");
+  }
+}
+
+async function handleSetTaskDuration(block, targetDurationMin) {
+  try {
+    await _applyTaskDurationMutation(block, { targetDurationMin });
+  } catch (err) {
+    showToast(`Lỗi đặt lại thời lượng: ${err.message}`, "danger");
   }
 }
 
@@ -1194,28 +1296,28 @@ async function completeFocusTimerToM7() {
   const estimatedMin = activeBlock?.duration_min || Math.round(focusTimerState.targetSec / 60);
 
   try {
-    const res = await api.completeTask({
-      task_id: activeBlock?.task_id || "FOCUS-SESSION",
-      category: activeBlock?.category || "STUDY",
-      workspace_id: state.workspaceId,
-      estimated_duration_min: estimatedMin,
-      actual_duration_min: measuredMin,
-      completed: true,
-    });
-    if (activeBlock) {
-      state.completedBlocks[activeBlock.block_id] = { actual_min: measuredMin, completed_at: new Date().toISOString() };
-      await persistWorkspace(true);
-    }
     focusTimerState.elapsedSec = 0;
     focusTimerState.remainingSec = focusTimerState.targetSec;
-    await refreshCalibrationAdvisory();
-    renderAll();
-    showToast(
-      `✔️ Đã lưu M7 ${measuredMin}p / ${estimatedMin}p${activeBlock ? ` cho “${activeBlock.title}”` : ""} (tỷ lệ ${res.overrun_ratio}x).`,
-      "ok"
-    );
+    if (activeBlock) {
+      await _completeBlockAndFreeSchedule(activeBlock, measuredMin, { closeInspector: false });
+    } else {
+      const res = await api.completeTask({
+        task_id: "FOCUS-SESSION",
+        category: "STUDY",
+        workspace_id: state.workspaceId,
+        estimated_duration_min: estimatedMin,
+        actual_duration_min: measuredMin,
+        completed: true,
+      });
+      await refreshCalibrationAdvisory();
+      renderAll();
+      showToast(
+        `✔️ Đã lưu thời gian tập trung ${measuredMin}p / ${estimatedMin}p${state.developerMode ? ` (tỷ lệ ${res.overrun_ratio}x)` : ""}.`,
+        "ok"
+      );
+    }
   } catch (err) {
-    showToast(`Lỗi lưu M7 từ Focus Timer: ${err.message}`, "danger");
+    showToast(`Lỗi lưu thời gian từ Focus Timer: ${err.message}`, "danger");
   }
 }
 
@@ -1368,6 +1470,7 @@ function openBlockModal(blockId, focusSection = null) {
     onTogglePin: (bid) => handleTogglePin(bid),
     onCheckinBlock: (blk, mins) => handleCheckinBlock(blk, mins),
     onOverrunBlock: (blk, extra) => handleOverrunBlock(blk, extra),
+    onSetTaskDuration: (blk, targetMin) => handleSetTaskDuration(blk, targetMin),
     onClose: () => closeModal("blockModal"),
   });
   openModal("blockModal");
