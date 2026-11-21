@@ -41,6 +41,18 @@ The project is currently at the transition point between the **Baseline Engine (
 
 ## 2. Chronological Log of System Changes
 
+### Entry 023 — 2026-11-21 | Merged Online Context-Parsing Model, Clause-Level Title Condenser & Calendar Alignment Fixes (`v1.0-alpha/ui-ux-chat`)
+- **Authors:** User + Antigravity Agent
+- **Branch:** `v1.0-alpha/ui-ux-chat`
+- **Summary:** Merged the previous 2-layer clause/cross-day context parser with an efficient online lightweight context-parsing model (`gemini-2.5-flash-lite` / `gemini-2.5-flash` via `google-genai`, `0 MB` local RAM, `thinking_budget=0`) and an upgraded Clause-Level Vietnamese Title Condenser, fixed `"Hôm nay"` header/pill alignment in Calendar view, and hid `"💬 Mở trợ lý"` (`#btnExpandCopilotDrawer`) whenever `#calendarCopilotDrawer` is already open.
+- **Key Changes:**
+  - **Merged Master Plans ([`v1.0-alpha-plan/UI_Rebuild_Plan/agent_pipeline.md`](../v1.0-alpha-plan/UI_Rebuild_Plan/agent_pipeline.md), [`proposal_pipeline.md`](../v1.0-alpha-plan/UI_Rebuild_Plan/proposal_pipeline.md)):** Consolidated all Chat-First UI/UX specifications, calendar alignment fixes, Developer Mode Thinking Stage, and the 3-layer context-parsing architecture (Layer A pre-parser + Layer B online lightweight model + Layer C clause condenser).
+  - **Online Context Model + Clause-Level Title Condenser ([`web/chat_service.py`](../group03-smartschedule-baseline/web/chat_service.py)):** Added `ChatContextExtractionSchema`, `_parse_context_with_online_model()`, `_extract_flexible_duration_min()`, and `_is_temporal_or_constraint_clause()` + academic classifier stripping in `_clean_conversational_title()` so `"Làm bài tập môn Computational Thinking, từ 19h tối thứ 3, đến 21h tối thứ 5, cần hoàn thành trong tổng thời gian 2 tiếng liên tục"` resolves to **`"Làm bài tập Computational Thinking"`** (`120m`, atomic `is_splittable=False`).
+  - **Calendar `"Hôm nay"` & Copilot FAB Fixes ([`web/js/render-calendar.js`](../group03-smartschedule-baseline/web/js/render-calendar.js), [`web/css/app.css`](../group03-smartschedule-baseline/web/css/app.css), [`web/app.js`](../group03-smartschedule-baseline/web/app.js)):** Removed redundant `"Hôm nay"` text badge in 5/7-day grid headers, aligned `.week-pill .btn`, enforced `.calendar-with-copilot-layout:not(.copilot-collapsed) .copilot-expand-fab { display: none !important; }`, and synced `setCopilotCollapsed()` in `bootstrap()` / `setActiveView()`.
+  - **Verification ([`test_chat_first_ui_and_task_tracer.py`](../group03-smartschedule-baseline/verification_tests/logical_tests/test_chat_first_ui_and_task_tracer.py)):** Added assertions for the verbose cross-day prompt title condensation and `/css/app.css` copilot FAB hiding rule (`7/7` passed, `194/194` in `clean_runner.py --pass`).
+
+---
+
 ### Entry 022 — 2026-11-21 | Chat-First UI/UX Revision 2: Ultra-Minimal Navigation, Cross-Day Single-Task Context Parser & Developer Mode Thinking Stage (`v1.0-alpha/ui-ux-chat`)
 - **Authors:** User + Antigravity Agent
 - **Branch:** `v1.0-alpha/ui-ux-chat`

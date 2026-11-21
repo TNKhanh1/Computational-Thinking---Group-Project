@@ -41,6 +41,18 @@ Dự án SmartSchedule đang ở bước chuyển tiếp quan trọng từ **B�
 
 ## 2. Nhật Ký Chi Tiết Các Thay Đổi Mã Nguồn
 
+### Lần cập nhật 023 — 2026-11-21 | Hợp Nhất Mô Hình AI Đọc Ngữ Cảnh Online, Bộ Cô Đọng Tiêu Đề & Sửa Lỗi Căn Lề Lịch (`v1.0-alpha/ui-ux-chat`)
+- **Người thực hiện:** Thành viên dự án + Antigravity AI
+- **Nhánh Git:** `v1.0-alpha/ui-ux-chat`
+- **Tóm tắt thay đổi:** Kết hợp bộ phân tích 2 lớp sẵn có với mô hình đọc ngữ cảnh online siêu nhẹ (`gemini-2.5-flash-lite` / `gemini-2.5-flash` qua `google-genai`, `0 MB` RAM máy) và bộ cô đọng tiêu đề tiếng Việt theo mệnh đề; sửa lỗi lệch chữ `"Hôm nay"` trên lịch tuần và ẩn hoàn toàn nút `"💬 Mở trợ lý"` khi khung chat phải đã mở sẵn.
+- **Chi tiết kỹ thuật:**
+  1. **Tài liệu kế hoạch hợp nhất ([`v1.0-alpha-plan/UI_Rebuild_Plan/agent_pipeline.md`](../v1.0-alpha-plan/UI_Rebuild_Plan/agent_pipeline.md), [`proposal_pipeline.md`](../v1.0-alpha-plan/UI_Rebuild_Plan/proposal_pipeline.md)):** Hợp nhất toàn bộ thiết kế Chat-First, sửa lỗi hiển thị lịch, hộp Suy nghĩ Developer Mode và kiến trúc đọc ngữ cảnh 3 tầng (Tầng A tách mệnh đề + Tầng B mô hình online siêu nhẹ + Tầng C bộ rút gọn tiêu đề).
+  2. **Mô hình đọc ngữ cảnh Online & Bộ cô đọng tiêu đề ([`web/chat_service.py`](../group03-smartschedule-baseline/web/chat_service.py)):** Bổ sung `ChatContextExtractionSchema`, `_parse_context_with_online_model()`, `_extract_flexible_duration_min()` và `_is_temporal_or_constraint_clause()` giúp câu *"Làm bài tập môn Computational Thinking, từ 19h tối thứ 3, đến 21h tối thứ 5, cần hoàn thành trong tổng thời gian 2 tiếng liên tục"* rút gọn chuẩn xác thành **`"Làm bài tập Computational Thinking"`** (`120 phút`, giữ liền 1 khối).
+  3. **Sửa lỗi `"Hôm nay"` & `"💬 Mở trợ lý"` ([`web/js/render-calendar.js`](../group03-smartschedule-baseline/web/js/render-calendar.js), [`web/css/app.css`](../group03-smartschedule-baseline/web/css/app.css), [`web/app.js`](../group03-smartschedule-baseline/web/app.js)):** Bỏ hộp chữ `"Hôm nay"` thừa ở cột ngày 5/7 ngày, căn chỉnh `.week-pill .btn`, ẩn triệt để `.copilot-expand-fab` khi copilot đang mở và đồng bộ `setCopilotCollapsed()`.
+  4. **Kiểm thử ([`test_chat_first_ui_and_task_tracer.py`](../group03-smartschedule-baseline/verification_tests/logical_tests/test_chat_first_ui_and_task_tracer.py)):** Bổ sung kiểm thử rút gọn tên công việc từ câu phức hợp và kiểm tra CSS ẩn nút mở trợ lý (`7/7` passed, `194/194` trong `clean_runner.py --pass`).
+
+---
+
 ### Lần cập nhật 022 — 2026-11-21 | Tinh Chỉnh UI Chat-First Bản 2: Tối Giản Hóa Tuyệt Đối, Sửa Phân Tích Ngữ Cảnh 1 Task Nhiều Ngày & Hộp Suy Nghĩ Developer Mode (`v1.0-alpha/ui-ux-chat`)
 - **Người thực hiện:** Thành viên dự án + Antigravity AI
 - **Nhánh Git:** `v1.0-alpha/ui-ux-chat`

@@ -199,7 +199,7 @@ def test_cross_day_window_single_task_parsing_and_thinking_stage(tmp_path, monke
     assert len(d["updated_tasks"]) == len(preset_tasks) + 1
 
     new_task = [t for t in d["updated_tasks"] if t["task_id"] == d["mutated_task_id"]][0]
-    assert "Computational Thinking" in new_task["title"]
+    assert new_task["title"] == "Làm bài tập Computational Thinking"
     assert new_task["duration_min"] == 120
     assert new_task["deadline_day"] == "Thursday"
     assert new_task["deadline_time"] == "21:00"
@@ -213,6 +213,29 @@ def test_cross_day_window_single_task_parsing_and_thinking_stage(tmp_path, monke
     pruned_keys = {p if isinstance(p, str) else p["key"] for p in ts["pruned_algorithms"]}
     assert {"EDF", "WSPT", "LST"}.issubset(pruned_keys)
     assert any(act["label"] == "🗓️ Kiểm tra lịch trình" for act in d["post_actions"])
+
+    # Exact verbose Vietnamese phrasing from Revision 3/4 feedback:
+    r2 = client.post(
+        "/api/chat/turn",
+        json={
+            "prompt": "Làm bài tập môn Computational Thinking, từ 19h tối thứ 3, đến 21h tối thứ 5, cần hoàn thành trong tổng thời gian 2 tiếng liên tục",
+            "commitments": comm,
+            "tasks": preset_tasks,
+            "auto_save": False,
+        },
+    )
+    assert r2.status_code == 200, r2.text
+    d2 = r2.json()
+    assert d2["status"] == "APPLIED"
+    assert d2["intent"] == "ADD_TASK"
+    assert len(d2["updated_tasks"]) == len(preset_tasks) + 1
+    new_task2 = [t for t in d2["updated_tasks"] if t["task_id"] == d2["mutated_task_id"]][0]
+    assert new_task2["title"] == "Làm bài tập Computational Thinking"
+    assert new_task2["duration_min"] == 120
+    assert new_task2["deadline_day"] == "Thursday"
+    assert new_task2["deadline_time"] == "21:00"
+    assert new_task2["is_splittable"] is False
+    assert new_task2["start_after"] is not None and "2026-11-03T19:00" in new_task2["start_after"]
 
 
 def test_chat_turn_modify_hidden_via_sha256_and_deadline_remaining_buffer(tmp_path, monkeypatch) -> None:
@@ -393,3 +416,7 @@ def test_chat_first_ui_shell_left_sidebar_copilot_and_dev_mode() -> None:
     assert "setLeftSidebarOpen" in app_js
     assert "setCopilotCollapsed" in app_js
     assert "Kiểm tra lịch trình" in app_js
+
+    app_css = client.get("/css/app.css")
+    assert app_css.status_code == 200
+    assert ".calendar-with-copilot-layout:not(.copilot-collapsed) .copilot-expand-fab" in app_css.text
