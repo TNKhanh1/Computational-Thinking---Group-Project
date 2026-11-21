@@ -30,3 +30,15 @@ data/*.db-wal
 **/data/*.db-wal
 *.sqlite
 *.sqlite3
+
+# Local AI agent skills, rules, settings and build artifacts
+.agents/
+.agent/
+_agents/
+_agent/
+.taste-skill/
+.claude/
+.codex/
+GEMINI.md
+AGENTS.md
+CLAUDE.md

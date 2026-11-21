@@ -176,48 +176,38 @@ def test_offline_nl_parser_clock_tokens_do_not_misparse_duration():
 
 
 def test_ui_progressive_disclosure_and_student_crud_contracts():
-    """A.0–A.3 & B: UI serves Progressive Disclosure, persistence, week nav, Student edit/habit CRUD, COGNITIVE_LOAD."""
+    """UI v3 Progressive Disclosure, SQLite persistence, week/horizon nav, 3-tab CRUD, COGNITIVE_LOAD."""
     client = TestClient(app)
     html = client.get("/").text
-    js = client.get("/app.js").text
+    app_js = client.get("/app.js").text
+    api_js = client.get("/js/api.js").text
+    drawer_js = client.get("/js/input-drawer.js").text
 
     for html_token in (
-        "st-lab-only-modal",
-        "stTaskAdvDetails",
-        "stInpPriorityCore",
-        "stInpStartAfter",
-        "stInpWorkRhythm",
-        "btnStWeekPrev",
-        "btnStWeekNext",
-        "btnStJumpRealtime",
-        "stHorizonDaysSelect",
-        "stSetHabitsList",
-        "stHabitNewName",
-        "stHabitNewWindow",
-        "stHabitNewFreq",
-        "stHabitNewDur",
-        "btnSaveStTask",
+        "btnWeekPrev",
+        "btnWeekNext",
+        "btnWeekToday",
+        "btnHorizon7",
+        "btnHorizon14",
+        "inputModal",
+        "blockModal",
+        "disruptionModal",
+        "overloadModal",
     ):
         assert html_token in html
 
-    for js_token in (
-        "/api/state",
-        "restorePersistedWorkspace",
-        "syncTaskModalModeVisibility",
-        "shiftStudentCalendarWeek",
-        "changeStudentHorizonDays",
-        "jumpToCurrentWeek",
-        "editStudentTask",
-        "addStudentPersonalHabit",
-        "removeStudentPersonalHabit",
-        "COGNITIVE_LOAD",
-    ):
-        assert js_token in js
+    for js_token in ("/api/state", "/api/benchmark-all", "/api/solver-weights", "/api/import/ics"):
+        assert js_token in api_js
 
-    # Ensure analyzeQuickAddHybrid is no longer hardcoded to engine: "offline"
-    qa_idx = js.index("async function analyzeQuickAddHybrid()")
-    qa_slice = js[qa_idx : qa_idx + 800]
-    assert 'engine: "offline"' not in qa_slice
+    for token in ("persistWorkspace", "solveActiveSolver", "runBenchmarkAll", "fetchSolverWeights"):
+        assert token in app_js
+
+    for token in ("COGNITIVE_LOAD", "inpHabitName", "inpSleepStart", "inpIcsFile", "btnAddQuickMeals"):
+        assert token in drawer_js
+
+    # Ensure NL quick-fill never hardcodes engine: "offline"
+    assert 'engine: "offline"' not in drawer_js
+    assert 'engine: "auto"' in drawer_js
 
 
 def test_plan_and_compare_scientific_insights_and_block_diffs():
@@ -272,61 +262,38 @@ def test_plan_and_compare_scientific_insights_and_block_diffs():
 
 
 def test_redesigned_temporal_student_and_lab_ui_contracts():
-    """Steps 2–3 UI Redesign: DD/MM/YYYY temporal engine, clean Student actions/habits, Lab 3-tab analytics."""
+    """UI v3 unified 4-view architecture: DD/MM/YYYY scrubber, Chronological List, Weights & Benchmark Dev Glossary."""
     client = TestClient(app)
     html = client.get("/").text
-    js = client.get("/app.js").text
+    cal_js = client.get("/js/render-calendar.js").text
+    list_js = client.get("/js/render-list.js").text
+    weights_js = client.get("/js/render-weights.js").text
+    bench_js = client.get("/js/render-benchmark.js").text
+    utils_js = client.get("/js/utils.js").text
 
     for html_token in (
-        "temporalContextBanner",
-        "topWeekRangePill",
-        "inpWeekStartDate",
-        "studentToolsMenu",
-        "stDayTemporal_0",
-        "stDayDate_0",
-        "stSubHabitsPane",
-        "stMainHabitsList",
-        "btnLabTabSingle",
-        "btnLabTabCompare",
-        "btnLabTabResilience",
-        "kpiPeakMatch",
-        "kpiExperienceVal",
-        "labFixedInspectorPanel",
-        "compareVerdictBanner",
-        "compareDiffTableBody",
-        "compareFullGridsDetails",
-        "determinismLedgerBody",
-        "stCalendarScrollContainer",
-        "stCalendarHorizontalSlider",
-        "stObservedRangeLabel",
-        "stObservedDaysStrip",
-        "stExtraWeek2Columns",
-        "observedRangeCalendarPopover",
-        "calPopoverGrid",
-        "labGridScrollContainer",
-        "labGridHorizontalSlider",
+        "txtWeekRange",
+        "suitesPopover",
+        "exportPopover",
+        "solverSwitcherBar",
+        "telemetryMetrics",
+        "viewCalendar",
+        "viewList",
+        "viewWeights",
+        "viewBenchmark",
     ):
         assert html_token in html
 
-    for forbidden in ("stNlCiteInput", "Ưu tiên Solver", 'id="inpTaskId"'):
+    for forbidden in ("stNlCiteInput", "Ưu tiên Solver", "labFixedInspectorPanel", "determinismLedgerBody"):
         assert forbidden not in html
 
-    for js_token in (
-        "formatDateDDMMYYYY",
-        "getBlockTemporalState",
-        "resolveDeadlineDisplay",
-        "rebaseScheduleToCurrentWeek",
-        "loadPresetIntoCurrentWeek",
-        "runComparisonPreset",
-        "renderLastComparisonDiffTable",
-        "runAllSolversDeterminismLedger",
-        "switchStudentTasksSubtab",
-        "addStudentHabitFromMainTab",
-        "toggleObservedRangeCalendar",
-        "renderObservedRangeCalendar",
-        "updateObservedViewportRange",
-        "onStHorizontalSliderInput",
-        "onLabHorizontalSliderInput",
-        "scrollToCalendarDay",
-    ):
-        assert js_token in js
+    for token in ("calScrubberRange", "btnJumpToday", "now-line", "state-past", "state-now", "chkEnergyBackdrop"):
+        assert token in cal_js
+    for token in ("chrono-day-group", "data-list-filter", "inpListSearch", "Nghỉ 15p"):
+        assert token in list_js
+    for token in ("per_task_weights", "circadian_curve", "config_constants", "weights_glossary"):
+        assert token in weights_js
+    for token in ("lexicographic_rank", "column_glossary", "lexicographic_order", "verdict_definitions", "data-toggle-icee"):
+        assert token in bench_js
+    for token in ("fmtDDMMYYYY", "resolveNowSlot", "getVerdictBadge"):
+        assert token in utils_js

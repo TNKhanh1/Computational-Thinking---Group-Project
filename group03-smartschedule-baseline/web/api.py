@@ -44,6 +44,16 @@ from src.storage import (
     load_workspace_state,
     save_workspace_state,
 )
+from web.v3_services import (
+    compute_calibration_summary,
+    compute_solver_weights,
+    evaluate_single_schedule,
+    get_available_solvers,
+    get_test_suites_catalog,
+    load_test_suite,
+    parse_ics_content,
+    run_benchmark_all,
+)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
@@ -65,7 +75,9 @@ app.add_middleware(
 )
 
 
-def _extract_profile_and_tasks(payload: Dict[str, Any]) -> Tuple[CommitmentsProfile, List[Task], str, List[ScheduleBlock]]:
+def _extract_profile_and_tasks_impl(
+    payload: Dict[str, Any], apply_buffer: bool = True
+) -> Tuple[CommitmentsProfile, List[Task], str, List[ScheduleBlock]]:
     """
     Parse request payload supporting BOTH:
       1. Baseline Schema: { "commitments": {...}, "tasks": [...], "algorithm": "EDF" }
@@ -118,13 +130,25 @@ def _extract_profile_and_tasks(payload: Dict[str, Any]) -> Tuple[CommitmentsProf
 
     raw_tasks = payload.get("tasks") or []
     tasks = [Task.model_validate(t) for t in raw_tasks]
-    # Feature 001: every endpoint (plan, repair, export, compare...) sees the same buffered durations.
-    tasks = ScheduleController.apply_estimate_buffer(profile, tasks)
-
+    if apply_buffer:
+        tasks = ScheduleController.apply_estimate_buffer(profile, tasks)
     raw_pinned = payload.get("pinned_blocks") or []
     pinned_blocks = [ScheduleBlock.model_validate(pb) for pb in raw_pinned]
 
     return profile, tasks, algorithm, pinned_blocks
+
+
+def _extract_profile_and_tasks_raw(payload: Dict[str, Any]) -> Tuple[CommitmentsProfile, List[Task], str, List[ScheduleBlock]]:
+    """Parse payload WITHOUT mutating/buffering tasks (required for ScheduleEvaluator P4.1 & solver-weights)."""
+    return _extract_profile_and_tasks_impl(payload, apply_buffer=False)
+
+
+def _extract_profile_and_tasks(payload: Dict[str, Any]) -> Tuple[CommitmentsProfile, List[Task], str, List[ScheduleBlock]]:
+    """
+    Parse request payload supporting BOTH Baseline Schema and Improve Plan Contract (§7.3).
+    Applies Feature 001 estimate buffer for legacy endpoints.
+    """
+    return _extract_profile_and_tasks_impl(payload, apply_buffer=True)
 
 
 def _enrich_response(out: ScheduleOutput, profile: Optional[CommitmentsProfile] = None) -> Dict[str, Any]:
@@ -171,6 +195,33 @@ def serve_index():
 @app.get("/app.js", include_in_schema=False)
 def serve_app_js():
     return FileResponse(WEB_DIR / "app.js", media_type="application/javascript")
+
+
+@app.get("/css/{file_path:path}", include_in_schema=False)
+def serve_css_asset(file_path: str):
+    target = (WEB_DIR / "css" / file_path).resolve()
+    css_root = (WEB_DIR / "css").resolve()
+    if not str(target).startswith(str(css_root)) or not target.is_file():
+        raise HTTPException(status_code=404, detail="CSS asset not found")
+    return FileResponse(target, media_type="text/css")
+
+
+@app.get("/js/{file_path:path}", include_in_schema=False)
+def serve_js_asset(file_path: str):
+    target = (WEB_DIR / "js" / file_path).resolve()
+    js_root = (WEB_DIR / "js").resolve()
+    if not str(target).startswith(str(js_root)) or not target.is_file():
+        raise HTTPException(status_code=404, detail="JS asset not found")
+    return FileResponse(target, media_type="application/javascript")
+
+
+@app.get("/assets/{file_path:path}", include_in_schema=False)
+def serve_media_asset(file_path: str):
+    target = (WEB_DIR / "assets" / file_path).resolve()
+    assets_root = (WEB_DIR / "assets").resolve()
+    if not str(target).startswith(str(assets_root)) or not target.is_file():
+        raise HTTPException(status_code=404, detail="Media asset not found")
+    return FileResponse(target)
 
 
 @app.get("/api/presets")
@@ -693,6 +744,120 @@ def api_list_completions(workspace_id: str = "default", limit: int = 200):
             "workspace_id": ws_id,
             "completions": rows,
         }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+# ---------------------------------------------------------------------------
+# SmartSchedule UI v3 Endpoints (Benchmark All, Solver Weights, Unified Suites, ICS Import, Calibration)
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/solvers")
+def api_list_solvers():
+    """Return canonical scheduling algorithms currently registered in SOLVER_REGISTRY."""
+    return {"solvers": get_available_solvers()}
+
+
+@app.post("/api/evaluate")
+def api_evaluate_schedule(payload: Dict[str, Any] = Body(...)):
+    """Evaluate a schedule via Testing_System ScheduleEvaluator using raw (unbuffered) tasks."""
+    try:
+        profile, raw_tasks, algorithm, pinned_blocks = _extract_profile_and_tasks_raw(payload)
+        raw_sched = payload.get("schedule")
+        if isinstance(raw_sched, dict) and "blocks" in raw_sched and "summary" in raw_sched:
+            schedule = ScheduleOutput.model_validate(raw_sched)
+        else:
+            schedule, _ = ScheduleController.solve_schedule(
+                profile=profile,
+                tasks=raw_tasks,
+                algorithm=algorithm,
+                pinned_blocks=pinned_blocks,
+            )
+        return evaluate_single_schedule(
+            profile=profile,
+            raw_tasks=raw_tasks,
+            schedule=schedule,
+            pinned_blocks=pinned_blocks,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/benchmark-all")
+def api_benchmark_all(payload: Dict[str, Any] = Body(...)):
+    """Run and evaluate all registered canonical solvers on identical input, ranked lexicographically."""
+    try:
+        profile, raw_tasks, _, pinned_blocks = _extract_profile_and_tasks_raw(payload)
+        return run_benchmark_all(
+            profile=profile,
+            raw_tasks=raw_tasks,
+            pinned_blocks=pinned_blocks,
+            enrich_fn=_enrich_response,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/solver-weights")
+def api_solver_weights(payload: Dict[str, Any] = Body(...)):
+    """Return transparent per-task solver weights, grid tightness, circadian profile, config constants & glossary."""
+    try:
+        profile, raw_tasks, _, pinned_blocks = _extract_profile_and_tasks_raw(payload)
+        return compute_solver_weights(
+            profile=profile,
+            raw_tasks=raw_tasks,
+            pinned_blocks=pinned_blocks,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/test-suites/catalog")
+def api_test_suites_catalog():
+    """Return unified catalog across Presets, Scenarios T01-T10, and Testing_System Regimes R1-R6."""
+    presets_dict = get_presets()["presets"]
+    scenarios_list = list_scenarios()["scenarios"]
+    return get_test_suites_catalog(presets_dict, scenarios_list)
+
+
+@app.post("/api/test-suites/load")
+def api_test_suites_load(payload: Dict[str, Any] = Body(...)):
+    """Load any test suite from Presets, Scenarios T01-T10, or Regimes R1-R6 with optional seed."""
+    try:
+        source = str(payload.get("source") or "preset")
+        suite_id = str(payload.get("id") or "minh")
+        seed = int(payload.get("seed") if payload.get("seed") is not None else 42)
+        presets_dict = get_presets()["presets"]
+        return load_test_suite(
+            source=source,
+            suite_id=suite_id,
+            seed=seed,
+            presets_dict=presets_dict,
+            scenarios_dir=SCENARIOS_DIR,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/import/ics")
+def api_import_ics(payload: Dict[str, Any] = Body(...)):
+    """Parse an uploaded .ics calendar payload into previewable FixedEvents and deadline Tasks."""
+    try:
+        ics_text = str(payload.get("content") or payload.get("ics") or "")
+        return parse_ics_content(ics_text)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/tasks/calibration")
+def api_tasks_calibration(workspace_id: str = "default"):
+    """Compute EWMA calibration suggestion from M7 historical completion logs."""
+    try:
+        ws_id = (workspace_id or "default").strip() or "default"
+        return compute_calibration_summary(workspace_id=ws_id)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 

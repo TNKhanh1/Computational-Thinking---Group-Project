@@ -1,1664 +1,283 @@
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="vi" data-theme="botanical">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SmartSchedule — Trợ Lý Lập Lịch Học Tập Cá Nhân | Group 03</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <style>
-    @import url('https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
-    body {
-      font-family: 'Be Vietnam Pro', system-ui, -apple-system, sans-serif;
-      background-color: #F1F5F9;
-      color: #0F172A;
-    }
-    .mono {
-      font-family: 'JetBrains Mono', monospace;
-      font-variant-numeric: tabular-nums;
-    }
-    /* Custom scrollbar for grid and queues */
-    ::-webkit-scrollbar {
-      width: 7px;
-      height: 7px;
-    }
-    ::-webkit-scrollbar-track {
-      background: #F1F5F9;
-    }
-    ::-webkit-scrollbar-thumb {
-      background: #CBD5E1;
-      border-radius: 4px;
-    }
-    ::-webkit-scrollbar-thumb:hover {
-      background: #94A3B8;
-    }
-    /* Prominent horizontal scrollbar for calendar timeline & grids */
-    .calendar-h-scroll {
-      scrollbar-width: auto;
-      scrollbar-color: #6366F1 #E2E8F0;
-    }
-    .calendar-h-scroll::-webkit-scrollbar {
-      height: 11px;
-      width: 8px;
-    }
-    .calendar-h-scroll::-webkit-scrollbar-track {
-      background: #E2E8F0;
-      border-radius: 9999px;
-    }
-    .calendar-h-scroll::-webkit-scrollbar-thumb {
-      background: #6366F1;
-      border-radius: 9999px;
-      border: 2px solid #E2E8F0;
-    }
-    .calendar-h-scroll::-webkit-scrollbar-thumb:hover {
-      background: #4F46E5;
-    }
-    /* Slot colors strictly adhering to baseline_plan.md §7.6 */
-    .slot-sleep {
-      background-color: #334155;
-      color: #CBD5E1;
-      background-image: repeating-linear-gradient(
-        45deg,
-        rgba(255,255,255,0.04),
-        rgba(255,255,255,0.04) 6px,
-        transparent 6px,
-        transparent 12px
-      );
-    }
-    .slot-occupied-class {
-      background-color: #E11D48;
-      color: #FFFFFF;
-    }
-    .slot-occupied-meal {
-      background-color: #D97706;
-      color: #FFFFFF;
-    }
-    .slot-occupied-disruption {
-      background-color: #9333EA;
-      color: #FFFFFF;
-    }
-    .slot-block {
-      background-color: #059669;
-      color: #FFFFFF;
-    }
-    .slot-block-moved {
-      background-color: #2563EB;
-      color: #FFFFFF;
-    }
-    .slot-block-diff {
-      background-color: #0D9488;
-      color: #FFFFFF;
-      outline: 2px dashed #FACC15;
-      outline-offset: -2px;
-    }
-    .slot-block-proposed {
-      background-color: #EEF2FF;
-      color: #3730A3;
-      outline: 2px dashed #4F46E5;
-      outline-offset: -2px;
-    }
-    .slot-rest {
-      background-color: #ECFDF5;
-      color: #047857;
-      border-left: 3px dashed #10B981;
-    }
-    .slot-free {
-      background-color: #F8FAFC;
-      color: #64748B;
-    }
-    .slot-free:hover {
-      background-color: #E2E8F0;
-    }
-    .grid-cell {
-      transition: filter 0.1s ease, transform 0.08s ease;
-    }
-    .grid-cell:hover {
-      filter: brightness(1.08);
-    }
-    /* Gói A.0 Progressive Disclosure: keep Lab controls in DOM for contract & Lab Mode, hide clutter in Student Mode */
-    body.app-mode-student .st-lab-only-modal {
-      display: none !important;
-    }
-  </style>
+  <title>SmartSchedule — Trợ Lý Lập Lịch & Đối Chiếu Thuật Toán</title>
+  <meta name="description" content="SmartSchedule UI v3 — Lập lịch học tập tối ưu theo nhịp sinh học và đối chiếu chuẩn mực giữa các thuật toán xếp lịch." />
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='10' fill='%232e6f40'/%3E%3Ctext x='16' y='21' text-anchor='middle' font-family='sans-serif' font-weight='700' font-size='13' fill='%23ffffff'%3ESS%3C/text%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/tokens.css" />
+  <link rel="stylesheet" href="/css/app.css" />
 </head>
-<body class="min-h-screen flex flex-col">
-
-  <!-- TOP HEADER BAR (UNIFIED NAVIGATION & TEMPORAL CONTEXT) -->
-  <header class="bg-slate-900 text-white border-b border-slate-700 sticky top-0 z-30 shadow-md">
-    <div class="max-w-[1800px] mx-auto px-4 py-2 flex flex-wrap items-center justify-between gap-3">
-      <!-- Brand + Mode Switch -->
-      <div class="flex flex-wrap items-center gap-3">
-        <div class="flex items-center gap-2.5">
-          <div class="w-8 h-8 rounded-xl bg-gradient-to-tr from-indigo-600 to-emerald-500 flex items-center justify-center font-bold text-base shadow-inner">⚡</div>
-          <div>
-            <div class="flex items-center gap-1.5">
-              <h1 class="font-bold text-sm sm:text-base tracking-tight text-white">SmartSchedule</h1>
-              <span id="headerModeBadge" class="px-2 py-0.5 text-[10px] font-bold bg-indigo-500/30 text-indigo-300 border border-indigo-400/30 rounded-full mono uppercase">STUDENT APP</span>
-            </div>
-            <p id="topClockLiveLabel" class="text-[10px] text-slate-400 mono">Hôm nay: --/--/---- --:--</p>
+<body>
+  <div class="app-shell">
+    <!-- [1] SINGLE-ROW USER TOP BAR (100% User-focused, zero Dev clutter) -->
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="brand-group">
+          <div class="brand-mark" aria-hidden="true">SS</div>
+          <div class="brand-title">
+            <strong>SmartSchedule</strong>
+            <span id="activeSuiteBadge">Đang tải bộ dữ liệu...</span>
           </div>
-        </div>
 
-        <div class="flex items-center bg-slate-800 p-1 rounded-xl border border-slate-700 shadow-inner">
-          <button id="btnAppModeStudent" onclick="switchAppMode('STUDENT')" class="px-3 py-1 text-xs font-bold rounded-lg bg-indigo-600 text-white shadow transition flex items-center gap-1">
-            <span>🎓</span> Cá Nhân
-          </button>
-          <button id="btnAppModeLab" onclick="switchAppMode('LAB')" class="px-3 py-1 text-xs font-semibold rounded-lg text-slate-300 hover:text-white transition flex items-center gap-1">
-            <span>🔬</span> Lab Nghiên Cứu
-          </button>
-        </div>
-      </div>
-
-      <!-- Shared Week & Date Navigation Controls + Interactive Month Range Calendar -->
-      <div class="relative">
-        <div class="flex flex-wrap items-center gap-1.5 bg-slate-800/90 px-2.5 py-1 rounded-xl border border-slate-700 text-xs">
-          <button type="button" id="btnStWeekPrev" onclick="shiftStudentCalendarWeek(-1)" class="px-2 py-1 rounded-lg hover:bg-slate-700 text-slate-200 font-bold transition" title="Xem Tuần 1">◀</button>
-          <span id="stWeekViewLabel" class="px-1.5 font-bold text-indigo-300 mono">Tuần 1</span>
-          <button type="button" id="topWeekRangePill" onclick="toggleObservedRangeCalendar()" class="px-2 py-1 rounded-lg bg-slate-900/80 hover:bg-indigo-700/70 border border-slate-600 text-slate-100 font-semibold mono transition flex items-center gap-1.5" title="Mở lịch tháng để xem chuỗi ngày đang quan sát">
-            <span>--/--/---- – --/--/----</span>
-          </button>
-          <button type="button" id="btnStWeekNext" onclick="shiftStudentCalendarWeek(1)" class="px-2 py-1 rounded-lg hover:bg-slate-700 text-slate-200 font-bold transition" title="Xem Tuần 2 (14 ngày)">▶</button>
-          <button type="button" id="btnToggleObservedCalendar" onclick="toggleObservedRangeCalendar()" class="px-2 py-1 rounded-lg bg-slate-700 hover:bg-indigo-600 text-indigo-200 hover:text-white font-semibold transition flex items-center gap-1" title="Xem lịch tháng đánh dấu chuỗi ngày đang quan sát">
-            <span>📆</span> Lịch
-          </button>
-          <span class="text-slate-600">|</span>
-          <input id="inpWeekStartDate" type="date" onchange="setPlanningWeekFromDate(this.value)" class="bg-slate-900 border border-slate-600 rounded px-1.5 py-0.5 text-[11px] text-slate-200 mono cursor-pointer" title="Đổi ngày bắt đầu tuần (Tự quy về Thứ 2 của tuần đó)" />
-          <select id="stHorizonDaysSelect" onchange="changeStudentHorizonDays(this.value)" class="bg-slate-900 border border-slate-600 rounded px-1.5 py-0.5 text-[11px] font-semibold text-amber-300 outline-none cursor-pointer" title="Cửa sổ lập lịch">
-            <option value="7">7 ngày</option>
-            <option value="14">14 ngày</option>
-          </select>
-          <button type="button" id="btnStJumpRealtime" onclick="jumpToCurrentWeek()" class="px-2 py-1 rounded-lg bg-indigo-600/80 hover:bg-indigo-500 text-white text-[11px] font-bold transition" title="Đồng bộ theo tuần & đồng hồ thực tế hiện tại">🕒 Tuần này</button>
-        </div>
-
-        <!-- Mini-Month Range Calendar Popover -->
-        <div id="observedRangeCalendarPopover" class="hidden absolute left-0 sm:left-1/2 sm:-translate-x-1/2 top-full mt-2 w-[335px] bg-white text-slate-900 rounded-2xl shadow-2xl border border-slate-200 p-3.5 z-50 text-xs">
-          <div class="flex items-start justify-between gap-2 pb-2 mb-2 border-b border-slate-100">
-            <div>
-              <div class="text-[10px] font-bold uppercase tracking-wider text-indigo-600">📆 Chuỗi Ngày Đang Quan Sát</div>
-              <div id="calPopoverRangeText" class="font-bold text-slate-900 mono mt-0.5">--/--/---- → --/--/----</div>
-              <div id="calPopoverHorizonText" class="text-[11px] text-slate-500 mt-0.5">Toàn bộ cửa sổ: 7 ngày</div>
-            </div>
-            <button type="button" onclick="closeObservedRangeCalendar()" class="text-slate-400 hover:text-slate-700 font-bold px-1.5 py-0.5 rounded hover:bg-slate-100">✕</button>
-          </div>
-          <div class="flex items-center justify-between mb-2">
-            <button type="button" onclick="shiftMiniCalendarMonth(-1)" class="px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 font-bold text-slate-700">◀</button>
-            <span id="calPopoverMonthTitle" class="font-bold text-slate-800">Tháng -- / ----</span>
-            <div class="flex items-center gap-1">
-              <button type="button" onclick="jumpToCurrentWeek(); closeObservedRangeCalendar();" class="px-2 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold text-[11px]">Hôm nay</button>
-              <button type="button" onclick="shiftMiniCalendarMonth(1)" class="px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 font-bold text-slate-700">▶</button>
-            </div>
-          </div>
-          <div class="grid grid-cols-7 text-center text-[10px] font-bold text-slate-400 mb-1">
-            <span>T2</span><span>T3</span><span>T4</span><span>T5</span><span>T6</span><span>T7</span><span>CN</span>
-          </div>
-          <div id="calPopoverGrid" class="grid grid-cols-7 gap-y-1 text-center"></div>
-          <div class="mt-2.5 pt-2 border-t border-slate-100 flex flex-wrap items-center gap-2.5 text-[10px] text-slate-600">
-            <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded bg-indigo-600 inline-block"></span> Đang xem trên lịch</span>
-            <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded bg-indigo-100 border border-indigo-300 inline-block"></span> Trong horizon (7/14d)</span>
-            <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full ring-2 ring-rose-500 inline-block"></span> Hôm nay</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Right Actions: Student Mode (Clean Single Source of Action) -->
-      <div id="studentHeaderActions" class="flex flex-wrap items-center gap-2 relative">
-        <button onclick="openStudentTaskModal()" class="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-lg shadow-sm transition flex items-center gap-1.5">
-          <span>➕</span> Thêm Việc
-        </button>
-        <button onclick="openStudentSettingsModal()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-medium rounded-lg transition" title="Ngủ (>=6h), Khung tập trung, Buffer & Thói quen">
-          ⚙️ Cài Đặt
-        </button>
-        <div class="relative">
-          <button type="button" id="btnStudentToolsMenu" onclick="toggleStudentToolsMenu()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-medium rounded-lg transition flex items-center gap-1">
-            <span>⋯</span> Dữ Liệu & Tiện Ích
-          </button>
-          <div id="studentToolsMenu" class="hidden absolute right-0 mt-1.5 w-60 bg-white text-slate-800 rounded-xl shadow-xl border border-slate-200 py-1.5 z-50 text-xs">
-            <button onclick="closeStudentToolsMenu(); openStudentDisruptionModal();" class="w-full text-left px-3.5 py-2 hover:bg-amber-50 font-semibold text-amber-800 flex items-center gap-2">⚡ Báo sự cố đột xuất (Local Repair)</button>
-            <button onclick="closeStudentToolsMenu(); solveSchedule();" class="w-full text-left px-3.5 py-2 hover:bg-emerald-50 font-semibold text-emerald-800 flex items-center gap-2">🔄 Sắp xếp lại lịch ngay</button>
-            <hr class="my-1 border-slate-100" />
-            <div class="px-3.5 py-1 text-[10px] font-bold uppercase text-slate-400">Dữ liệu & Lịch mẫu</div>
-            <button onclick="closeStudentToolsMenu(); loadPresetIntoCurrentWeek('minh');" class="w-full text-left px-3.5 py-1.5 hover:bg-slate-100 flex items-center gap-2">🕒 Mẫu của Minh (Tuần hiện tại)</button>
-            <button onclick="closeStudentToolsMenu(); loadPreset('minh');" class="w-full text-left px-3.5 py-1.5 hover:bg-slate-100 flex items-center gap-2">📂 Mẫu Minh gốc (02/11/2026)</button>
-            <button onclick="closeStudentToolsMenu(); loadPreset('lan');" class="w-full text-left px-3.5 py-1.5 hover:bg-slate-100 flex items-center gap-2">📂 Mẫu bận rộn của Lan</button>
-            <button onclick="closeStudentToolsMenu(); loadPreset('empty');" class="w-full text-left px-3.5 py-1.5 hover:bg-slate-100 flex items-center gap-2">📄 Lịch trống mới (Tuần này)</button>
-            <hr class="my-1 border-slate-100" />
-            <button onclick="closeStudentToolsMenu(); exportSchedule('ics');" class="w-full text-left px-3.5 py-1.5 hover:bg-slate-100 flex items-center gap-2">📅 Xuất Google/Apple Calendar (.ICS)</button>
-            <button onclick="closeStudentToolsMenu(); exportSchedule('json');" class="w-full text-left px-3.5 py-1.5 hover:bg-slate-100 flex items-center gap-2">💾 Sao lưu JSON</button>
-            <button onclick="closeStudentToolsMenu(); clearAllData();" class="w-full text-left px-3.5 py-1.5 hover:bg-rose-50 text-rose-700 font-semibold flex items-center gap-2">🗑️ Xóa toàn bộ dữ liệu</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Right Actions: Lab Research Mode Toolbar (Clean Research Utility Bar) -->
-      <div id="labHeaderActions" class="hidden flex flex-wrap items-center gap-2">
-        <div class="flex items-center bg-slate-800 border border-slate-600 rounded-lg overflow-hidden text-xs">
-          <button onclick="loadPreset('minh')" class="px-2.5 py-1.5 hover:bg-indigo-600 text-slate-100 transition font-semibold" title="Tuần của Minh (Fixture 02/11/2026)">📂 Minh</button>
-          <span class="text-slate-600">|</span>
-          <button onclick="loadPreset('lan')" class="px-2.5 py-1.5 hover:bg-indigo-600 text-slate-100 transition font-semibold">📂 Lan</button>
-          <span class="text-slate-600">|</span>
-          <button onclick="loadPreset('empty')" class="px-2.5 py-1.5 hover:bg-amber-600 text-amber-300 transition font-semibold">📄 Trống</button>
-        </div>
-
-        <div class="flex items-center bg-slate-800 border border-slate-600 rounded-lg overflow-hidden">
-          <span class="px-2 py-1.5 text-[11px] text-amber-300 font-semibold bg-slate-800 border-r border-slate-600">🧪 Benchmark:</span>
-          <select id="scenarioSelect" onchange="onScenarioSelectChange(this.value)" class="bg-slate-800 text-xs text-white px-2 py-1.5 focus:outline-none">
-            <option value="">-- Kịch bản T01–T10 --</option>
-          </select>
-        </div>
-
-        <label class="px-2.5 py-1.5 text-xs font-medium bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg cursor-pointer transition">
-          📥 JSON
-          <input type="file" id="jsonFileInput" accept=".json" class="hidden" onchange="importJsonFile(event)" />
-        </label>
-        <button onclick="exportSchedule('json')" class="px-2 py-1.5 text-xs font-medium bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg transition" title="Xuất .JSON">💾 .JSON</button>
-        <button onclick="exportSchedule('csv')" class="px-2 py-1.5 text-xs font-medium bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg transition" title="Xuất .CSV">📊 .CSV</button>
-        <button onclick="exportSchedule('ics')" class="px-2.5 py-1.5 text-xs font-semibold bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg transition" title="Xuất .ICS">📅 .ICS</button>
-        <button onclick="clearAllData()" class="px-2 py-1.5 text-xs font-medium bg-rose-900/70 hover:bg-rose-800 text-rose-200 border border-rose-700 rounded-lg transition" title="Xóa sạch">🔄</button>
-      </div>
-    </div>
-  </header>
-
-  <!-- SHARED TEMPORAL CONTEXT BANNER (Shows explicitly whether viewing Historical Preset vs Live Week) -->
-  <div id="temporalContextBanner" class="hidden bg-amber-50 border-b border-amber-200 px-4 py-1.5 text-xs text-amber-950">
-    <div class="max-w-[1800px] mx-auto flex flex-wrap items-center justify-between gap-2">
-      <div id="temporalContextText" class="flex flex-wrap items-center gap-2 font-medium"></div>
-      <div class="flex items-center gap-2">
-        <button type="button" onclick="rebaseScheduleToCurrentWeek()" class="px-2.5 py-0.5 rounded-md bg-amber-600 hover:bg-amber-500 text-white font-bold text-[11px] transition">
-          🕒 Đưa lịch đang xem về tuần hiện tại
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <!-- ============================================================================ -->
-  <!-- 1. STUDENT APP LAYOUT (CLEAN, TEMPORAL-AWARE, NO DUPLICATE BUTTONS)          -->
-  <!-- ============================================================================ -->
-  <div id="studentAppLayout" class="flex-1 max-w-[1750px] w-full mx-auto px-4 py-4 space-y-4">
-
-    <!-- STUDENT SUB-HEADER: WEEK SUMMARY + VIEW TABS ONLY -->
-    <div class="bg-white rounded-2xl border border-slate-200/90 shadow-sm p-3.5 flex flex-wrap items-center justify-between gap-3">
-      <!-- Left: Week Date & Compact Health Chips -->
-      <div class="flex flex-wrap items-center gap-3">
-        <div>
-          <h2 id="stWeekHeaderTitle" class="text-sm font-bold text-slate-900">Tuần Học Tập</h2>
-          <p id="stWeekHeaderSubtitle" class="text-xs text-slate-500">Hiển thị ngày cụ thể và trạng thái Quá khứ / Hiện tại / Tương lai</p>
-        </div>
-
-        <div class="hidden md:flex flex-wrap items-center gap-1.5 pl-3 border-l border-slate-200">
-          <span id="stSummaryTasks" class="px-2.5 py-1 text-xs font-semibold bg-indigo-50 text-indigo-700 rounded-full border border-indigo-200">0 bài tập</span>
-          <span id="stSummaryHours" class="px-2.5 py-1 text-xs font-semibold bg-emerald-50 text-emerald-700 rounded-full border border-emerald-200">0h học</span>
-          <span id="stSummaryDeadline" class="px-2.5 py-1 text-xs font-semibold bg-blue-50 text-blue-700 rounded-full border border-blue-200">✓ 100% đúng hạn</span>
-          <span id="stSummaryExperience" class="px-2.5 py-1 text-xs font-semibold bg-violet-50 text-violet-700 rounded-full border border-violet-200" title="Experience Rating (1=Thoải mái → 5=Kiệt sức)">⭐ 1.0</span>
-          <span id="stSummaryViolations" class="px-2.5 py-1 text-xs font-semibold bg-slate-100 text-slate-700 rounded-full border border-slate-200">🛡️ 0 vi phạm (H1-H5)</span>
-        </div>
-      </div>
-
-      <!-- Right: Clean 3-Tab Switcher (No duplicate +Add buttons) -->
-      <div class="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200">
-        <button id="btnStTabToday" onclick="switchStudentView('TODAY')" class="px-3.5 py-1.5 text-xs font-semibold rounded-lg text-slate-600 hover:text-slate-900 transition flex items-center gap-1.5">
-          <span>🎯</span> Hôm Nay (Now & Next)
-        </button>
-        <button id="btnStTabWeek" onclick="switchStudentView('WEEK')" class="px-3.5 py-1.5 text-xs font-bold rounded-lg bg-white text-indigo-700 shadow-sm transition flex items-center gap-1.5">
-          <span>📅</span> Lịch Tuần (7/14 Ngày)
-        </button>
-        <button id="btnStTabTasks" onclick="switchStudentView('TASKS')" class="px-3.5 py-1.5 text-xs font-semibold rounded-lg text-slate-600 hover:text-slate-900 transition flex items-center gap-1.5">
-          <span>📋</span> Việc & Thói Quen
-        </button>
-      </div>
-    </div>
-
-    <!-- ==================== EARLY EXTENSION ALERT & STUDENT OVERLOAD TRIAGE BANNER ==================== -->
-    <div id="stEarlyExtensionAlertBox" class="hidden bg-amber-50 border border-amber-300 rounded-2xl p-3.5 text-xs text-amber-950 shadow-sm flex flex-wrap items-center justify-between gap-2"></div>
-    <div id="stOverloadBanner" class="hidden bg-rose-50 border-2 border-rose-300 rounded-2xl p-4 text-xs text-rose-950 shadow-sm space-y-2.5"></div>
-
-    <!-- ==================== VIEW 1: STUDENT WEEKLY CALENDAR (HORIZONTAL SCROLL + OBSERVED CHAIN) ==================== -->
-    <div id="stViewWeek" class="space-y-3">
-      <!-- Timeline Navigator, Observed Day-Chain Map & Horizontal Range Slider -->
-      <div id="stTimelineNavigatorBar" class="bg-white rounded-2xl border border-slate-200 shadow-sm p-3 space-y-2.5 text-xs">
-        <div class="flex flex-wrap items-center justify-between gap-2">
-          <div class="flex flex-wrap items-center gap-2">
-            <span class="text-slate-600 font-semibold">📆 Chuỗi ngày đang quan sát:</span>
-            <span id="stObservedRangeLabel" class="font-bold text-indigo-700 mono">--/--/---- → --/--/----</span>
-            <span id="stObservedWindowCount" class="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 font-semibold mono text-[10px]">--/-- ngày</span>
-          </div>
-          <div class="flex flex-wrap items-center gap-3 text-[11px] text-slate-600">
-            <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-slate-300 inline-block"></span> Đã qua</span>
-            <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-indigo-600 inline-block"></span> Hôm nay (có vạch <strong class="text-rose-600">NOW</strong>)</span>
-            <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span> Sắp tới</span>
-            <button id="btnStOpenMonthCal" type="button" onclick="toggleObservedRangeCalendar(true)" class="px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 font-bold text-[11px] transition">
-              🗓️ Xem Lịch Tháng
+          <div class="week-pill">
+            <button type="button" class="btn btn-ghost btn-sm" id="btnWeekToday">Hôm nay</button>
+            <button type="button" class="btn btn-ghost btn-sm btn-icon" id="btnWeekPrev" title="Tuần trước" aria-label="Tuần trước">
+              <svg class="icon" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg>
             </button>
+            <button type="button" class="btn btn-ghost btn-sm btn-icon" id="btnWeekNext" title="Tuần sau" aria-label="Tuần sau">
+              <svg class="icon" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>
+            </button>
+            <span class="week-range-text mono" id="txtWeekRange">--/-- – --/--</span>
           </div>
         </div>
 
-        <!-- Visual Day Chain Map (highlights visible viewport days vs remaining horizon days) -->
-        <div id="stObservedDaysStrip" class="flex flex-wrap items-center gap-1.5"></div>
+        <!-- Clean 2-tab User View Switcher -->
+        <nav class="view-tabs" role="tablist" aria-label="Chế độ xem của người dùng">
+          <button type="button" class="view-tab active" role="tab" data-view-tab="calendar" aria-selected="true">Lịch</button>
+          <button type="button" class="view-tab" role="tab" data-view-tab="list" aria-selected="false">Danh sách</button>
+        </nav>
 
-        <!-- Horizontal Slider Scrubber -->
-        <div class="flex items-center gap-2 pt-0.5">
-          <button type="button" id="btnStPanLeft" onclick="panCalendarByDays(-1)" class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition" title="Trượt sang trái 1 ngày">◀</button>
-          <input id="stCalendarHorizontalSlider" type="range" min="0" max="1000" value="0" oninput="onStHorizontalSliderInput(this.value)" onchange="restoreCalendarSmoothScroll()" class="flex-1 h-2 bg-slate-200 rounded-lg accent-indigo-600 cursor-pointer" title="Kéo thanh trượt ngang để di chuyển qua các ngày" />
-          <button type="button" id="btnStPanRight" onclick="panCalendarByDays(1)" class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition" title="Trượt sang phải 1 ngày">▶</button>
-          <button type="button" onclick="scrollToTodayColumn()" class="px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-[11px] transition whitespace-nowrap" title="Cuộn nhanh tới cột Hôm nay">📍 Về Hôm Nay</button>
-        </div>
-      </div>
+        <div class="topbar-actions">
+          <!-- Calendar Display Mode (1d / 3d / 5d / 7d + Start Day) -->
+          <div class="popover-anchor" id="calendarRangeAnchor">
+            <button type="button" class="btn" id="btnToggleCalendarRange" aria-expanded="false" aria-controls="calendarRangePopover">
+              <span id="txtCalendarRangeLabel">Tuần (7 ngày)</span>
+              <svg class="icon" viewBox="0 0 24 24" style="width:14px;height:14px;color:var(--p-muted);"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+            <div class="popover-menu align-right range-popover" id="calendarRangePopover" role="dialog" aria-label="Chọn chế độ hiển thị và ngày bắt đầu"></div>
+          </div>
 
-      <!-- Horizontal Continuous Calendar Track (Days 0..6 + Dynamic Days 7..13 when 14-day Horizon active) -->
-      <div id="stCalendarScrollContainer" onscroll="syncSliderFromCalendarScroll()" class="calendar-h-scroll flex gap-3 overflow-x-auto pb-3 scroll-smooth">
-        <!-- Day Columns 0 to 6 -->
-        <div id="stDayColWrapper_0" class="flex-shrink-0 w-[265px] sm:w-[280px] bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-          <div class="p-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-1">
-            <div>
-              <div class="flex items-center gap-1.5">
-                <span class="text-xs font-bold text-slate-900">Thứ Hai</span>
-                <span id="stDayTemporal_0" class="px-1.5 py-0.5 rounded text-[9px] font-bold"></span>
-              </div>
-              <div id="stDayDate_0" class="text-[11px] font-semibold text-slate-600 mono">--/--/----</div>
-            </div>
-            <span id="stDayHours_0" class="text-[11px] font-semibold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full whitespace-nowrap">0h</span>
-          </div>
-          <div class="bg-slate-800 text-slate-300 text-[10px] px-2.5 py-1 border-b border-slate-700 flex items-center justify-between">
-            <span class="st-sleep-window-label">🌙 23:30 – 06:30</span>
-            <span class="text-indigo-300 font-medium">Ngủ</span>
-          </div>
-          <div id="stDayCards_0" class="p-2 space-y-2 flex-1 min-h-[360px] bg-slate-50/30"></div>
-        </div>
-
-        <div id="stDayColWrapper_1" class="flex-shrink-0 w-[265px] sm:w-[280px] bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-          <div class="p-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-1">
-            <div>
-              <div class="flex items-center gap-1.5">
-                <span class="text-xs font-bold text-slate-900">Thứ Ba</span>
-                <span id="stDayTemporal_1" class="px-1.5 py-0.5 rounded text-[9px] font-bold"></span>
-              </div>
-              <div id="stDayDate_1" class="text-[11px] font-semibold text-slate-600 mono">--/--/----</div>
-            </div>
-            <span id="stDayHours_1" class="text-[11px] font-semibold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full whitespace-nowrap">0h</span>
-          </div>
-          <div class="bg-slate-800 text-slate-300 text-[10px] px-2.5 py-1 border-b border-slate-700 flex items-center justify-between">
-            <span class="st-sleep-window-label">🌙 23:30 – 06:30</span>
-            <span class="text-indigo-300 font-medium">Ngủ</span>
-          </div>
-          <div id="stDayCards_1" class="p-2 space-y-2 flex-1 min-h-[360px] bg-slate-50/30"></div>
-        </div>
-
-        <div id="stDayColWrapper_2" class="flex-shrink-0 w-[265px] sm:w-[280px] bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-          <div class="p-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-1">
-            <div>
-              <div class="flex items-center gap-1.5">
-                <span class="text-xs font-bold text-slate-900">Thứ Tư</span>
-                <span id="stDayTemporal_2" class="px-1.5 py-0.5 rounded text-[9px] font-bold"></span>
-              </div>
-              <div id="stDayDate_2" class="text-[11px] font-semibold text-slate-600 mono">--/--/----</div>
-            </div>
-            <span id="stDayHours_2" class="text-[11px] font-semibold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full whitespace-nowrap">0h</span>
-          </div>
-          <div class="bg-slate-800 text-slate-300 text-[10px] px-2.5 py-1 border-b border-slate-700 flex items-center justify-between">
-            <span class="st-sleep-window-label">🌙 23:30 – 06:30</span>
-            <span class="text-indigo-300 font-medium">Ngủ</span>
-          </div>
-          <div id="stDayCards_2" class="p-2 space-y-2 flex-1 min-h-[360px] bg-slate-50/30"></div>
-        </div>
-
-        <div id="stDayColWrapper_3" class="flex-shrink-0 w-[265px] sm:w-[280px] bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-          <div class="p-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-1">
-            <div>
-              <div class="flex items-center gap-1.5">
-                <span class="text-xs font-bold text-slate-900">Thứ Năm</span>
-                <span id="stDayTemporal_3" class="px-1.5 py-0.5 rounded text-[9px] font-bold"></span>
-              </div>
-              <div id="stDayDate_3" class="text-[11px] font-semibold text-slate-600 mono">--/--/----</div>
-            </div>
-            <span id="stDayHours_3" class="text-[11px] font-semibold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full whitespace-nowrap">0h</span>
-          </div>
-          <div class="bg-slate-800 text-slate-300 text-[10px] px-2.5 py-1 border-b border-slate-700 flex items-center justify-between">
-            <span class="st-sleep-window-label">🌙 23:30 – 06:30</span>
-            <span class="text-indigo-300 font-medium">Ngủ</span>
-          </div>
-          <div id="stDayCards_3" class="p-2 space-y-2 flex-1 min-h-[360px] bg-slate-50/30"></div>
-        </div>
-
-        <div id="stDayColWrapper_4" class="flex-shrink-0 w-[265px] sm:w-[280px] bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-          <div class="p-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-1">
-            <div>
-              <div class="flex items-center gap-1.5">
-                <span class="text-xs font-bold text-slate-900">Thứ Sáu</span>
-                <span id="stDayTemporal_4" class="px-1.5 py-0.5 rounded text-[9px] font-bold"></span>
-              </div>
-              <div id="stDayDate_4" class="text-[11px] font-semibold text-slate-600 mono">--/--/----</div>
-            </div>
-            <span id="stDayHours_4" class="text-[11px] font-semibold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full whitespace-nowrap">0h</span>
-          </div>
-          <div class="bg-slate-800 text-slate-300 text-[10px] px-2.5 py-1 border-b border-slate-700 flex items-center justify-between">
-            <span class="st-sleep-window-label">🌙 23:30 – 06:30</span>
-            <span class="text-indigo-300 font-medium">Ngủ</span>
-          </div>
-          <div id="stDayCards_4" class="p-2 space-y-2 flex-1 min-h-[360px] bg-slate-50/30"></div>
-        </div>
-
-        <div id="stDayColWrapper_5" class="flex-shrink-0 w-[265px] sm:w-[280px] bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-          <div class="p-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-1">
-            <div>
-              <div class="flex items-center gap-1.5">
-                <span class="text-xs font-bold text-slate-900">Thứ Bảy</span>
-                <span id="stDayTemporal_5" class="px-1.5 py-0.5 rounded text-[9px] font-bold"></span>
-              </div>
-              <div id="stDayDate_5" class="text-[11px] font-semibold text-slate-600 mono">--/--/----</div>
-            </div>
-            <span id="stDayHours_5" class="text-[11px] font-semibold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full whitespace-nowrap">0h</span>
-          </div>
-          <div class="bg-slate-800 text-slate-300 text-[10px] px-2.5 py-1 border-b border-slate-700 flex items-center justify-between">
-            <span class="st-sleep-window-label">🌙 23:30 – 06:30</span>
-            <span class="text-indigo-300 font-medium">Ngủ</span>
-          </div>
-          <div id="stDayCards_5" class="p-2 space-y-2 flex-1 min-h-[360px] bg-slate-50/30"></div>
-        </div>
-
-        <div id="stDayColWrapper_6" class="flex-shrink-0 w-[265px] sm:w-[280px] bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-          <div class="p-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-1">
-            <div>
-              <div class="flex items-center gap-1.5">
-                <span class="text-xs font-bold text-slate-900">Chủ Nhật</span>
-                <span id="stDayTemporal_6" class="px-1.5 py-0.5 rounded text-[9px] font-bold"></span>
-              </div>
-              <div id="stDayDate_6" class="text-[11px] font-semibold text-slate-600 mono">--/--/----</div>
-            </div>
-            <span id="stDayHours_6" class="text-[11px] font-semibold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full whitespace-nowrap">0h</span>
-          </div>
-          <div class="bg-slate-800 text-slate-300 text-[10px] px-2.5 py-1 border-b border-slate-700 flex items-center justify-between">
-            <span class="st-sleep-window-label">🌙 23:30 – 06:30</span>
-            <span class="text-indigo-300 font-medium">Ngủ</span>
-          </div>
-          <div id="stDayCards_6" class="p-2 space-y-2 flex-1 min-h-[360px] bg-slate-50/30"></div>
-        </div>
-
-        <!-- Dynamically populated Days 7..13 (Tuần 2) when 14-day Horizon is selected -->
-        <div id="stExtraWeek2Columns" class="contents"></div>
-      </div>
-    </div>
-
-    <!-- ==================== VIEW 2: STUDENT TODAY VIEW ("NOW & NEXT") ==================== -->
-    <div id="stViewToday" class="hidden space-y-4">
-      <div class="bg-white rounded-2xl border border-slate-200 p-3 shadow-sm flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <span class="text-xs font-bold text-slate-800">Chọn Ngày Xem Trục Thời Gian:</span>
-          <span id="stTodayActiveDateTitle" class="ml-2 text-xs font-bold text-indigo-700 mono"></span>
-        </div>
-        <div class="flex flex-wrap gap-1.5" id="stTodayDayPills"></div>
-      </div>
-
-      <div id="stTodayHeroContainer" class="bg-gradient-to-r from-indigo-900 via-indigo-800 to-slate-900 text-white rounded-2xl p-6 shadow-md border border-indigo-700"></div>
-
-      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-        <h3 class="text-sm font-bold text-slate-800 mb-4 flex items-center justify-between">
-          <span>📋 Lịch Trình Trong Ngày (Phân tách Đã qua / Hiện tại / Sắp tới)</span>
-          <span id="stTodayNowBadge" class="text-xs font-semibold text-rose-600 mono"></span>
-        </h3>
-        <div id="stTodayTimelineContainer" class="space-y-2.5"></div>
-      </div>
-    </div>
-
-    <!-- ==================== VIEW 3: STUDENT TASKS & HABITS WORKSPACE ==================== -->
-    <div id="stViewTasks" class="hidden bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
-      <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
-        <div class="flex items-center gap-2 bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs">
-          <button type="button" id="btnStSubTasks" onclick="switchStudentTasksSubtab('TASKS')" class="px-3 py-1.5 rounded-lg bg-white text-indigo-700 font-bold shadow-sm transition">
-            📝 Công Việc / Bài Tập
+          <!-- Primary User Action: Add / Manage Input -->
+          <button type="button" class="btn btn-primary" id="btnOpenInputModal">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+            <span>Đầu vào (<span id="txtInputTaskCount" class="mono">0</span>)</span>
           </button>
-          <button type="button" id="btnStSubHabits" onclick="switchStudentTasksSubtab('HABITS')" class="px-3 py-1.5 rounded-lg text-slate-600 font-semibold hover:text-slate-900 transition">
-            🏃 Thói Quen Tuần (PersonalHabit)
+
+          <!-- Theme Mode Switcher (Botanical Green / Light / Dark Forest) -->
+          <div class="popover-anchor">
+            <button type="button" class="btn btn-icon" id="btnToggleTheme" title="Đổi giao diện (Rừng cây / Sáng / Tối)" aria-expanded="false" aria-controls="themePopover" aria-label="Đổi giao diện">
+              <svg class="icon" viewBox="0 0 24 24"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/></svg>
+            </button>
+            <div class="popover-menu align-right theme-popover" id="themePopover" role="dialog" aria-label="Chọn chủ đề giao diện">
+              <div class="popover-section-title">Chủ đề giao diện</div>
+              <button type="button" class="range-option" data-set-theme="botanical">
+                <div style="display:flex;align-items:center;gap:10px;">
+                  <span class="theme-swatch-dot" style="background:linear-gradient(135deg,#2e6f40,#cde5d3);"></span>
+                  <div>
+                    <div>Rừng cây (Botanical)</div>
+                    <div style="font-size:11px;color:var(--p-muted);font-weight:400;">Xanh rêu dịu mắt · Ảnh rừng thật</div>
+                  </div>
+                </div>
+              </button>
+              <button type="button" class="range-option" data-set-theme="light">
+                <div style="display:flex;align-items:center;gap:10px;">
+                  <span class="theme-swatch-dot" style="background:linear-gradient(135deg,#1a73e8,#f8fafd);"></span>
+                  <div>
+                    <div>Sáng tối giản</div>
+                    <div style="font-size:11px;color:var(--p-muted);font-weight:400;">Trắng thanh thoát kiểu Google Calendar</div>
+                  </div>
+                </div>
+              </button>
+              <button type="button" class="range-option" data-set-theme="dark">
+                <div style="display:flex;align-items:center;gap:10px;">
+                  <span class="theme-swatch-dot" style="background:linear-gradient(135deg,#111815,#52b778);"></span>
+                  <div>
+                    <div>Rừng đêm (Dark)</div>
+                    <div style="font-size:11px;color:var(--p-muted);font-weight:400;">Nền tối dịu mắt · Học khuya thoải mái</div>
+                  </div>
+                </div>
+              </button>
+            </div>
+          </div>
+
+          <!-- User Settings & Export Popover -->
+          <div class="popover-anchor">
+            <button type="button" class="btn btn-icon" id="btnToggleSettings" title="Cài đặt lịch & Lưu xuất" aria-expanded="false" aria-controls="settingsPopover" aria-label="Cài đặt">
+              <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.604.852.997 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            </button>
+            <div class="popover-menu align-right settings-popover" id="settingsPopover" role="dialog" aria-label="Cài đặt hiển thị và tiện ích">
+              <div class="settings-section">
+                <div class="popover-section-title">Hiển thị lịch</div>
+                <div class="settings-row">
+                  <span>Cửa sổ dữ liệu</span>
+                  <div class="horizon-toggle" role="group" aria-label="Cửa sổ lập lịch">
+                    <button type="button" id="btnHorizon7" class="active">7 ngày</button>
+                    <button type="button" id="btnHorizon14">14 ngày</button>
+                  </div>
+                </div>
+                <label class="settings-toggle">
+                  <span>Ẩn khung giờ ngủ (00–06h)</span>
+                  <input type="checkbox" id="chkSettingHideSleep" checked />
+                </label>
+                <label class="settings-toggle">
+                  <span>Nền năng lượng sinh học</span>
+                  <input type="checkbox" id="chkSettingEnergy" checked />
+                </label>
+              </div>
+
+              <div class="settings-section">
+                <div class="popover-section-title">Xử lý lịch thực tế</div>
+                <button type="button" class="settings-action" id="btnOpenDisruption">
+                  <span>Báo sự cố đột xuất & Sửa lịch</span>
+                  <svg class="icon" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>
+                </button>
+              </div>
+
+              <div class="settings-section" id="exportPopover">
+                <div class="popover-section-title">Lưu & Xuất lịch</div>
+                <div class="settings-export-grid">
+                  <button type="button" class="btn btn-sm" id="btnSaveSqlState">Lưu SQLite</button>
+                  <button type="button" class="btn btn-sm" id="btnExportIcs">Xuất .ics</button>
+                  <button type="button" class="btn btn-sm" id="btnExportCsv">Xuất .csv</button>
+                  <button type="button" class="btn btn-sm" id="btnExportJson">Xuất .json</button>
+                </div>
+                <button type="button" class="btn btn-sm btn-danger" id="btnResetState" style="width:100%;margin-top:4px;">Đặt lại về Tuần của Minh</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Slim Collapsible Dev Side-Panel Toggle -->
+          <button type="button" class="dev-toggle-btn" id="btnToggleDevPanel" aria-expanded="false" aria-controls="devSidePanel" title="Mở / Ẩn bảng công cụ & chỉ số Dev">
+            <span class="status-dot" id="devToggleDot"></span>
+            <span>Dev</span>
           </button>
         </div>
-        <div class="text-xs text-slate-500">Quản lý hạn chót cụ thể theo ngày `DD/MM/YYYY`, độ ưu tiên và thói quen lặp lại</div>
       </div>
+    </header>
 
-      <!-- Sub-tab A: Tasks Table -->
-      <div id="stSubTasksPane" class="overflow-x-auto">
-        <table class="w-full text-left text-xs">
-          <thead class="bg-slate-50 text-slate-600 border-b border-slate-200">
-            <tr>
-              <th class="py-2.5 px-3">Mã Task</th>
-              <th class="py-2.5 px-3">Tên Công Việc</th>
-              <th class="py-2.5 px-3">Thời Lượng</th>
-              <th class="py-2.5 px-3">Hạn Chót (Ngày Cụ Thể)</th>
-              <th class="py-2.5 px-3">Ưu Tiên</th>
-              <th class="py-2.5 px-3">Trạng Thái</th>
-              <th class="py-2.5 px-3 text-right">Thao Tác</th>
-            </tr>
-          </thead>
-          <tbody id="stTasksTableBody" class="divide-y divide-slate-100"></tbody>
-        </table>
-      </div>
+    <!-- [2] MAIN WORKSPACE + COLLAPSIBLE RIGHT DEV SIDE PANEL -->
+    <div class="workspace-layout">
+      <main class="workspace-main" id="mainWorkspace">
+        <div class="view-panel active" id="viewCalendar" role="tabpanel"></div>
+        <div class="view-panel" id="viewList" role="tabpanel"></div>
+        <div class="view-panel" id="viewWeights" role="tabpanel"></div>
+        <div class="view-panel" id="viewBenchmark" role="tabpanel"></div>
+      </main>
 
-      <!-- Sub-tab B: Direct PersonalHabit Manager (mirrors Settings modal cleanly) -->
-      <div id="stSubHabitsPane" class="hidden space-y-4">
-        <div class="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3 text-xs">
-          <div class="font-bold text-slate-800">➕ Thêm Thói Quen Tuần (`PersonalHabit` — tự rải đều qua các ngày & ưu tiên buổi đã chọn)</div>
-          <div class="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
-            <input id="stMainHabitNewName" type="text" placeholder="Tên thói quen (VD: Tập gym, Đọc sách tiếng Anh...)" class="sm:col-span-5 px-3 py-2 rounded-xl border border-slate-300 bg-white" />
-            <select id="stMainHabitNewWindow" class="sm:col-span-3 px-2.5 py-2 rounded-xl border border-slate-300 bg-white">
-              <option value="MORNING">Buổi sáng (06:00–12:00)</option>
-              <option value="AFTERNOON">Buổi chiều (12:00–18:00)</option>
-              <option value="EVENING" selected>Buổi tối (18:00–23:00)</option>
-              <option value="ANYTIME">Linh hoạt cả ngày</option>
-            </select>
-            <select id="stMainHabitNewFreq" class="sm:col-span-2 px-2.5 py-2 rounded-xl border border-slate-300 bg-white">
-              <option value="1">1 buổi/tuần</option>
-              <option value="2">2 buổi/tuần</option>
-              <option value="3" selected>3 buổi/tuần</option>
-              <option value="4">4 buổi/tuần</option>
-              <option value="5">5 buổi/tuần</option>
-              <option value="6">6 buổi/tuần</option>
-              <option value="7">Hằng ngày (7x)</option>
-            </select>
-            <input id="stMainHabitNewDur" type="number" min="15" max="180" step="15" value="60" class="sm:col-span-1 px-2 py-2 rounded-xl border border-slate-300 bg-white mono text-center" title="Phút/buổi" />
-            <button type="button" onclick="addStudentHabitFromMainTab()" class="sm:col-span-1 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl transition">Thêm</button>
-          </div>
-        </div>
-        <div id="stMainHabitsList" class="space-y-2"></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ============================================================================ -->
-  <!-- MODAL: THÊM CÔNG VIỆC TỐI GIẢN (CLEAN TASK MODAL + HYBRID NL ENGINE)          -->
-  <!-- ============================================================================ -->
-  <div id="stTaskModal" onclick="if(event.target===this) closeStudentTaskModal()" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 md:p-6">
-    <div class="bg-white rounded-2xl shadow-2xl max-w-3xl lg:max-w-4xl w-full max-h-[90vh] flex flex-col border border-slate-200 overflow-hidden">
-      
-      <!-- Modal Header (fixed/sticky) -->
-      <div class="flex items-center justify-between border-b border-slate-100 px-5 py-3.5 bg-white flex-shrink-0">
-        <div class="flex items-center gap-2.5">
-          <div class="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-sm">📝</div>
+      <!-- COLLAPSIBLE DEV SIDE PANEL (Hidden by default; opens cleanly on side when Dev clicks "Dev") -->
+      <aside class="dev-side-panel" id="devSidePanel" aria-label="Bảng kiểm định & đối chiếu dành cho Dev">
+        <div class="dev-side-head">
           <div>
-            <div class="flex items-center gap-2">
-              <h3 class="text-sm font-bold text-slate-900">Thêm Công Việc Mới</h3>
-              <span id="stModalDraftBadge" class="hidden text-[10px] bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full border border-amber-200 font-semibold flex items-center gap-1">
-                <span>💾</span> Đã lưu nháp
+            <h3>Góc nhìn Dev</h3>
+            <div style="font-size:11.5px;color:var(--p-muted);">Chuyển thuật toán, nạp đề test & chấm điểm</div>
+          </div>
+          <button type="button" class="btn btn-sm btn-icon btn-ghost" id="btnCloseDevPanel" aria-label="Thu gọn bảng Dev">✕</button>
+        </div>
+
+        <!-- 1. Solver selector dropdown -->
+        <div class="dev-block">
+          <div class="popover-section-title">Thuật toán (trên cùng input)</div>
+          <div class="popover-anchor" id="solverSwitcherBar"></div>
+        </div>
+
+        <!-- 2. Test Suite selector -->
+        <div class="dev-block">
+          <div class="popover-section-title">Bộ dữ liệu test</div>
+          <div class="popover-anchor">
+            <button type="button" class="solver-select-trigger" id="btnToggleSuites" aria-expanded="false" aria-controls="suitesPopover">
+              <span style="display:inline-flex;align-items:center;gap:8px;min-width:0;">
+                <svg class="icon" viewBox="0 0 24 24" style="color:var(--p-muted);"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+                <span id="devSuiteLabel" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Chọn bộ test (Presets / T01–T10 / R1–R6)</span>
               </span>
-            </div>
-            <p class="text-[11px] text-slate-500">Nhập ngôn ngữ tự nhiên (AI + Hybrid) hoặc điền biểu mẫu chi tiết bên dưới</p>
-          </div>
-        </div>
-        <div class="flex items-center gap-1.5">
-          <button type="button" onclick="clearStudentModalDraft(true)" id="btnStClearDraft" title="Xóa nháp và điền lại từ đầu" class="hidden text-[11px] text-slate-500 hover:text-rose-600 hover:bg-rose-50 px-2.5 py-1 rounded-lg transition font-medium">
-            🗑️ Xóa nháp
-          </button>
-          <button type="button" onclick="closeStudentTaskModal()" title="Đóng & Lưu nháp (Esc)" aria-label="Đóng" class="w-8 h-8 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 flex items-center justify-center font-bold text-lg transition">
-            ✕
-          </button>
-        </div>
-      </div>
-
-      <!-- Modal Body (Progressive Disclosure: Clean Student View by default; full panels open in Lab Mode) -->
-      <div class="flex-1 overflow-y-auto px-5 py-4 space-y-4 text-xs">
-        <input id="stNlAttachments" type="file" multiple accept=".pdf,.txt,.md,.html" class="hidden" onchange="onStNlAttachmentsChange(this)" />
-
-        <!-- Section 1: Smart Natural Language Quick-Fill -->
-        <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2.5">
-          <div class="flex items-center justify-between gap-2 flex-wrap">
-            <label class="font-bold text-slate-700 text-[11px] flex items-center gap-1.5">
-              <span>✨ Nhập tự nhiên bằng tiếng Việt hoặc tiếng Anh</span>
-              <span id="stNlEngineBadge" class="hidden px-1.5 py-0.5 rounded text-[9px] font-bold"></span>
-            </label>
-            <div class="st-lab-only-modal flex items-center gap-1.5 flex-wrap">
-              <div class="inline-flex rounded-lg bg-slate-200/80 p-0.5 text-[10px] font-semibold" role="group" aria-label="NL Engine Mode">
-                <button type="button" id="btnNlEngineAuto" onclick="setStudentNlEngine('auto')"
-                  class="px-2 py-0.5 rounded-md bg-white text-indigo-700 shadow-sm transition">
-                  ✨ Auto (AI)
-                </button>
-                <button type="button" id="btnNlEngineOffline" onclick="setStudentNlEngine('offline')"
-                  class="px-2 py-0.5 rounded-md text-slate-600 hover:text-slate-900 transition">
-                  ⚡ Offline
-                </button>
-              </div>
-              <select id="stNlTransBackend" onchange="setStNlTransBackend(this.value)"
-                title="Chọn bộ dịch Tiếng Việt -> Tiếng Anh cho Hybrid Pipeline"
-                class="text-[10px] px-1.5 py-0.5 rounded-md border border-slate-300 bg-white text-slate-700 font-semibold">
-                <option value="rule" selected>VI→EN: Rule (2ms)</option>
-                <option value="nllb">VI→EN: NLLB-200 Neural</option>
-              </select>
-            </div>
-          </div>
-
-          <!-- Clean Unified Prompt Input + Compact Attachment Button + Analyze Button -->
-          <div class="flex gap-1.5 items-stretch">
-            <div id="stNlPromptBox"
-              ondragenter="event.preventDefault();event.stopPropagation();this.classList.add('border-indigo-500','bg-indigo-50/30');"
-              ondragover="event.preventDefault();event.stopPropagation();try{if(event.dataTransfer)event.dataTransfer.dropEffect='copy';}catch(_){}this.classList.add('border-indigo-500','bg-indigo-50/30');"
-              ondragleave="event.stopPropagation();if(!this.contains(event.relatedTarget))this.classList.remove('border-indigo-500','bg-indigo-50/30');"
-              ondrop="handleStNlFileDrop(event,'prompt')"
-              class="flex-1 rounded-lg border border-slate-300 bg-white focus-within:border-indigo-600 focus-within:ring-1 focus-within:ring-indigo-500 px-2.5 py-1.5 space-y-1.5 transition">
-              <div id="stNlCitationBlockChips" class="hidden flex flex-wrap items-center gap-1.5 text-[10px]"></div>
-              <input id="stNlPrompt" type="text" placeholder="Ví dụ: Ôn Toán rời rạc trước tối thứ 5, khoảng 2 tiếng..."
-                oninput="onStNlPromptLiveCheck(this.value)"
-                onkeydown="if(event.key==='Enter'){event.preventDefault();analyzeStudentNlPrompt();}"
-                class="w-full text-xs bg-transparent border-none outline-none p-0.5" />
-            </div>
-            <label for="stNlAttachments" title="Đính kèm tài liệu (.pdf, .txt, .md, .html)"
-              class="px-2.5 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 font-semibold cursor-pointer inline-flex items-center justify-center transition whitespace-nowrap">
-              📎
-            </label>
-            <button type="button" onclick="analyzeStudentNlPrompt()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg transition whitespace-nowrap shadow-sm">Phân tích</button>
-          </div>
-
-          <div id="stNlAttachChips" class="hidden flex flex-wrap items-center gap-1.5 pt-0.5"></div>
-          <div id="stNlStatus" class="text-[10px] text-slate-500 hidden"></div>
-
-          <!-- Lab-Only Sub-Controls inside NL Panel -->
-          <div class="st-lab-only-modal space-y-2">
-            <!-- Splittability & WorkRhythm Quick-Pills -->
-            <div class="flex flex-wrap items-center gap-1.5 text-[10px]">
-              <span class="text-slate-500 font-semibold mr-0.5">Cắt nhỏ & Nhịp học:</span>
-              <button type="button" id="stNlSessionSplit" onclick="setStNlSession('splittable')"
-                class="px-2.5 py-1 rounded-md font-semibold bg-indigo-600 text-white transition">✂️ Cho phép cắt nhỏ</button>
-              <button type="button" id="stNlSessionSingle" onclick="setStNlSession('single')"
-                class="px-2.5 py-1 rounded-md font-semibold bg-white border border-slate-300 text-slate-600 transition">🔒 Làm liền 1 buổi</button>
-              <span class="text-slate-300 mx-0.5">|</span>
-              <div id="stNlPacingGroup" class="inline-flex flex-wrap items-center gap-1 transition">
-                <button type="button" id="stNlPaceLight" onclick="setStNlPacing('LIGHT')"
-                  class="px-2.5 py-1 rounded-md font-semibold bg-white border border-slate-300 text-slate-600 transition">⚡ Nhẹ 25m</button>
-                <button type="button" id="stNlPaceBalanced" onclick="setStNlPacing('BALANCED')"
-                  class="px-2.5 py-1 rounded-md font-semibold bg-indigo-100 border border-indigo-400 text-indigo-800 transition">⚖️ Vừa 45m</button>
-                <button type="button" id="stNlPaceFlow" onclick="setStNlPacing('FLOW')"
-                  class="px-2.5 py-1 rounded-md font-semibold bg-white border border-slate-300 text-slate-600 transition">🌊 Sâu 90m</button>
-                <button type="button" id="stNlPaceCustom" onclick="setStNlPacing('CUSTOM')"
-                  class="px-2.5 py-1 rounded-md font-semibold bg-white border border-slate-300 text-slate-600 transition">🎛️ Tùy chỉnh</button>
-                <span id="stNlCustomWrap" class="hidden inline-flex items-center gap-1 ml-1">
-                  <input id="stNlCustomMin" type="number" min="15" max="120" step="5" value="20"
-                    class="w-12 text-[10px] px-1.5 py-0.5 rounded border border-slate-300 bg-white text-center" />
-                  <span>–</span>
-                  <input id="stNlCustomMax" type="number" min="15" max="240" step="5" value="45"
-                    class="w-12 text-[10px] px-1.5 py-0.5 rounded border border-slate-300 bg-white text-center" />
-                  <span class="text-slate-400">m</span>
-                </span>
-              </div>
-            </div>
-
-            <!-- User Urgency Scale (1 = Urgent .. 4 = Low) -->
-            <div class="flex flex-wrap items-center justify-between gap-1.5 text-[10px]">
-              <div class="flex flex-wrap items-center gap-1">
-                <span class="text-slate-500 font-semibold" title="Thang khẩn cấp người dùng 1=Urgent..4=Low (tự ánh xạ sang Solver)">Khẩn cấp (1–4):</span>
-                <button type="button" id="stNlUrgAuto" onclick="setStNlUrgency(null)"
-                  class="px-2 py-0.5 rounded font-semibold bg-indigo-100 border border-indigo-400 text-indigo-800 transition">? Tự động</button>
-                <button type="button" id="stNlUrg1" onclick="setStNlUrgency(1)"
-                  class="px-2 py-0.5 rounded font-semibold bg-white border border-slate-300 text-rose-700 transition">P1 Khẩn</button>
-                <button type="button" id="stNlUrg2" onclick="setStNlUrgency(2)"
-                  class="px-2 py-0.5 rounded font-semibold bg-white border border-slate-300 text-amber-700 transition">P2 Cao</button>
-                <button type="button" id="stNlUrg3" onclick="setStNlUrgency(3)"
-                  class="px-2 py-0.5 rounded font-semibold bg-white border border-slate-300 text-slate-700 transition">P3 Vừa</button>
-                <button type="button" id="stNlUrg4" onclick="setStNlUrgency(4)"
-                  class="px-2 py-0.5 rounded font-semibold bg-white border border-slate-300 text-emerald-700 transition">P4 Thấp</button>
-              </div>
-            </div>
-
-            <!-- File Dropzone & Citation Link Box (Lab Mode / Expert Syntax) -->
-            <div id="stNlFileLinkBox"
-              ondragenter="event.preventDefault();event.stopPropagation();this.classList.add('border-indigo-500','bg-indigo-50/40');"
-              ondragover="event.preventDefault();event.stopPropagation();try{if(event.dataTransfer)event.dataTransfer.dropEffect='copy';}catch(_){}this.classList.add('border-indigo-500','bg-indigo-50/40');"
-              ondragleave="event.stopPropagation();if(!this.contains(event.relatedTarget))this.classList.remove('border-indigo-500','bg-indigo-50/40');"
-              ondrop="handleStNlFileDrop(event,'linkbox')"
-              class="bg-white border border-dashed border-slate-300 hover:border-indigo-400 rounded-xl p-2.5 space-y-1.5 text-[10px] transition">
-              <div class="flex flex-wrap items-center justify-between gap-2">
-                <div class="flex flex-wrap items-center gap-2">
-                  <span class="font-bold text-slate-700">📎 Kéo thả tệp vào đây để đối chiếu trích dẫn</span>
-                  <span id="stNlBracketLiveStatus" class="font-medium"></span>
-                </div>
-                <div class="flex flex-wrap items-center gap-2">
-                  <label class="inline-flex items-center gap-1.5 cursor-pointer text-slate-700 font-semibold select-none">
-                    <input id="stNlOptInsertBoxedToPrompt" type="checkbox" checked onchange="saveStudentModalDraft()" class="rounded text-indigo-600" />
-                    <span>Tự chèn <code class="px-1 py-0.5 rounded bg-indigo-50 text-indigo-700 font-mono">[[tên tệp]]</code> vào ô nhập</span>
-                  </label>
-                  <button type="button" onclick="promptInsertCitationBox()" title="Chèn cặp khung [[ ]] ngay tại con trỏ trong ô nhập chính"
-                    class="px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-700 font-semibold whitespace-nowrap transition">
-                    + Khung [[ ]] vào prompt
-                  </button>
-                  <label for="stNlAttachments"
-                    class="cursor-pointer px-2.5 py-1 rounded-lg border border-indigo-300 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 font-bold inline-flex items-center gap-1 whitespace-nowrap">
-                    <span>📂 Chọn từ máy</span>
-                  </label>
-                </div>
-              </div>
-            </div>
-
-            <div id="stNlTransBadge" class="hidden text-[10px] px-2.5 py-1.5 rounded-lg bg-sky-50 border border-sky-200 text-sky-900"></div>
-            <div id="stNlDiagnostics" class="hidden space-y-1.5 pt-0.5"></div>
-          </div>
-
-          <div id="stNlChips" class="hidden flex flex-wrap items-center gap-1.5 pt-0.5"></div>
-          <div id="stNlFixedBanner" class="hidden bg-amber-50 border border-amber-300 rounded-lg p-2.5 flex items-center justify-between gap-2">
-            <div class="text-[11px] text-amber-950">
-              <div class="font-bold">📌 Phát hiện lịch hẹn cố định (không dời được)</div>
-              <div id="stNlFixedDesc" class="text-[10px] text-amber-800 mt-0.5"></div>
-            </div>
-            <button type="button" onclick="lockNlFixedEvent()"
-              class="px-2.5 py-1.5 bg-amber-600 hover:bg-amber-500 text-white text-[10px] font-bold rounded-lg whitespace-nowrap shadow-sm transition">
-              🔒 Khóa vào Lịch Cố Định
+              <svg class="icon" viewBox="0 0 24 24" style="width:14px;height:14px;color:var(--p-muted);"><path d="m6 9 6 6 6-6"/></svg>
             </button>
+            <div class="popover-menu align-right" id="suitesPopover" role="dialog" aria-label="Chọn bộ test"></div>
           </div>
         </div>
 
-        <!-- Section 2: 4 Core Structured Fields (Visible Cleanly in Student Mode) -->
-        <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
-          <!-- Field 1: Title -->
-          <div class="md:col-span-7">
-            <label class="block font-semibold text-slate-700 mb-1">1. Tên Bài Tập / Công Việc <span class="text-rose-500">*</span></label>
-            <input id="stInpTitle" type="text" placeholder="VD: Ôn tập môn Cấu trúc dữ liệu & Giải thuật..."
-              class="w-full text-xs px-3 py-2 rounded-xl border border-slate-300 focus:border-indigo-600 focus:ring-1 focus:ring-indigo-500 outline-none" />
-          </div>
-
-          <!-- Field 2: Duration with quick chips -->
-          <div class="md:col-span-5">
-            <div class="flex items-center justify-between mb-1">
-              <label class="font-semibold text-slate-700">2. Thời Lượng Gốc <span class="text-rose-500">*</span></label>
-              <span id="stDurationPreview" class="text-indigo-600 font-semibold mono">60 phút</span>
-            </div>
-            <div class="flex items-center gap-1.5">
-              <input id="stInpDuration" type="number" min="15" step="15" value="60" oninput="updateStBufferPreview()"
-                class="w-20 text-xs px-2.5 py-2 rounded-xl border border-slate-300 font-semibold mono focus:border-indigo-600 outline-none" />
-              <div class="flex flex-wrap gap-1">
-                <button type="button" onclick="setStDuration(30)" class="px-1.5 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 font-medium text-[10px]">30p</button>
-                <button type="button" onclick="setStDuration(45)" class="px-1.5 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 font-medium text-[10px]">45p</button>
-                <button type="button" onclick="setStDuration(60)" class="px-1.5 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 font-medium text-[10px]">60p</button>
-                <button type="button" onclick="setStDuration(90)" class="px-1.5 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 font-medium text-[10px]">90p</button>
-                <button type="button" onclick="setStDuration(120)" class="px-1.5 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 font-medium text-[10px]">120p</button>
-              </div>
-            </div>
-          </div>
+        <!-- 3. Live Evaluation Telemetry -->
+        <div class="dev-block">
+          <div class="popover-section-title">Chỉ số đánh giá nhanh</div>
+          <div id="telemetryMetrics"></div>
+          <div id="telemetryActions" style="margin-top:4px;"></div>
         </div>
 
-        <!-- Field 3 & 4 Row: Deadline Day/Time, Priority P1-P4, Category -->
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-2.5">
-          <div>
-            <label class="block font-semibold text-slate-700 mb-1">3. Hạn Chót (Thứ) <span class="text-rose-500">*</span></label>
-            <select id="stInpDeadlineDay" class="w-full text-xs px-2.5 py-2 rounded-xl border border-slate-300 bg-white focus:border-indigo-600 outline-none">
-              <option value="Monday">Thứ Hai</option>
-              <option value="Tuesday">Thứ Ba</option>
-              <option value="Wednesday" selected>Thứ Tư</option>
-              <option value="Thursday">Thứ Năm</option>
-              <option value="Friday">Thứ Sáu</option>
-              <option value="Saturday">Thứ Bảy</option>
-              <option value="Sunday">Chủ Nhật</option>
-              <option value="Next Monday">Thứ Hai Tuần Sau</option>
-              <option value="">Không có hạn chót (Habit)</option>
-            </select>
-          </div>
-          <div>
-            <label class="block font-semibold text-slate-700 mb-1">Giờ Hạn Chót</label>
-            <input id="stInpDeadlineTime" type="time" value="23:59" class="w-full text-xs px-2.5 py-2 rounded-xl border border-slate-300 mono focus:border-indigo-600 outline-none" />
-          </div>
-          <div>
-            <label class="block font-semibold text-slate-700 mb-1">4. Mức Ưu Tiên</label>
-            <select id="stInpPriorityCore" onchange="syncPriorityFromCore(this.value)" class="w-full text-xs px-2.5 py-2 rounded-xl border border-slate-300 bg-white">
-              <option value="auto" selected>Tự động (AI)</option>
-              <option value="1">P1 – Khẩn cấp nhất</option>
-              <option value="2">P2 – Cao</option>
-              <option value="3">P3 – Trung bình</option>
-              <option value="4">P4 – Thấp / Linh hoạt</option>
-            </select>
-          </div>
-          <div>
-            <label class="block font-semibold text-slate-700 mb-1">Phân loại</label>
-            <select id="stInpCategory" onchange="updateStBufferPreview()" class="w-full text-xs px-2.5 py-2 rounded-xl border border-slate-300 bg-white">
-              <option value="ASSIGNMENT" selected>ASSIGNMENT (Bài tập)</option>
-              <option value="EXAM">EXAM (Thi cử)</option>
-              <option value="QUIZ">QUIZ (Kiểm tra)</option>
-              <option value="PROJECT">PROJECT (Đồ án)</option>
-              <option value="LAB">LAB (Thực hành)</option>
-              <option value="READING">READING (Đọc tài liệu)</option>
-              <option value="HABIT">HABIT (Thói quen)</option>
-            </select>
-          </div>
+        <!-- 4. Full-screen Dev Analysis Views -->
+        <div class="dev-block">
+          <div class="popover-section-title">Phân tích & Đối chiếu chi tiết</div>
+          <button type="button" class="btn btn-primary" id="btnTopBenchmark" style="width:100%;">Chấm điểm tất cả thuật toán</button>
+          <button type="button" class="btn" id="btnTopWeights" style="width:100%;">Xem trọng số & hệ số thuật toán</button>
         </div>
 
-        <!-- Section 3: Collapsible Advanced Settings (Tucked cleanly under <details> in Student Mode) -->
-        <details id="stTaskAdvDetails" class="group border border-slate-200 rounded-xl overflow-hidden">
-          <summary class="px-3.5 py-2 bg-slate-50 cursor-pointer text-slate-700 font-semibold flex items-center justify-between">
-            <span>⚙️ Tùy Chọn Nâng Cao (Chia nhỏ, Start After, Độ nặng & Tiên quyết)</span>
-            <span class="group-open:rotate-180 transition text-slate-400">▼</span>
-          </summary>
-          <div class="p-3.5 space-y-3 bg-white">
-            <input type="hidden" id="stInpPriority" value="5" />
-            <div id="stAdvSyncedSummary" class="text-[11px] px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-slate-600">
-              Đồng bộ từ mục trên: <strong>Khẩn cấp Tự động</strong> · <strong>Cho phép cắt nhỏ (BALANCED)</strong>
-            </div>
-
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-2.5">
-              <div>
-                <label for="stInpTaskId" class="block font-medium text-slate-700 mb-1">Mã Task (`Task ID`)</label>
-                <input id="stInpTaskId" type="text" placeholder="VD: LAB-1 (tự tạo)"
-                  class="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 mono uppercase outline-none" />
-              </div>
-              <div>
-                <label for="stInpWorkRhythm" class="block font-medium text-slate-700 mb-1">Nhịp độ chia phiên (`work_rhythm`)</label>
-                <select id="stInpWorkRhythm" onchange="syncWorkRhythmFromAdv(this.value)" class="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white">
-                  <option value="BALANCED" selected>BALANCED (45–90m)</option>
-                  <option value="LIGHT">LIGHT (30–45m)</option>
-                  <option value="FLOW">FLOW (60–120m Deep Work)</option>
-                  <option value="CUSTOM">CUSTOM (Tùy chỉnh)</option>
-                </select>
-              </div>
-              <div>
-                <label for="stInpStartAfter" class="block font-medium text-slate-700 mb-1">Không làm trước (`start_after`)</label>
-                <input id="stInpStartAfter" type="text" placeholder="VD: Wednesday 14:00"
-                  class="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 outline-none" />
-              </div>
-            </div>
-
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-2.5 items-center">
-              <div>
-                <label class="block font-medium text-slate-700 mb-1">Tải nhận thức (`cognitive_load`)</label>
-                <select id="stInpCognitiveLoad" onchange="updateStBufferPreview()" class="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white">
-                  <option value="1">1 - Nhẹ (Low Energy)</option>
-                  <option value="2" selected>2 - Trung bình</option>
-                  <option value="3">3 - Nặng / Deep Work</option>
-                </select>
-              </div>
-              <label class="inline-flex items-center gap-2 pt-4 cursor-pointer text-slate-700 font-medium">
-                <input id="stInpSplittable" type="checkbox" checked onchange="syncStSessionFromSplittableCheckbox(this.checked);saveStudentModalDraft();" class="w-4 h-4 text-indigo-600 rounded" />
-                <span>✂️ Cho phép chia nhỏ thành nhiều phiên (`is_splittable`)</span>
-              </label>
-            </div>
-
-            <!-- Planning Fallacy Buffer Toggle & Live Preview -->
-            <div class="bg-indigo-50/80 border border-indigo-200 rounded-xl p-2.5 flex items-start gap-2.5">
-              <input id="stInpBuffer" type="checkbox" checked onchange="updateStBufferPreview()" class="mt-0.5 w-4 h-4 text-indigo-600 rounded cursor-pointer" />
-              <div class="flex-1">
-                <label for="stInpBuffer" class="font-bold text-indigo-950 cursor-pointer block">🛡️ Áp dụng bộ đệm Planning Fallacy theo Cài Đặt (Pattern 1)</label>
-                <p id="stBufferPreviewText" class="text-[11px] text-indigo-700 mt-0.5">
-                  Backend tự động tính đệm dựa theo `buffer_mode` / `cognitive_load` hoặc `estimate_habit`.
-                </p>
-              </div>
-            </div>
-
+        <!-- 5. Dev Overlay Toggles -->
+        <div class="dev-block">
+          <div class="popover-section-title">Hiển thị kỹ thuật trên lịch</div>
+          <label class="settings-toggle">
             <div>
-              <label for="stInpDependsOn" class="block font-medium text-slate-700 mb-1">Task cần phải làm trước đó (Task ID)</label>
-              <input id="stInpDependsOn" type="text" placeholder="Để trống hoặc ghi Task ID cần hoàn thành trước (VD: PRJ-1)" class="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 mono uppercase" />
-              <div id="stExistingTaskIdChips" class="flex flex-wrap items-center gap-1 pt-1.5 text-[10px]"></div>
+              <div>Hiện nhãn kỹ thuật trên ô</div>
+              <small>L1–L3, Peak, đếm ngược hạn chót</small>
             </div>
-          </div>
-        </details>
-      </div>
-
-      <!-- Sticky Modal Footer -->
-      <div class="flex items-center justify-between border-t border-slate-100 px-5 py-3 bg-slate-50/80 flex-shrink-0">
-        <div class="text-[11px] text-slate-500 flex items-center gap-1.5">
-          <span>💡 Đóng cửa sổ sẽ tự động lưu lại các thay đổi chưa nạp.</span>
+            <input type="checkbox" id="chkSettingTechMeta" />
+          </label>
         </div>
-        <div class="flex items-center gap-2">
-          <button type="button" onclick="closeStudentTaskModal()" class="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-200 rounded-xl transition">Đóng</button>
-          <button id="btnSaveStTask" type="button" onclick="saveStudentTask()" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl shadow-md transition flex items-center gap-1.5">
-            <span>➕</span> Thêm & Lên Lịch Ngay
-          </button>
-        </div>
-      </div>
+      </aside>
     </div>
   </div>
 
-  <!-- ============================================================================ -->
-  <!-- MODAL: GIẢI THÍCH "TẠI SAO XẾP Ở ĐÂY?" (WHY HERE? MODAL)                     -->
-  <!-- ============================================================================ -->
-  <div id="stWhyHereModal" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4 border border-slate-200">
-      <div class="flex items-center justify-between border-b border-slate-100 pb-3">
-        <div class="flex items-center gap-2">
-          <div class="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold text-base">💡</div>
-          <div>
-            <h3 class="text-sm font-bold text-slate-900">Tại Sao Lại Xếp Giờ Này?</h3>
-            <p class="text-[11px] text-slate-500">Giải thích quyết định của thuật toán</p>
-          </div>
-        </div>
-        <button onclick="closeWhyHereModal()" class="text-slate-400 hover:text-slate-700 text-lg font-bold px-2">✕</button>
-      </div>
-
-      <div id="stWhyHereBody" class="space-y-3 text-xs text-slate-700">
-        <!-- Rendered dynamically in JS -->
-      </div>
-
-      <div id="stWhyHereActions" class="flex items-center justify-between pt-3 border-t border-slate-100">
-        <!-- Rendered dynamically in JS -->
-      </div>
-    </div>
-  </div>
-
-  <!-- MODAL: CÀI ĐẶT SINH VIÊN (SLEEP >= 6H, CIRCADIAN, BUFFER MODE, SOLVER) -->
-  <div id="stSettingsModal" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 space-y-4 border border-slate-200 max-h-[90vh] overflow-y-auto">
-      <div class="flex items-center justify-between border-b border-slate-100 pb-3">
-        <h3 class="text-sm font-bold text-slate-900">⚙️ Cài Đặt Cá Nhân & Thuật Toán (Pattern 1, 3, 6)</h3>
-        <button onclick="closeStudentSettingsModal()" class="text-slate-400 hover:text-slate-700 text-lg font-bold px-2">✕</button>
-      </div>
-      <div class="space-y-3 text-xs">
-        <div class="grid grid-cols-2 gap-2.5">
-          <div>
-            <label class="block font-semibold text-slate-700 mb-1">Giờ đi ngủ (tối thiểu 6 tiếng)</label>
-            <input id="stSetSleepStart" type="time" value="23:30" class="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 mono" />
-          </div>
-          <div>
-            <label class="block font-semibold text-slate-700 mb-1">Giờ thức dậy</label>
-            <input id="stSetSleepEnd" type="time" value="06:30" class="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 mono" />
-          </div>
-        </div>
-        <div id="stSetSleepWarning" class="hidden text-[11px] bg-amber-50 border border-amber-200 text-amber-900 px-2.5 py-1.5 rounded-lg"></div>
-        <div class="grid grid-cols-2 gap-2.5">
-          <div>
-            <label class="block font-semibold text-slate-700 mb-1">Khung giờ tập trung (`focus_preference`)</label>
-            <select id="stSetFocusPref" class="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white">
-              <option value="BALANCED">BALANCED (Cân bằng)</option>
-              <option value="MORNING">MORNING (Sáng 06:30–11:30)</option>
-              <option value="AFTERNOON">AFTERNOON (Chiều 13:00–17:30)</option>
-              <option value="EVENING">EVENING (Tối 18:30–23:30)</option>
-            </select>
-          </div>
-          <div>
-            <label class="block font-semibold text-slate-700 mb-1">Chế độ bộ đệm (`buffer_mode`)</label>
-            <select id="stSetBufferMode" onchange="toggleAlphaInputsInSettings()" class="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white">
-              <option value="HABIT">Feature 001: Habit (estimate_habit)</option>
-              <option value="COGNITIVE_LOAD">Pattern 1: Cognitive Load (α_light / α_heavy)</option>
-            </select>
-          </div>
-        </div>
-        <div id="stSetHabitRow">
-          <label class="block font-semibold text-slate-700 mb-1">Mức độ thường ước lượng thiếu (`estimate_habit`)</label>
-          <select id="stSetEstimateHabit" class="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white">
-            <option value="">Không dùng đệm (1.0x)</option>
-            <option value="RARELY">RARELY (1.0x)</option>
-            <option value="SOMETIMES">SOMETIMES (+10%, 1.1x)</option>
-            <option value="OFTEN">OFTEN (+25%, 1.25x)</option>
-          </select>
-        </div>
-        <div id="stSetAlphaRow" class="hidden grid grid-cols-2 gap-2.5">
-          <div>
-            <label class="block font-semibold text-slate-700 mb-1">α_light (Load 1–2)</label>
-            <input id="stSetAlphaLight" type="number" min="1.0" max="1.6" step="0.05" value="1.20" class="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 mono" />
-          </div>
-          <div>
-            <label class="block font-semibold text-slate-700 mb-1">α_heavy (Load 3)</label>
-            <input id="stSetAlphaHeavy" type="number" min="1.0" max="1.6" step="0.05" value="1.35" class="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 mono" />
-          </div>
-        </div>
-        <div class="grid grid-cols-2 gap-2.5">
-          <div>
-            <label class="block font-semibold text-slate-700 mb-1">Thuật toán mặc định</label>
-            <select id="stSetSolver" class="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white">
-              <option value="SCORED_GREEDY" selected>Scored Greedy (Urgency×Importance + Circadian)</option>
-              <option value="GREEDY_EDF_FIRST_FIT">EDF + First-Fit (Baseline V0)</option>
-              <option value="GREEDY_LST_BEST_FIT">LST + Best-Fit (Giảm phân mảnh)</option>
-              <option value="GREEDY_WSPT_SMITH_RULE">WSPT / Smith Rule</option>
-              <option value="BACKTRACKING_BRANCH_AND_BOUND">Backtracking Nhánh-Cận</option>
-            </select>
-          </div>
-          <div>
-            <label class="block font-semibold text-slate-700 mb-1">Cửa sổ lập lịch (`horizon_days`)</label>
-            <select id="stSetHorizonDays" class="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white">
-              <option value="7">7 ngày (1 tuần)</option>
-              <option value="14">14 ngày (2 tuần)</option>
-            </select>
-          </div>
-        </div>
-
+  <!-- MODAL: UNIFIED 3-TAB INPUT DRAWER -->
+  <div class="modal-backdrop" id="inputModal" role="dialog" aria-modal="true" aria-labelledby="inputModalTitle">
+    <div class="modal-dialog">
+      <div class="modal-header">
         <div>
-          <label class="block font-semibold text-slate-700 mb-1">Mốc thời gian bắt đầu (`now`)</label>
-          <select id="stSetNowMode" class="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white">
-            <option value="KEEP">Giữ theo hồ sơ / preset hiện tại</option>
-            <option value="REALTIME">Giờ thực tế ngay lúc này (Real-Time + Tuần hiện tại)</option>
-            <option value="WEEK_START">Từ đầu tuần 00:00 Thứ 2 (Full Week)</option>
-          </select>
+          <h2 id="inputModalTitle" style="font-size:16px;">Thiết lập & Dữ liệu đầu vào</h2>
+          <p style="font-size:12.5px;color:var(--p-muted);">Mọi thay đổi được giữ nguyên khi chuyển đổi giữa các thuật toán và tự động lưu.</p>
         </div>
-
-        <!-- PersonalHabit Manager (Q7.3 = A3: 1 PreferredWindow + Frequency/week + Duration) -->
-        <div class="border border-slate-200 rounded-xl p-3 bg-slate-50/70 space-y-2">
-          <div class="flex items-center justify-between">
-            <label class="font-bold text-slate-800">🏃 Thói Quen Cá Nhân (`PersonalHabit` · Q7.3)</label>
-            <span class="text-[10px] text-slate-500">Tự rải đều trong tuần</span>
-          </div>
-          <div id="stSetHabitsList" class="space-y-1.5"></div>
-          <div class="grid grid-cols-12 gap-1.5 pt-1 items-center">
-            <input id="stHabitNewName" type="text" placeholder="Tên thói quen (VD: Tập gym)" class="col-span-4 px-2 py-1 rounded-lg border border-slate-300 bg-white" />
-            <select id="stHabitNewWindow" class="col-span-3 px-1.5 py-1 rounded-lg border border-slate-300 bg-white">
-              <option value="MORNING">Sáng (06–12h)</option>
-              <option value="AFTERNOON">Chiều (12–18h)</option>
-              <option value="EVENING" selected>Tối (18–23h)</option>
-              <option value="ANYTIME">Linh hoạt</option>
-            </select>
-            <select id="stHabitNewFreq" class="col-span-2 px-1 py-1 rounded-lg border border-slate-300 bg-white" title="Số buổi/tuần">
-              <option value="1">1x/t</option>
-              <option value="2">2x/t</option>
-              <option value="3" selected>3x/t</option>
-              <option value="4">4x/t</option>
-              <option value="5">5x/t</option>
-              <option value="6">6x/t</option>
-              <option value="7">7x/t</option>
-            </select>
-            <input id="stHabitNewDur" type="number" min="15" max="180" step="15" value="60" class="col-span-2 px-1.5 py-1 rounded-lg border border-slate-300 bg-white mono text-center" title="Phút/buổi" />
-            <button type="button" onclick="addStudentPersonalHabit()" class="col-span-1 py-1 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg" title="Thêm thói quen">➕</button>
-          </div>
-        </div>
+        <button type="button" class="btn btn-sm btn-icon" data-close-modal="inputModal" aria-label="Đóng">✕</button>
       </div>
-      <div class="flex justify-end gap-2 pt-3 border-t border-slate-100">
-        <button onclick="closeStudentSettingsModal()" class="px-4 py-2 text-xs text-slate-600 hover:bg-slate-100 rounded-xl font-semibold">Hủy</button>
-        <button onclick="saveStudentSettings()" class="px-4 py-2 text-xs bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold shadow">Lưu & Xếp Lại</button>
+      <div class="modal-tabs" role="tablist">
+        <button type="button" class="modal-tab active" data-input-tab="tasks">1. Công việc</button>
+        <button type="button" class="modal-tab" data-input-tab="commitments">2. Lịch cố định & Ngủ</button>
+        <button type="button" class="modal-tab" data-input-tab="profile">3. Nhịp sinh học & Thói quen</button>
+      </div>
+      <div class="modal-body" id="inputModalBody"></div>
+      <div class="modal-footer">
+        <span id="inputModalLoadHint" class="mono" style="font-size:12px;color:var(--p-muted);"></span>
+        <button type="button" class="btn btn-primary" data-close-modal="inputModal">Hoàn tất & Xem lịch</button>
       </div>
     </div>
   </div>
 
-  <!-- MODAL: BÁO SỰ CỐ ĐỘT XUẤT (M5 LOCAL REPAIR TRIGGER) -->
-  <div id="stDisruptionModal" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4 border border-slate-200">
-      <div class="flex items-center justify-between border-b border-slate-100 pb-3">
-        <h3 class="text-sm font-bold text-slate-900">⚡ Sự Cố Đột Xuất (Tái Lập Lịch Cục Bộ ≥90% Ổn Định)</h3>
-        <button onclick="closeStudentDisruptionModal()" class="text-slate-400 hover:text-slate-700 text-lg font-bold px-2">✕</button>
+  <!-- MODAL: BLOCK INSPECTOR -->
+  <div class="modal-backdrop" id="blockModal" role="dialog" aria-modal="true" aria-labelledby="blockModalTitle">
+    <div class="modal-dialog modal-sm">
+      <div class="modal-header">
+        <h2 id="blockModalTitle" style="font-size:16px;">Chi tiết phiên học</h2>
+        <button type="button" class="btn btn-sm btn-icon" data-close-modal="blockModal" aria-label="Đóng">✕</button>
       </div>
-      <div class="space-y-3 text-xs">
-        <div>
-          <label class="block font-semibold text-slate-700 mb-1">Tên sự kiện phát sinh</label>
-          <input id="stDisTitle" type="text" value="Họp khẩn / Việc đột xuất" class="w-full px-3 py-2 rounded-xl border border-slate-300" />
-        </div>
-        <div class="grid grid-cols-3 gap-2">
-          <div>
-            <label class="block font-semibold text-slate-700 mb-1">Thứ</label>
-            <select id="stDisDay" class="w-full px-2 py-1.5 rounded-lg border border-slate-300 bg-white">
-              <option value="Monday">Thứ 2</option><option value="Tuesday">Thứ 3</option>
-              <option value="Wednesday">Thứ 4</option><option value="Thursday">Thứ 5</option>
-              <option value="Friday">Thứ 6</option><option value="Saturday">Thứ 7</option><option value="Sunday">CN</option>
-            </select>
-          </div>
-          <div>
-            <label class="block font-semibold text-slate-700 mb-1">Bắt đầu</label>
-            <input id="stDisStart" type="time" value="08:00" class="w-full px-2 py-1.5 rounded-lg border border-slate-300 mono" />
-          </div>
-          <div>
-            <label class="block font-semibold text-slate-700 mb-1">Kết thúc</label>
-            <input id="stDisEnd" type="time" value="10:00" class="w-full px-2 py-1.5 rounded-lg border border-slate-300 mono" />
-          </div>
-        </div>
-      </div>
-      <div class="flex justify-end gap-2 pt-3 border-t border-slate-100">
-        <button onclick="closeStudentDisruptionModal()" class="px-4 py-2 text-xs text-slate-600 hover:bg-slate-100 rounded-xl font-semibold">Hủy</button>
-        <button onclick="applyStudentDisruption()" class="px-4 py-2 text-xs bg-amber-600 hover:bg-amber-500 text-white rounded-xl font-bold shadow">⚡ Chèn & Dời Cục Bộ</button>
-      </div>
+      <div class="modal-body" id="blockModalBody"></div>
     </div>
   </div>
 
-  <!-- ============================================================================ -->
-  <!-- 2. LAB RESEARCH WORKBENCH (25% CONTROL RAIL + 75% 3-TAB ANALYTICAL STAGE)    -->
-  <!-- ============================================================================ -->
-  <div id="labWorkbenchLayout" class="hidden">
-    <!-- ACTIVE SCENARIO DESCRIPTION BANNER -->
-    <div id="scenarioBanner" class="hidden bg-indigo-950 text-indigo-100 border-b border-indigo-800 px-4 py-2 text-xs">
-      <div class="max-w-[1800px] mx-auto flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <span id="scenarioBannerTitle" class="font-bold text-amber-300"></span>
-          <span class="mx-2 text-indigo-400">|</span>
-          <span id="scenarioBannerDesc"></span>
-        </div>
-        <span id="scenarioBannerExpected" class="px-2 py-0.5 rounded bg-indigo-900 border border-indigo-700 mono text-[11px]"></span>
+  <!-- MODAL: DISRUPTION / LOCAL REPAIR -->
+  <div class="modal-backdrop" id="disruptionModal" role="dialog" aria-modal="true" aria-labelledby="disruptionModalTitle">
+    <div class="modal-dialog modal-sm">
+      <div class="modal-header">
+        <h2 id="disruptionModalTitle" style="font-size:16px;">Mô phỏng sự cố đột xuất & Sửa lịch</h2>
+        <button type="button" class="btn btn-sm btn-icon" data-close-modal="disruptionModal" aria-label="Đóng">✕</button>
       </div>
+      <div class="modal-body" id="disruptionModalBody"></div>
     </div>
+  </div>
 
-    <!-- MAIN 2-COLUMN WORKBENCH LAYOUT (3 cols Config Rail / 9 cols Analytical Stage) -->
-    <main class="flex-1 max-w-[1800px] w-full mx-auto px-4 py-4 grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+  <!-- MODAL: OVERLOAD RESCUE (O1-O4) -->
+  <div class="modal-backdrop" id="overloadModal" role="dialog" aria-modal="true" aria-labelledby="overloadModalTitle">
+    <div class="modal-dialog modal-sm">
+      <div class="modal-header">
+        <h2 id="overloadModalTitle" style="font-size:16px;">Gợi ý giải cứu quá tải (O1–O4)</h2>
+        <button type="button" class="btn btn-sm btn-icon" data-close-modal="overloadModal" aria-label="Đóng">✕</button>
+      </div>
+      <div class="modal-body" id="overloadModalBody"></div>
+    </div>
+  </div>
 
-      <!-- ==================== LEFT RAIL (3 cols): 1-PURPOSE EXPERIMENT CONFIG & DATA ==================== -->
-      <section class="lg:col-span-3 space-y-3">
+  <!-- TOAST STACK -->
+  <div class="toast-stack" id="toastStack" aria-live="polite"></div>
 
-        <!-- Card 1: Solver Selection & Run Trigger -->
-        <div class="bg-slate-900 text-white rounded-xl border border-slate-800 p-3.5 shadow-sm space-y-2.5">
-          <div>
-            <label class="block text-[10px] font-bold uppercase tracking-wider text-emerald-400 mb-1">⚙️ Thuật Toán Chính (Active Solver)</label>
-            <select id="solverSelect" onchange="solveSchedule()" class="w-full text-xs px-2.5 py-2 rounded-lg bg-slate-800 border border-slate-600 text-white font-medium focus:outline-none focus:border-emerald-400">
-              <option value="GREEDY_EDF_FIRST_FIT">1. EDF + First-Fit [Chuẩn V0 Energy-Blind]</option>
-              <option value="GREEDY_LST_BEST_FIT">2. LST + Best-Fit [Giảm phân mảnh]</option>
-              <option value="GREEDY_WSPT_SMITH_RULE">3. WSPT / Smith Rule [Trọng số / Thời lượng]</option>
-              <option value="BACKTRACKING_BRANCH_AND_BOUND">4. Backtracking Nhánh-Cận [Ground-Truth]</option>
-              <option value="SCORED_GREEDY" selected>5. Scored Greedy [Urgency × Circadian + Batching]</option>
-            </select>
-          </div>
-          <button onclick="solveSchedule()" class="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg shadow transition flex items-center justify-center gap-1.5 tracking-wide">
-            <span>🚀</span> CHẠY XẾP LỊCH & CẬP NHẬT CHỈ SỐ
-          </button>
-        </div>
-
-        <!-- Card 2: Unified Experimental Parameters (Synced directly with state.commitments) -->
-        <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-3.5 space-y-2.5 text-xs">
-          <div class="flex items-center justify-between border-b border-slate-100 pb-2">
-            <h3 class="text-[11px] font-bold uppercase tracking-wider text-slate-700">🎛️ Tham Số Thực Nghiệm</h3>
-            <button type="button" onclick="openStudentSettingsModal()" class="text-[11px] text-indigo-600 hover:underline font-semibold">Thói quen 🏃</button>
-          </div>
-
-          <div class="grid grid-cols-2 gap-2">
-            <div>
-              <label class="block text-[10px] font-semibold text-slate-500 mb-0.5">Nhịp sinh học</label>
-              <select id="labFocusPrefSelect" onchange="onLabParamChange()" class="w-full text-xs px-2 py-1.5 rounded border border-slate-300 bg-white">
-                <option value="BALANCED">BALANCED</option>
-                <option value="MORNING">MORNING (Sáng)</option>
-                <option value="AFTERNOON">AFTERNOON (Chiều)</option>
-                <option value="EVENING">EVENING (Tối)</option>
-              </select>
-            </div>
-            <div>
-              <label class="block text-[10px] font-semibold text-slate-500 mb-0.5">Chế độ đệm</label>
-              <select id="labBufferModeSelect" onchange="onLabParamChange()" class="w-full text-xs px-2 py-1.5 rounded border border-slate-300 bg-white">
-                <option value="COGNITIVE_LOAD">COGNITIVE_LOAD (α)</option>
-                <option value="HABIT">HABIT (V0/F001)</option>
-              </select>
-            </div>
-          </div>
-
-          <div id="labHabitRow" class="hidden">
-            <label for="inpEstimateHabit" class="block text-[10px] font-semibold text-amber-800 mb-0.5">Mức đệm thói quen (`estimate_habit`)</label>
-            <select id="inpEstimateHabit" onchange="onEstimateHabitChange()" class="w-full text-xs px-2 py-1.5 rounded border border-amber-300 bg-amber-50">
-              <option value="">Tắt đệm (×1.00)</option>
-              <option value="RARELY">RARELY (×1.00)</option>
-              <option value="SOMETIMES">SOMETIMES (+10%)</option>
-              <option value="OFTEN">OFTEN (+25%)</option>
-            </select>
-          </div>
-
-          <div id="labAlphaRow" class="grid grid-cols-2 gap-2">
-            <div>
-              <label class="block text-[10px] font-semibold text-slate-500 mb-0.5">α_light (Load 1–2)</label>
-              <input id="labAlphaLight" type="number" min="1.0" max="1.6" step="0.05" value="1.20" onchange="onLabParamChange()" class="w-full text-xs px-2 py-1 rounded border border-slate-300 mono" />
-            </div>
-            <div>
-              <label class="block text-[10px] font-semibold text-slate-500 mb-0.5">α_heavy (Load 3)</label>
-              <input id="labAlphaHeavy" type="number" min="1.0" max="1.6" step="0.05" value="1.35" onchange="onLabParamChange()" class="w-full text-xs px-2 py-1 rounded border border-slate-300 mono" />
-            </div>
-          </div>
-
-          <div>
-            <label class="block text-[10px] font-semibold text-slate-500 mb-0.5">Mốc giờ giả lập `now` (để trống = đầu tuần)</label>
-            <div class="flex gap-1">
-              <input id="labNowInput" type="text" placeholder="2026-11-02T09:00:00+07:00" onchange="onLabParamChange()" class="flex-1 text-[11px] px-2 py-1 rounded border border-slate-300 mono" />
-              <button type="button" onclick="setLabNowCurrent()" class="px-2 py-1 text-[10px] bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded font-semibold" title="Lấy giờ hiện tại">Now</button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Card 3: Unified Task Input & Queue (Single Modal + Hybrid Quick Command — Zero Form Duplication) -->
-        <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-3.5 space-y-2.5 text-xs">
-          <div class="flex items-center justify-between">
-            <h3 class="text-[11px] font-bold uppercase tracking-wider text-slate-700">📝 Task (<span id="taskCountBadge">0</span>)</h3>
-            <button type="button" onclick="openStudentTaskModal()" class="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold rounded-md transition">
-              ➕ Thêm / Mở Modal Lab
-            </button>
-          </div>
-
-          <!-- 1-Line Hybrid Quick Command -->
-          <div class="bg-slate-50 p-2 rounded-lg border border-slate-200 space-y-1.5">
-            <div class="flex gap-1">
-              <input id="quickAddInput" type="text" placeholder="Nhập nhanh: Ôn Toán 90p thứ 5 P1..."
-                oninput="previewQuickAdd(this.value)"
-                onkeydown="if(event.key==='Enter'){event.preventDefault();analyzeQuickAddHybrid();}"
-                class="flex-1 text-xs px-2 py-1 rounded border border-slate-300 bg-white focus:outline-none focus:border-indigo-500" />
-              <button type="button" onclick="applyQuickAdd()" class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-white text-[11px] font-semibold rounded transition" title="Phân tích Regex nhanh vào Modal">Regex</button>
-              <button type="button" onclick="analyzeQuickAddHybrid()" title="Phân tích Hybrid 6-Stage Pipeline" class="px-2 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-semibold rounded transition whitespace-nowrap">🧠 Hybrid</button>
-            </div>
-            <div id="quickAddChips" class="flex flex-wrap gap-1 empty:hidden"></div>
-            <div id="quickAddHybridDiag" class="space-y-1 empty:hidden"></div>
-          </div>
-
-          <div class="flex items-center justify-between text-[10px] text-slate-500">
-            <span id="queueTotalSummary" class="mono">0 tasks · 0 phút</span>
-            <span class="text-slate-400">Click ✏️ để sửa bằng Modal Lab</span>
-          </div>
-          <div id="taskQueueContainer" class="space-y-1.5 max-h-[250px] overflow-y-auto pr-1"></div>
-        </div>
-
-        <!-- Card 4: Collapsible Sleep & Fixed Commitments -->
-        <details class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden text-xs">
-          <summary class="px-3.5 py-2.5 bg-slate-50 cursor-pointer font-bold text-slate-700 flex items-center justify-between">
-            <span>🔒 Ngủ Cứng (H2) & Lịch Cố Định (<span id="fixedEventCountBadge">0</span>)</span>
-            <span class="text-slate-400">▼</span>
-          </summary>
-          <div class="p-3.5 space-y-3 border-t border-slate-100">
-            <div class="bg-slate-800 text-white p-2.5 rounded-lg grid grid-cols-2 gap-2">
-              <div>
-                <label class="block text-[10px] text-slate-300 mb-0.5">🌙 Đi ngủ</label>
-                <input id="inpSleepStart" type="time" value="23:30" onchange="updateSleepFromUI()" class="w-full text-xs px-2 py-1 rounded bg-slate-900 border border-slate-600 text-white mono" />
-              </div>
-              <div>
-                <label class="block text-[10px] text-slate-300 mb-0.5">☀️ Thức dậy (≥6h)</label>
-                <input id="inpSleepEnd" type="time" value="06:30" onchange="updateSleepFromUI()" class="w-full text-xs px-2 py-1 rounded bg-slate-900 border border-slate-600 text-white mono" />
-              </div>
-            </div>
-
-            <div class="space-y-2 bg-slate-50 p-2.5 rounded-lg border border-slate-200">
-              <div class="grid grid-cols-3 gap-1.5">
-                <input id="inpEvId" type="text" placeholder="CLASS_1" class="text-xs px-2 py-1 rounded border border-slate-300 mono uppercase" />
-                <input id="inpEvTitle" type="text" placeholder="Tên lịch cố định" class="col-span-2 text-xs px-2 py-1 rounded border border-slate-300" />
-              </div>
-              <div class="grid grid-cols-2 gap-1.5">
-                <select id="inpEvDay" class="text-xs px-1.5 py-1 rounded border border-slate-300 bg-white">
-                  <option value="ALL">Mỗi ngày (ALL)</option>
-                  <option value="Monday">Thứ Hai</option><option value="Tuesday">Thứ Ba</option>
-                  <option value="Wednesday">Thứ Tư</option><option value="Thursday">Thứ Năm</option>
-                  <option value="Friday">Thứ Sáu</option><option value="Saturday">Thứ Bảy</option><option value="Sunday">Chủ Nhật</option>
-                  <option value="Monday,Wednesday,Friday">T2, T4, T6</option>
-                  <option value="Tuesday,Thursday">T3, T5</option>
-                </select>
-                <select id="inpEvCategory" class="text-xs px-1.5 py-1 rounded border border-slate-300 bg-white">
-                  <option value="ACADEMIC_CLASS">Lớp học</option>
-                  <option value="MEAL">Ăn uống</option>
-                  <option value="WORK">Làm thêm</option>
-                  <option value="MEETING">Họp CLB</option>
-                </select>
-              </div>
-              <div class="grid grid-cols-2 gap-1.5">
-                <input id="inpEvStart" type="time" value="13:00" class="text-xs px-2 py-1 rounded border border-slate-300 mono" />
-                <input id="inpEvEnd" type="time" value="17:00" class="text-xs px-2 py-1 rounded border border-slate-300 mono" />
-              </div>
-              <button onclick="addFixedEventFromForm()" class="w-full py-1.5 bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold rounded transition">🔒 Khóa Lịch Cố Định</button>
-            </div>
-
-            <div id="fixedEventsContainer" class="space-y-1.5 max-h-[200px] overflow-y-auto pr-1"></div>
-          </div>
-        </details>
-      </section>
-
-      <!-- ==================== RIGHT STAGE (9 cols): 3 DEDICATED RESEARCH WORKSPACES ==================== -->
-      <section class="lg:col-span-9 space-y-4">
-
-        <!-- Stage Tabs Bar -->
-        <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-2 flex flex-wrap items-center justify-between gap-2">
-          <div class="flex flex-wrap items-center gap-1.5 bg-slate-100 p-1 rounded-lg">
-            <button id="btnLabTabSingle" onclick="switchWorkbenchMode('SINGLE')" class="px-3.5 py-1.5 text-xs font-bold rounded-md bg-white text-indigo-700 shadow-sm transition flex items-center gap-1.5">
-              <span>📊</span> 1. Lịch & Phân Tích Chi Tiết
-            </button>
-            <button id="btnLabTabCompare" onclick="switchWorkbenchMode('COMPARE')" class="px-3.5 py-1.5 text-xs font-semibold rounded-md text-slate-600 hover:text-slate-900 transition flex items-center gap-1.5">
-              <span>⚖️</span> 2. So Sánh Thuật Toán A/B & Đúc Kết
-            </button>
-            <button id="btnLabTabResilience" onclick="switchWorkbenchMode('RESILIENCE')" class="px-3.5 py-1.5 text-xs font-semibold rounded-md text-slate-600 hover:text-slate-900 transition flex items-center gap-1.5">
-              <span>🧪</span> 3. Độ Bền Sự Cố (T04/T05) & Tất Định 3x
-            </button>
-          </div>
-          <div class="text-[11px] text-slate-500 px-2 flex items-center gap-2">
-            <span>Thuật toán đang chạy:</span>
-            <span id="kpiSolverLabel" class="font-bold text-emerald-700 mono bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">SCORED_GREEDY</span>
-          </div>
-        </div>
-
-        <!-- 6 SCIENTIFIC KPI CARDS -->
-        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
-          <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
-            <div class="text-[10px] font-bold text-slate-500 uppercase">Vi Phạm Cứng (H1–H5)</div>
-            <div class="mt-1 flex items-baseline gap-1">
-              <span id="kpiHardViolations" class="text-xl font-bold mono text-emerald-600">0</span>
-              <span class="text-[11px] text-slate-400">lỗi (=0)</span>
-            </div>
-          </div>
-
-          <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
-            <div class="text-[10px] font-bold text-slate-500 uppercase">Đạt Hạn Chót</div>
-            <div class="mt-1 flex items-baseline gap-1.5">
-              <span id="kpiDeadlineRate" class="text-xl font-bold mono text-indigo-600">100.0%</span>
-            </div>
-            <div id="kpiPlacedCount" class="text-[10px] text-slate-400 mt-0.5">0 / 0 tasks</div>
-          </div>
-
-          <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-sm" title="Tỷ lệ phiên Load≥2 được xếp vào khung giờ năng lượng đỉnh (Level 3 Peak)">
-            <div class="text-[10px] font-bold text-slate-500 uppercase">Khớp Peak Circadian</div>
-            <div class="mt-1 flex items-baseline gap-1">
-              <span id="kpiPeakMatch" class="text-xl font-bold mono text-amber-600">--%</span>
-            </div>
-            <div id="kpiPeakMatchNote" class="text-[10px] text-slate-400 mt-0.5">Pattern 3 Matching</div>
-          </div>
-
-          <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-sm" title="Điểm mệt mỏi (1=Thoải mái, 5=Kiệt sức) & Số lần chuyển môn kề nhau">
-            <div class="text-[10px] font-bold text-slate-500 uppercase">Experience & Switches</div>
-            <div class="mt-1 flex items-baseline gap-1.5">
-              <span id="kpiExperienceVal" class="text-xl font-bold mono text-violet-700">--</span>
-              <span class="text-[11px] text-slate-400">/ 5</span>
-            </div>
-            <div id="kpiContextSwitches" class="text-[10px] text-slate-400 mt-0.5">Đổi môn: -- · Nghỉ: --</div>
-          </div>
-
-          <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
-            <div class="text-[10px] font-bold text-slate-500 uppercase">Slot Trống / Mảnh</div>
-            <div class="mt-1 flex items-baseline gap-1">
-              <span id="kpiFreeSlots" class="text-xl font-bold mono text-slate-800">344</span>
-              <span class="text-[10px] text-slate-400">FREE</span>
-            </div>
-            <div id="kpiFragmentation" class="text-[10px] text-slate-400 mono mt-0.5">Phân mảnh: 0.0%</div>
-          </div>
-
-          <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
-            <div class="text-[10px] font-bold text-slate-500 uppercase">Tốc Độ & SHA-256</div>
-            <div class="mt-1 flex items-baseline gap-1">
-              <span id="kpiExecTime" class="text-xl font-bold mono text-slate-800">--</span>
-              <span class="text-[10px] text-slate-400">ms</span>
-            </div>
-            <div id="kpiDeterminismHash" class="text-[10px] font-bold mono text-slate-600 mt-0.5 truncate">--------</div>
-          </div>
-        </div>
-
-        <!-- OVERLOAD WARNING PANEL -->
-        <div id="overloadAlertBox" class="hidden bg-rose-50 border-2 border-rose-500 rounded-xl p-4 shadow-sm space-y-2.5">
-          <div class="flex items-start justify-between gap-2">
-            <div class="flex items-center gap-2">
-              <span class="text-xl">⚠️</span>
-              <div>
-                <h3 id="overloadTitle" class="text-sm font-bold text-rose-900 uppercase">CẢNH BÁO QUÁ TẢI DUNG LƯỢNG (CAPACITY SHORTAGE)</h3>
-                <p id="overloadSubtitle" class="text-xs text-rose-800 font-medium"></p>
-              </div>
-            </div>
-            <span id="overloadBadge" class="px-2.5 py-1 text-xs font-bold bg-rose-600 text-white rounded-md mono">INFEASIBLE</span>
-          </div>
-          <div id="overloadStatsRow" class="grid grid-cols-3 gap-2 bg-white/90 p-2.5 rounded-lg border border-rose-200 text-xs"></div>
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
-            <div>
-              <div class="text-[11px] font-bold uppercase text-rose-900 mb-1">📌 Task không thể xếp (`UNPLACED`):</div>
-              <ul id="unplacedTasksList" class="space-y-1 text-xs text-rose-950 list-disc list-inside"></ul>
-            </div>
-            <div>
-              <div class="text-[11px] font-bold uppercase text-rose-900 mb-1">💡 Gợi ý xử lý (Overload Triage):</div>
-              <ul id="overloadSuggestionsList" class="space-y-1 text-xs text-slate-700 list-disc list-inside"></ul>
-            </div>
-          </div>
-        </div>
-
-        <!-- ==================== LAB TAB 1: SINGLE WORKBENCH GRID + FIXED INSPECTOR ==================== -->
-        <div id="singleGridPanel" class="space-y-4">
-          <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-            <!-- Toolbar & Color Legend -->
-            <div class="p-3 border-b border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-2">
-              <div class="flex flex-wrap items-center gap-2.5 text-[11px] font-medium">
-                <h2 class="text-xs font-bold text-slate-800 uppercase mr-1">📅 Lưới 15-Phút</h2>
-                <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm slot-sleep inline-block"></span> Ngủ (H2)</span>
-                <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm slot-occupied-class inline-block"></span> Lớp/Bận (H1)</span>
-                <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm slot-occupied-meal inline-block"></span> Ăn (MEAL)</span>
-                <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm slot-block inline-block"></span> Đã xếp</span>
-                <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm slot-rest inline-block"></span> Nghỉ 15p (REST)</span>
-                <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm slot-block-moved inline-block"></span> Vừa dời</span>
-              </div>
-
-              <div class="flex items-center gap-2 text-xs">
-                <span id="labObservedRangePill" class="px-2 py-1 rounded bg-indigo-50 border border-indigo-200 text-indigo-800 font-semibold mono text-[11px] cursor-pointer" onclick="toggleObservedRangeCalendar(true)" title="Xem trên Lịch Tháng">--/--/---- – --/--/----</span>
-                <label class="flex items-center gap-1 cursor-pointer bg-white px-2 py-1 rounded border border-slate-300 font-medium text-slate-700">
-                  <input id="chkFoldNightSleep" type="checkbox" checked onchange="renderMainGrid()" class="rounded text-indigo-600" />
-                  <span>🌙 Gọn ngủ đêm</span>
-                </label>
-                <select id="gridResolutionSelect" onchange="renderMainGrid()" class="px-2 py-1 rounded border border-slate-300 bg-white font-medium text-slate-700">
-                  <option value="1" selected>15 phút (672 slots)</option>
-                  <option value="2">30 phút</option>
-                  <option value="4">60 phút</option>
-                </select>
-              </div>
-            </div>
-
-            <!-- Hover / Quick Status Bar + Pinned Detailed Inspector -->
-            <div id="slotInspectorBar" class="px-4 py-2 bg-slate-900 text-slate-100 text-xs flex flex-wrap items-center justify-between gap-2 border-b border-slate-800">
-              <div id="inspectorContent" class="flex items-center gap-2">
-                <span class="text-emerald-400 font-bold">💡 Slot Inspector:</span>
-                <span class="text-slate-300">Rê hoặc bấm vào ô bất kỳ trên lưới để ghim phân tích toán học E1–E4 bên dưới.</span>
-              </div>
-              <span id="inspectorSlotBadge" class="mono text-[11px] px-2 py-0.5 rounded bg-slate-800 text-amber-300">Slot: --</span>
-            </div>
-
-            <!-- Lab Horizontal Scrubber + Range Note -->
-            <div class="px-3 py-1.5 bg-slate-50 border-b border-slate-200 flex items-center gap-2 text-xs">
-              <span class="text-[11px] font-semibold text-slate-600 whitespace-nowrap">↔ Trượt ngang lưới:</span>
-              <input id="labGridHorizontalSlider" type="range" min="0" max="1000" value="0" oninput="onLabHorizontalSliderInput(this.value)" onchange="restoreLabSmoothScroll()" class="flex-1 h-1.5 bg-slate-200 rounded-lg accent-indigo-600 cursor-pointer" title="Kéo để trượt ngang bảng lưới 7 ngày" />
-            </div>
-
-            <!-- 7-Day Time Grid Table with Explicit DD/MM/YYYY Headers & Horizontal Scroll -->
-            <div id="labGridScrollContainer" onscroll="syncLabSliderFromScroll()" class="calendar-h-scroll overflow-x-auto max-h-[560px] overflow-y-auto scroll-smooth">
-              <table class="w-full min-w-[1060px] border-collapse table-fixed text-xs">
-                <thead class="bg-slate-100 sticky top-0 z-20 border-b border-slate-300 text-slate-700">
-                  <tr>
-                    <th class="w-20 py-2 px-2 text-left font-bold border-r border-slate-300 mono">Giờ</th>
-                    <th id="labGridHeader_0" class="py-1.5 px-1.5 text-center font-bold border-r border-slate-200">Thứ Hai</th>
-                    <th id="labGridHeader_1" class="py-1.5 px-1.5 text-center font-bold border-r border-slate-200">Thứ Ba</th>
-                    <th id="labGridHeader_2" class="py-1.5 px-1.5 text-center font-bold border-r border-slate-200">Thứ Tư</th>
-                    <th id="labGridHeader_3" class="py-1.5 px-1.5 text-center font-bold border-r border-slate-200">Thứ Năm</th>
-                    <th id="labGridHeader_4" class="py-1.5 px-1.5 text-center font-bold border-r border-slate-200">Thứ Sáu</th>
-                    <th id="labGridHeader_5" class="py-1.5 px-1.5 text-center font-bold border-r border-slate-200">Thứ Bảy</th>
-                    <th id="labGridHeader_6" class="py-1.5 px-1.5 text-center font-bold">Chủ Nhật</th>
-                  </tr>
-                </thead>
-                <tbody id="mainGridTbody" class="divide-y divide-slate-200"></tbody>
-              </table>
-            </div>
-
-            <!-- Sticky Analytical Inspector Card (Populated on Click) -->
-            <div id="labFixedInspectorPanel" class="hidden border-t border-indigo-200 bg-indigo-50/70 px-4 py-3 text-xs"></div>
-          </div>
-
-          <!-- Placed Blocks Summary Table with Full DD/MM/YYYY & Energy Level -->
-          <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
-            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-700 mb-2">📑 Bảng Kê Chi Tiết Các Khối Đã Xếp (`schedule_output.blocks`)</h3>
-            <div class="overflow-x-auto max-h-[260px] overflow-y-auto rounded-lg border border-slate-200">
-              <table class="w-full text-left text-xs">
-                <thead class="bg-slate-100 text-slate-600 sticky top-0 border-b border-slate-200">
-                  <tr>
-                    <th class="py-2 px-2.5">Block ID</th>
-                    <th class="py-2 px-2.5">Tên Công Việc</th>
-                    <th class="py-2 px-2.5">Phiên</th>
-                    <th class="py-2 px-2.5">Ngày & Giờ (DD/MM/YYYY)</th>
-                    <th class="py-2 px-2.5">Năng Lượng</th>
-                    <th class="py-2 px-2.5">Thời lượng</th>
-                    <th class="py-2 px-2.5">Hạn chót</th>
-                    <th class="py-2 px-2.5">Lý do & Reason Codes</th>
-                  </tr>
-                </thead>
-                <tbody id="placedBlocksTableBody" class="divide-y divide-slate-100"></tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-
-        <!-- ==================== LAB TAB 2: A/B COMPARISON & EXECUTIVE TAKEAWAYS ==================== -->
-        <div id="compareGridPanel" class="hidden space-y-4">
-          <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-4">
-            <!-- Header & Pair Presets -->
-            <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
-              <div>
-                <h2 class="text-sm font-bold text-slate-900">⚖️ PHÒNG SO SÁNH THUẬT TOÁN A/B (ALGORITHM COMPARISON STUDIO)</h2>
-                <p class="text-xs text-slate-500">So sánh cùng bộ dữ liệu, tự động đúc kết chênh lệch chất lượng & lý do dịch chuyển từng công việc.</p>
-              </div>
-              <div class="flex flex-wrap items-center gap-1.5 text-xs">
-                <select id="compareAlgoLeft" class="px-2.5 py-1.5 rounded-lg border border-slate-300 bg-slate-50 font-semibold">
-                  <option value="GREEDY_EDF_FIRST_FIT" selected>Trái (A): EDF + First-Fit [V0]</option>
-                  <option value="GREEDY_LST_BEST_FIT">Trái (A): LST + Best-Fit</option>
-                  <option value="GREEDY_WSPT_SMITH_RULE">Trái (A): WSPT (Smith)</option>
-                  <option value="BACKTRACKING_BRANCH_AND_BOUND">Trái (A): Backtracking</option>
-                  <option value="SCORED_GREEDY">Trái (A): Scored Greedy</option>
-                </select>
-                <span class="font-bold text-slate-400">VS</span>
-                <select id="compareAlgoRight" class="px-2.5 py-1.5 rounded-lg border border-slate-300 bg-indigo-50 border-indigo-300 text-indigo-900 font-semibold">
-                  <option value="GREEDY_EDF_FIRST_FIT">Phải (B): EDF + First-Fit</option>
-                  <option value="GREEDY_LST_BEST_FIT">Phải (B): LST + Best-Fit</option>
-                  <option value="GREEDY_WSPT_SMITH_RULE">Phải (B): WSPT (Smith)</option>
-                  <option value="BACKTRACKING_BRANCH_AND_BOUND">Phải (B): Backtracking</option>
-                  <option value="SCORED_GREEDY" selected>Phải (B): Scored Greedy [Adaptive V1/V2]</option>
-                </select>
-                <button onclick="runDualComparison()" class="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg shadow-sm transition">🚀 Chạy So Sánh</button>
-              </div>
-            </div>
-
-            <!-- 1-Click Research Pair Presets -->
-            <div class="flex flex-wrap items-center gap-2 text-[11px]">
-              <span class="font-bold text-slate-500">Cặp đối chứng nhanh:</span>
-              <button type="button" onclick="runComparisonPreset('GREEDY_EDF_FIRST_FIT','SCORED_GREEDY')" class="px-2.5 py-1 rounded-full bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 font-semibold transition">🔬 Baseline V0 (EDF) vs Adaptive (Scored Greedy)</button>
-              <button type="button" onclick="runComparisonPreset('SCORED_GREEDY','BACKTRACKING_BRANCH_AND_BOUND')" class="px-2.5 py-1 rounded-full bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-semibold transition">🧮 Scored Greedy vs Exact Backtracking</button>
-              <button type="button" onclick="runComparisonPreset('GREEDY_EDF_FIRST_FIT','GREEDY_LST_BEST_FIT')" class="px-2.5 py-1 rounded-full bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 font-semibold transition">📐 First-Fit (EDF) vs Best-Fit (LST)</button>
-            </div>
-
-            <!-- Layer 1: Executive Verdict Card (Auto-summarized takeaways) -->
-            <div id="compareVerdictBanner" class="rounded-xl border border-indigo-200 bg-gradient-to-r from-indigo-50 via-white to-emerald-50 p-4 text-xs"></div>
-
-            <!-- Layer 2: 8-Metric Scorecard Table with Visual Delta -->
-            <div id="compareMetricsBox" class="bg-white rounded-xl border border-slate-200 overflow-hidden"></div>
-
-            <!-- Layer 3: Task-by-Task Placement Diff Table -->
-            <div class="border border-slate-200 rounded-xl overflow-hidden">
-              <div class="px-4 py-2.5 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
-                <h3 class="text-xs font-bold text-slate-800">🔍 Đối Chiếu Vị Trí & Năng Lượng Từng Công Việc (Task-by-Task Placement Diff)</h3>
-                <label class="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-700 cursor-pointer">
-                  <input id="chkOnlyChangedDiff" type="checkbox" checked onchange="renderLastComparisonDiffTable()" class="rounded text-indigo-600" />
-                  <span>Chỉ hiện các phiên đặt khác vị trí</span>
-                </label>
-              </div>
-              <div class="overflow-x-auto max-h-[340px] overflow-y-auto">
-                <table class="w-full text-left text-xs">
-                  <thead class="bg-slate-100 text-slate-600 sticky top-0 border-b border-slate-200">
-                    <tr>
-                      <th class="py-2 px-3">Task / Phiên</th>
-                      <th class="py-2 px-3">Thuật toán Trái (A)</th>
-                      <th class="py-2 px-3">Thuật toán Phải (B)</th>
-                      <th class="py-2 px-3">Chênh lệch (Δ)</th>
-                      <th class="py-2 px-3">Lý do đặt ở (B)</th>
-                    </tr>
-                  </thead>
-                  <tbody id="compareDiffTableBody" class="divide-y divide-slate-100"></tbody>
-                </table>
-              </div>
-            </div>
-
-            <!-- Layer 4: Collapsible Full 672-Slot Side-by-Side Grids -->
-            <details id="compareFullGridsDetails" class="border border-slate-200 rounded-xl overflow-hidden">
-              <summary class="px-4 py-2.5 bg-slate-50 cursor-pointer text-xs font-bold text-slate-700 flex items-center justify-between">
-                <span>🗓️ Mở Rộng: Soi Toàn Bộ Lưới Slot 2 Thuật Toán Song Song</span>
-                <span class="text-slate-400">▼</span>
-              </summary>
-              <div class="p-3 grid grid-cols-1 xl:grid-cols-2 gap-3 bg-white">
-                <div class="border border-slate-200 rounded-lg overflow-hidden">
-                  <div id="compareLeftHeader" class="bg-slate-800 text-white px-3 py-2 text-xs font-bold">Thuật toán A</div>
-                  <div class="max-h-[460px] overflow-y-auto">
-                    <table class="w-full border-collapse table-fixed text-[11px]">
-                      <thead class="bg-slate-100 sticky top-0 border-b border-slate-300">
-                        <tr>
-                          <th class="w-14 py-1 px-1 text-left mono">Giờ</th>
-                          <th class="py-1 compare-day-hdr-0">T2</th><th class="py-1 compare-day-hdr-1">T3</th><th class="py-1 compare-day-hdr-2">T4</th>
-                          <th class="py-1 compare-day-hdr-3">T5</th><th class="py-1 compare-day-hdr-4">T6</th><th class="py-1 compare-day-hdr-5">T7</th><th class="py-1 compare-day-hdr-6">CN</th>
-                        </tr>
-                      </thead>
-                      <tbody id="compareLeftTbody" class="divide-y divide-slate-200"></tbody>
-                    </table>
-                  </div>
-                </div>
-                <div class="border border-slate-200 rounded-lg overflow-hidden">
-                  <div id="compareRightHeader" class="bg-indigo-900 text-white px-3 py-2 text-xs font-bold">Thuật toán B</div>
-                  <div class="max-h-[460px] overflow-y-auto">
-                    <table class="w-full border-collapse table-fixed text-[11px]">
-                      <thead class="bg-slate-100 sticky top-0 border-b border-slate-300">
-                        <tr>
-                          <th class="w-14 py-1 px-1 text-left mono">Giờ</th>
-                          <th class="py-1 compare-day-hdr-0">T2</th><th class="py-1 compare-day-hdr-1">T3</th><th class="py-1 compare-day-hdr-2">T4</th>
-                          <th class="py-1 compare-day-hdr-3">T5</th><th class="py-1 compare-day-hdr-4">T6</th><th class="py-1 compare-day-hdr-5">T7</th><th class="py-1 compare-day-hdr-6">CN</th>
-                        </tr>
-                      </thead>
-                      <tbody id="compareRightTbody" class="divide-y divide-slate-200"></tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-            </details>
-          </div>
-        </div>
-
-        <!-- ==================== LAB TAB 3: RESILIENCE LAB (T04/T05) & 3X DETERMINISM LEDGER ==================== -->
-        <div id="labPanelResilience" class="hidden space-y-4">
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <!-- Disruption Stress Card (T04) -->
-            <div class="bg-white rounded-xl border border-amber-200 shadow-sm p-4 space-y-3 text-xs">
-              <div class="flex items-center justify-between">
-                <h3 class="font-bold text-amber-950 uppercase">⚡ Tái Lập Lịch Sự Cố Đột Xuất (T04 · M4)</h3>
-                <span class="px-2 py-0.5 text-[10px] font-bold bg-amber-100 text-amber-900 rounded mono">TARGET ≥ 90% STABILITY</span>
-              </div>
-              <div>
-                <label class="block text-[11px] font-medium text-slate-600 mb-0.5">Sự kiện chèn bất ngờ</label>
-                <input id="inpDisruptTitle" type="text" value="Họp khẩn cấp Ban chủ nhiệm CLB" class="w-full px-2.5 py-1.5 rounded-lg border border-slate-300" />
-              </div>
-              <div class="grid grid-cols-3 gap-2">
-                <div>
-                  <label class="block text-[11px] font-medium text-slate-600 mb-0.5">Thứ</label>
-                  <select id="inpDisruptDay" class="w-full px-2 py-1.5 rounded-lg border border-slate-300 bg-white">
-                    <option value="Monday" selected>Thứ Hai</option><option value="Tuesday">Thứ Ba</option>
-                    <option value="Wednesday">Thứ Tư</option><option value="Thursday">Thứ Năm</option>
-                    <option value="Friday">Thứ Sáu</option><option value="Saturday">Thứ Bảy</option><option value="Sunday">Chủ Nhật</option>
-                  </select>
-                </div>
-                <div>
-                  <label class="block text-[11px] font-medium text-slate-600 mb-0.5">Từ giờ</label>
-                  <input id="inpDisruptStart" type="time" value="07:30" class="w-full px-2 py-1.5 rounded-lg border border-slate-300 mono" />
-                </div>
-                <div>
-                  <label class="block text-[11px] font-medium text-slate-600 mb-0.5">Đến giờ</label>
-                  <input id="inpDisruptEnd" type="time" value="09:30" class="w-full px-2 py-1.5 rounded-lg border border-slate-300 mono" />
-                </div>
-              </div>
-              <div class="grid grid-cols-2 gap-2">
-                <button onclick="runDisruptionRepair('LOCAL_INSERTION')" class="py-2 px-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg transition">🛠️ Vá Cục Bộ (M4)</button>
-                <button onclick="runDisruptionRepair('FULL_REBUILD')" class="py-2 px-2 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-lg transition">🔄 Rebuild Toàn Bộ</button>
-              </div>
-              <button onclick="runDisruptionComparison()" class="w-full py-2 bg-indigo-700 hover:bg-indigo-600 text-white font-bold rounded-lg transition">⚖️ Chạy Đối Chứng: Local Repair vs Full Rebuild</button>
-            </div>
-
-            <!-- Overrun Cascade Simulator (T05) -->
-            <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-3 text-xs">
-              <div class="flex items-center justify-between">
-                <h3 class="font-bold text-slate-800 uppercase">⏱️ Mô Phỏng Làm Lố Giờ (T05 / UC9)</h3>
-                <span class="px-2 py-0.5 text-[10px] font-bold bg-slate-100 text-slate-700 rounded mono">RIPPLE & BUFFER</span>
-              </div>
-              <p class="text-[11px] text-slate-600">Kiểm chứng bộ đệm có hấp thụ được việc trễ hay làm trượt dây chuyền các phiên học phía sau.</p>
-              <div>
-                <label class="block text-[11px] font-medium text-slate-600 mb-0.5">Chọn Task bị vượt thời lượng</label>
-                <select id="inpOverrunTaskSelect" class="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white mono"></select>
-              </div>
-              <div>
-                <label class="block text-[11px] font-medium text-slate-600 mb-0.5">Thời gian phát sinh thêm</label>
-                <select id="inpOverrunExtraMin" class="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white">
-                  <option value="30">+30 phút</option>
-                  <option value="45" selected>+45 phút (~30-37%)</option>
-                  <option value="60">+60 phút (+50%)</option>
-                  <option value="90">+90 phút</option>
-                </select>
-              </div>
-              <button onclick="runTaskOverrunSimulation()" class="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-lg transition">⏱️ Chạy Mô Phỏng Overrun (T05)</button>
-            </div>
-          </div>
-
-          <!-- Analytical Repair / Overrun Diff Output -->
-          <div id="repairLogPanel" class="hidden bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3 text-xs"></div>
-
-          <!-- 3x Determinism Proof & Multi-Solver Ledger -->
-          <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-3 text-xs">
-            <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
-              <div>
-                <h3 class="font-bold text-slate-800 uppercase">🔒 Kiểm Chứng Tất Định SHA-256 (3x Determinism Proof Ledger)</h3>
-                <p class="text-[11px] text-slate-500">Chạy 3 lần độc lập để chứng minh thuật toán cho lịch biểu đồng nhất 100%.</p>
-              </div>
-              <div class="flex gap-2">
-                <button onclick="runDeterminismCheck()" class="px-3 py-1.5 bg-teal-700 hover:bg-teal-600 text-white font-bold rounded-lg transition">🔒 Kiểm Chứng Solver Đang Chọn (3x)</button>
-                <button onclick="runAllSolversDeterminismLedger()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-lg transition">📊 Chạy Ledger Tất Cả 5 Solvers</button>
-              </div>
-            </div>
-            <div id="determinismBanner" class="hidden bg-teal-950 text-teal-100 border border-teal-700 rounded-lg p-3 text-xs flex flex-wrap items-center justify-between gap-2">
-              <div id="determinismBannerText"></div>
-              <button onclick="document.getElementById('determinismBanner').classList.add('hidden')" class="text-teal-300 hover:text-white font-bold px-2">✕</button>
-            </div>
-            <div class="overflow-x-auto">
-              <table class="w-full text-left text-xs">
-                <thead class="bg-slate-50 text-slate-600 border-b border-slate-200">
-                  <tr>
-                    <th class="py-2 px-3">Thuật toán</th>
-                    <th class="py-2 px-3">Trạng thái 3x</th>
-                    <th class="py-2 px-3">SHA-256 Signature</th>
-                    <th class="py-2 px-3">Thời gian 3 lần (ms)</th>
-                  </tr>
-                </thead>
-                <tbody id="determinismLedgerBody" class="divide-y divide-slate-100">
-                  <tr><td colspan="4" class="py-4 text-center text-slate-400 italic">Chưa chạy kiểm chứng tất định. Bấm nút ở trên để đo SHA-256 thực tế.</td></tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </section>
-    </main>
-  </div> <!-- /labWorkbenchLayout -->
-
-  <script src="/app.js"></script>
+  <script type="module" src="/app.js"></script>
 </body>
 </html>
-

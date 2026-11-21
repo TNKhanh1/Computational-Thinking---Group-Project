@@ -260,73 +260,53 @@ def test_vietnamese_translation_telemetry_and_end_to_end_scheduler_plan():
 
 
 def test_web_ui_serves_hybrid_controls_and_handlers():
-    """Verify web UI serves upgraded WorkRhythm, 1=Urgent..4=Low, attachment, translation & diagnostic controls."""
+    """Verify UI v3 serves clean modular shell + unified Task input with parallel manual & NL quick-fill (engine='auto')."""
     idx = client.get("/")
     assert idx.status_code == 200
     html = idx.text
     for elem_id in (
-        "stNlTransBackend",
-        "stNlSessionSplit",
-        "stNlSessionSingle",
-        "stNlPaceLight",
-        "stNlPaceBalanced",
-        "stNlPaceFlow",
-        "stNlPaceCustom",
-        "stNlCustomMin",
-        "stNlCustomMax",
-        "stNlUrgAuto",
-        "stNlUrg1",
-        "stNlUrg4",
-        "stNlPromptBox",
-        "stNlFileLinkBox",
-        "stNlOptInsertBoxedToPrompt",
-        "stNlAttachments",
-        "stNlCitationBlockChips",
-        "stNlBracketLiveStatus",
-        "promptInsertCitationBox()",
-        "handleStNlFileDrop(",
-        "stInpTaskId",
-        "stExistingTaskIdChips",
-        "stNlTransBadge",
-        "stNlDiagnostics",
-        "stModalDraftBadge",
-        "btnStClearDraft",
-        "stAdvSyncedSummary",
-        "Task cần phải làm trước đó (Task ID)",
-        "quickAddHybridDiag",
-        "analyzeQuickAddHybrid()",
+        "SmartSchedule",
+        "btnToggleSuites",
+        "solverSwitcherBar",
+        "btnOpenInputModal",
+        "btnTopWeights",
+        "btnTopBenchmark",
+        "inputModal",
+        "viewCalendar",
+        "viewList",
+        "viewWeights",
+        "viewBenchmark",
+        "/css/tokens.css",
+        "/css/app.css",
+        "/app.js",
     ):
-        assert elem_id in html, f"Missing UI element {elem_id} in web/index.html"
-    assert "stNlCiteInput" not in html, "Secondary tiny file input box should be removed"
-    assert "Ưu tiên Solver" not in html, "Redundant Solver Priority dropdown should be removed from Advanced Options"
-    assert "max-w-3xl" in html, "Modal container must be horizontally stretched to max-w-3xl"
-    assert "overflow-y-auto" in html, "Modal body must be scrollable via overflow-y-auto"
+        assert elem_id in html, f"Missing UI v3 element {elem_id} in web/index.html"
+
+    # Legacy cluttered controls removed in UI v3
+    for legacy_removed in ("stNlCiteInput", "stNlTransBackend", "stNlFileLinkBox", "Ưu tiên Solver"):
+        assert legacy_removed not in html, f"Legacy control {legacy_removed} should not exist in UI v3"
 
     js_resp = client.get("/app.js")
     assert js_resp.status_code == 200
-    js = js_resp.text
-    for fn_name in (
-        "setStNlTransBackend",
-        "setStNlSession",
-        "setStNlPacing",
-        "setStNlUrgency",
-        "onStNlAttachmentsChange",
-        "onStNlPromptLiveCheck",
-        "parseLinkedFileEntry",
-        "promptInsertCitationBox",
-        "handleStNlFileDrop",
-        "renderStDependsOnCandidates",
-        "toggleStDependsOnId",
-        "wrapUnbracketedCitation",
-        "removeCitationBlock",
-        "renderHybridDiagnostics",
-        "analyzeQuickAddHybrid",
-        "saveStudentModalDraft",
-        "restoreStudentModalDraft",
-        "clearStudentModalDraft",
+    drawer_resp = client.get("/js/input-drawer.js")
+    assert drawer_resp.status_code == 200
+    drawer_js = drawer_resp.text
+    for token in (
+        "inpNlQuickPrompt",
+        "btnNlQuickFill",
+        'engine: "auto"',
+        "inpTaskTitle",
+        "inpTaskDuration",
+        "inpTaskDueDate",
+        "inpTaskPriority",
+        "inpTaskLoad",
+        "inpTaskWindow",
+        "inpTaskRhythm",
+        "inpStartAfterDate",
+        "dependsOnChoices",
+        "chkTaskBuffer",
     ):
-        assert fn_name in js, f"Missing JS handler {fn_name} in web/app.js"
-    assert 'window.addEventListener("drop"' in js, "Global window drop listener must prevent Edge/Chrome tab opening"
+        assert token in drawer_js, f"Missing UI v3 input control {token} in web/js/input-drawer.js"
 
 
 def test_double_bracket_citations_comparison_and_malformed_brackets():
