@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="vi" data-theme="botanical">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SmartSchedule — Trợ Lý Lập Lịch Thông Minh</title>
+  <meta name="description" content="SmartSchedule — Trợ lý trò chuyện lập lịch học tập & làm việc tự nhiên, thân thiện và tối ưu theo nhịp sinh học." />
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='10' fill='%232e6f40'/%3E%3Ctext x='16' y='21' text-anchor='middle' font-family='sans-serif' font-weight='700' font-size='13' fill='%23ffffff'%3ESS%3C/text%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/tokens.css" />
+  <link rel="stylesheet" href="/css/app.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <!-- [1] CLEAN MINIMAL HEADER BAR -->
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="brand-group">
+          <button type="button" class="btn btn-ghost btn-icon" id="btnToggleLeftSidebar" title="Bật / Tắt thanh điều hướng bên trái" aria-label="Bật / Tắt thanh bên trái" aria-expanded="true">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+          </button>
+          <div class="brand-home-btn" id="btnBrandHome" role="button" tabindex="0" title="Quay về Trợ lý xếp lịch" aria-label="Quay về Trợ lý xếp lịch">
+            <div class="brand-mark" aria-hidden="true">SS</div>
+            <div class="brand-title">
+              <strong>SmartSchedule</strong>
+              <span id="activeSuiteBadge" class="dev-mode-only">Đang tải...</span>
+            </div>
+          </div>
+
+          <div class="week-pill calendar-context-only" id="topbarWeekPill">
+            <button type="button" class="btn btn-ghost btn-sm" id="btnWeekToday">Hôm nay</button>
+            <button type="button" class="btn btn-ghost btn-sm btn-icon" id="btnWeekPrev" title="Tuần trước" aria-label="Tuần trước">
+              <svg class="icon" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg>
+            </button>
+            <button type="button" class="btn btn-ghost btn-sm btn-icon" id="btnWeekNext" title="Tuần sau" aria-label="Tuần sau">
+              <svg class="icon" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>
+            </button>
+            <span class="week-range-text mono" id="txtWeekRange">--/-- – --/--</span>
+          </div>
+        </div>
+
+        <nav class="view-tabs dev-mode-only" role="tablist" aria-label="Chế độ xem của người dùng">
+          <button type="button" class="view-tab active" role="tab" data-view-tab="chat" aria-selected="true">Trợ lý Chat</button>
+          <button type="button" class="view-tab" role="tab" data-view-tab="calendar" aria-selected="false">Lịch</button>
+          <button type="button" class="view-tab" role="tab" data-view-tab="list" aria-selected="false">Danh sách</button>
+        </nav>
+
+        <div class="topbar-actions">
+          <!-- Calendar Display Mode (1d / 3d / 5d / 7d + Start Day) -->
+          <div class="popover-anchor calendar-context-only" id="calendarRangeAnchor">
+            <button type="button" class="btn" id="btnToggleCalendarRange" aria-expanded="false" aria-controls="calendarRangePopover">
+              <span id="txtCalendarRangeLabel">Tuần (7 ngày)</span>
+              <svg class="icon" viewBox="0 0 24 24" style="width:14px;height:14px;color:var(--p-muted);"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+            <div class="popover-menu align-right range-popover" id="calendarRangePopover" role="dialog" aria-label="Chọn chế độ hiển thị và ngày bắt đầu"></div>
+          </div>
+
+          <!-- Manual Form Drawer (available in Developer Mode or Settings) -->
+          <button type="button" class="btn btn-tonal dev-mode-only" id="btnOpenInputModal">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+            <span>Đầu vào (<span id="txtInputTaskCount" class="mono">0</span>)</span>
+          </button>
+
+          <!-- Theme Mode Switcher -->
+          <div class="popover-anchor">
+            <button type="button" class="btn btn-icon" id="btnToggleTheme" title="Đổi giao diện (Rừng cây / Sáng / Tối)" aria-expanded="false" aria-controls="themePopover" aria-label="Đổi giao diện">
+              <svg class="icon" viewBox="0 0 24 24"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/></svg>
+            </button>
+            <div class="popover-menu align-right theme-popover" id="themePopover" role="dialog" aria-label="Chọn chủ đề giao diện">
+              <div class="popover-section-title">Chủ đề giao diện</div>
+              <button type="button" class="range-option" data-set-theme="botanical">
+                <div style="display:flex;align-items:center;gap:10px;">
+                  <span class="theme-swatch-dot" style="background:linear-gradient(135deg,#2e6f40,#cde5d3);"></span>
+                  <div>
+                    <div>Rừng cây (Botanical)</div>
+                    <div style="font-size:11px;color:var(--p-muted);font-weight:400;">Xanh rêu dịu mắt</div>
+                  </div>
+                </div>
+              </button>
+              <button type="button" class="range-option" data-set-theme="light">
+                <div style="display:flex;align-items:center;gap:10px;">
+                  <span class="theme-swatch-dot" style="background:linear-gradient(135deg,#1a73e8,#f8fafd);"></span>
+                  <div>
+                    <div>Sáng tối giản</div>
+                    <div style="font-size:11px;color:var(--p-muted);font-weight:400;">Thanh thoát kiểu Google Calendar</div>
+                  </div>
+                </div>
+              </button>
+              <button type="button" class="range-option" data-set-theme="dark">
+                <div style="display:flex;align-items:center;gap:10px;">
+                  <span class="theme-swatch-dot" style="background:linear-gradient(135deg,#111815,#52b778);"></span>
+                  <div>
+                    <div>Rừng đêm (Dark)</div>
+                    <div style="font-size:11px;color:var(--p-muted);font-weight:400;">Nền tối dịu mắt</div>
+                  </div>
+                </div>
+              </button>
+            </div>
+          </div>
+
+          <!-- User Settings & Export Popover -->
+          <div class="popover-anchor">
+            <button type="button" class="btn btn-icon" id="btnToggleSettings" title="Cài đặt lịch & Lưu xuất" aria-expanded="false" aria-controls="settingsPopover" aria-label="Cài đặt">
+              <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.604.852.997 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            </button>
+            <div class="popover-menu align-right settings-popover" id="settingsPopover" role="dialog" aria-label="Cài đặt hiển thị và tiện ích">
+              <div class="settings-section">
+                <div class="popover-section-title">Hiển thị lịch</div>
+                <div class="settings-row">
+                  <span>Cửa sổ lập lịch</span>
+                  <div class="horizon-toggle" role="group" aria-label="Cửa sổ lập lịch">
+                    <button type="button" id="btnHorizon7" class="active">7 ngày</button>
+                    <button type="button" id="btnHorizon14">14 ngày</button>
+                  </div>
+                </div>
+                <label class="settings-toggle">
+                  <span>Ẩn khung giờ ngủ (00–06h)</span>
+                  <input type="checkbox" id="chkSettingHideSleep" checked />
+                </label>
+                <input type="checkbox" id="chkSettingEnergy" class="sr-only" hidden checked />
+                <button type="button" id="btnOpenDisruption" class="sr-only" hidden aria-hidden="true"></button>
+              </div>
+
+              <div class="settings-section" id="exportPopover">
+                <div class="popover-section-title">Lưu & Xuất lịch</div>
+                <div class="settings-export-grid">
+                  <button type="button" class="btn btn-sm" id="btnSaveSqlState">Lưu lịch</button>
+                  <button type="button" class="btn btn-sm" id="btnExportIcs">Xuất .ics</button>
+                  <button type="button" class="btn btn-sm" id="btnExportCsv">Xuất .csv</button>
+                  <button type="button" class="btn btn-sm" id="btnExportJson">Xuất .json</button>
+                </div>
+                <button type="button" class="btn btn-sm btn-danger" id="btnClearAllSchedule" style="width:100%;margin-top:4px;">Xóa tất cả lịch…</button>
+                <button type="button" class="btn btn-sm" id="btnResetState" style="width:100%;margin-top:4px;">Đặt lại về lịch mẫu</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Slim Collapsible Dev Side-Panel Toggle (visible in Developer Mode) -->
+          <button type="button" class="dev-toggle-btn dev-mode-only" id="btnToggleDevPanel" aria-expanded="false" aria-controls="devSidePanel" title="Mở / Ẩn bảng công cụ & chỉ số Dev">
+            <span class="status-dot" id="devToggleDot"></span>
+            <span>Bảng Dev</span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- [2] SHELL BODY: LEFT VERTICAL TASKBAR SLIDER + MAIN WORKSPACE + DEV SIDE PANEL -->
+    <div class="workspace-layout">
+      <!-- LEFT VERTICAL COLLAPSIBLE TASKBAR SLIDER -->
+      <aside class="left-nav-sidebar" id="leftNavSidebar" aria-label="Thanh điều hướng chính">
+        <div class="left-nav-section">
+          <div class="left-nav-heading">Không gian làm việc</div>
+          <button type="button" class="left-nav-item active" id="navBtnChat" data-view-tab="chat" title="Trợ lý xếp lịch">
+            <span class="left-nav-ico" aria-hidden="true">💬</span>
+            <span class="left-nav-label">Trợ lý xếp lịch</span>
+          </button>
+          <button type="button" class="left-nav-item" id="navBtnCalendar" data-view-tab="calendar" title="Xem lịch trình các tuần">
+            <span class="left-nav-ico" aria-hidden="true">🗓️</span>
+            <span class="left-nav-label">Lịch Trình Tuần</span>
+          </button>
+          <button type="button" class="left-nav-item" id="navBtnList" data-view-tab="list" title="Xem danh sách công việc theo ngày">
+            <span class="left-nav-ico" aria-hidden="true">📋</span>
+            <span class="left-nav-label">Danh Sách Việc</span>
+          </button>
+        </div>
+
+        <!-- DEVELOPER MODE TOGGLE & HIDDEN PARAMETER INSPECTOR -->
+        <div class="left-nav-footer">
+          <label class="dev-mode-switch" for="chkDeveloperMode" title="Bật để kiểm tra thông số ẩn (nhịp sinh học, buffer, chia nhỏ, SHA-256)">
+            <div style="display:flex;align-items:center;gap:8px;min-width:0;">
+              <span class="left-nav-ico" aria-hidden="true">🛠️</span>
+              <div class="left-nav-label" style="display:flex;flex-direction:column;">
+                <strong>Developer Mode</strong>
+                <small style="font-size:11px;color:var(--p-muted);font-weight:400;">Xem thông số ẩn</small>
+              </div>
+            </div>
+            <input type="checkbox" id="chkDeveloperMode" />
+          </label>
+
+          <div class="dev-task-inspector-wrap dev-mode-only">
+            <div class="popover-section-title" style="margin-top:8px;">Thông số ẩn từng việc</div>
+            <div id="devTaskHiddenInspectorList" class="dev-task-inspector-list"></div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- MAIN VIEWPORT -->
+      <main class="workspace-main" id="mainWorkspace">
+        <!-- DEFAULT ENTRY POINT: SPACIOUS EMPTY CHAT FRAME -->
+        <div class="view-panel active" id="viewChat" role="tabpanel"></div>
+
+        <!-- CALENDAR + RIGHT DOCKED AI COPILOT -->
+        <div class="view-panel" id="viewCalendar" role="tabpanel">
+          <div class="calendar-with-copilot-layout" id="calendarCopilotLayout">
+            <div class="calendar-main-stage" id="calendarMainStage"></div>
+            <aside class="calendar-copilot-drawer" id="calendarCopilotDrawer" aria-label="Trợ lý tinh chỉnh trực tiếp"></aside>
+            <button type="button" class="btn btn-primary copilot-expand-fab" id="btnExpandCopilotDrawer" title="Mở lại Trợ lý tinh chỉnh trực tiếp" hidden>
+              💬 Mở trợ lý
+            </button>
+          </div>
+        </div>
+
+        <div class="view-panel" id="viewList" role="tabpanel"></div>
+        <div class="view-panel" id="viewWeights" role="tabpanel"></div>
+        <div class="view-panel" id="viewBenchmark" role="tabpanel"></div>
+        <div class="view-panel" id="viewShowcase" role="tabpanel"></div>
+      </main>
+
+      <!-- COLLAPSIBLE DEV SIDE PANEL (Available in Developer Mode) -->
+      <aside class="dev-side-panel" id="devSidePanel" aria-label="Bảng kiểm định & đối chiếu dành cho Dev">
+        <div class="dev-side-head">
+          <div>
+            <h3>Góc nhìn Dev</h3>
+            <div style="font-size:11.5px;color:var(--p-muted);">Chuyển 6 thuật toán (gồm <span class="mono">HYBRID_ALNS</span>), nạp đề test & chấm điểm</div>
+          </div>
+          <button type="button" class="btn btn-sm btn-icon btn-ghost" id="btnCloseDevPanel" aria-label="Thu gọn bảng Dev">✕</button>
+        </div>
+
+        <!-- 1. Solver selector dropdown -->
+        <div class="dev-block">
+          <div class="popover-section-title">Thuật toán (trên cùng input)</div>
+          <div class="popover-anchor" id="solverSwitcherBar"></div>
+        </div>
+
+        <!-- 2. Test Suite selector -->
+        <div class="dev-block">
+          <div class="popover-section-title">Bộ dữ liệu test</div>
+          <div class="popover-anchor">
+            <button type="button" class="solver-select-trigger" id="btnToggleSuites" aria-expanded="false" aria-controls="suitesPopover">
+              <span style="display:inline-flex;align-items:center;gap:8px;min-width:0;">
+                <svg class="icon" viewBox="0 0 24 24" style="color:var(--p-muted);"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+                <span id="devSuiteLabel" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Chọn bộ test (Presets / T01–T10 / R1–R6)</span>
+              </span>
+              <svg class="icon" viewBox="0 0 24 24" style="width:14px;height:14px;color:var(--p-muted);"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+            <div class="popover-menu align-right" id="suitesPopover" role="dialog" aria-label="Chọn bộ test"></div>
+          </div>
+        </div>
+
+        <!-- 3. Live Evaluation Telemetry -->
+        <div class="dev-block">
+          <div class="popover-section-title">Chỉ số đánh giá nhanh</div>
+          <div id="telemetryMetrics"></div>
+          <div id="telemetryActions" style="margin-top:4px;"></div>
+        </div>
+
+        <!-- 4. Testing_System v2.1 — 4-pillar health detail (P2–P4 + Top ICEE) -->
+        <details class="dev-block dev-collapsible" id="stHealthV21Panel">
+          <summary>
+            <span class="popover-section-title">Sức khỏe 4 trụ cột (v2.1)</span>
+            <span id="stHealthVerdictBadge" class="badge badge-neutral mono">Chưa chấm</span>
+          </summary>
+          <div class="dev-collapsible-body" id="labHealthV21Panel">
+            <div class="health-summary">
+              <span id="stHealthSummaryText">Đang chờ chấm điểm lịch hiện tại...</span>
+              <span id="stHealthRhoBadge" class="mono"></span>
+            </div>
+            <div id="labHealthVectorGrid" class="dev-metric-grid"></div>
+            <details id="stHealthIceeDetails" class="health-icee">
+              <summary id="stHealthIceeSummary">Cảnh báo ICEE</summary>
+              <ul id="labHealthIceeList"></ul>
+            </details>
+          </div>
+        </details>
+
+        <!-- 5. Focus Timer (Pomodoro → M7) & EWMA α calibration -->
+        <details class="dev-block dev-collapsible">
+          <summary><span class="popover-section-title">Focus Timer & Hiệu chuẩn đệm (M7)</span></summary>
+          <div class="dev-collapsible-body">
+            <div id="stFocusTimerPanel" class="focus-card">
+              <div class="focus-row">
+                <strong id="stFocusTimerDisplay" class="mono focus-display">25:00</strong>
+                <select id="stFocusPresetSelect" class="select focus-preset" aria-label="Thời lượng phiên tập trung">
+                  <option value="25">25 phút</option>
+                  <option value="45">45 phút</option>
+                  <option value="90">90 phút</option>
+                </select>
+              </div>
+              <span id="stFocusTimerStatus" class="focus-status">Sẵn sàng</span>
+              <div class="focus-actions">
+                <button type="button" class="btn btn-sm btn-primary" id="btnFocusStart">▶ Bắt đầu</button>
+                <button type="button" class="btn btn-sm" id="btnFocusPause">⏸ Dừng</button>
+                <button type="button" class="btn btn-sm btn-icon" id="btnFocusReset" title="Đặt lại" aria-label="Đặt lại">↺</button>
+                <button type="button" class="btn btn-sm" id="btnFocusCompleteM7" title="Ghi thời lượng thực tế vào M7">✔ Lưu M7</button>
+              </div>
+            </div>
+            <div id="stCalibrationAdvisoryCard" class="focus-card">
+              <div id="stCalibrationMetrics" class="mono focus-cal-metrics">Mẫu M7: 0/5</div>
+              <div id="stCalibrationNote" class="focus-status">Ghi nhận ≥ 5 phiên M7 để đề xuất hệ số đệm α cá nhân.</div>
+              <div class="focus-actions">
+                <button type="button" class="btn btn-sm" id="btnRefreshCalibration">Cập nhật</button>
+                <button type="button" class="btn btn-sm btn-primary" id="btnApplyCalibrationAlpha" disabled>Áp dụng α</button>
+                <button type="button" class="btn btn-sm" id="btnStNotifyToggle">🔔 Nhắc giờ: Tắt</button>
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <!-- 6. Full-screen Dev Analysis Views -->
+        <div class="dev-block">
+          <div class="popover-section-title">Phân tích & Đối chiếu chi tiết</div>
+          <button type="button" class="btn btn-primary" id="btnTopBenchmark" style="width:100%;">Chấm điểm tất cả thuật toán</button>
+          <button type="button" class="btn" id="btnTopShowcase" style="width:100%;">Bảng so sánh trên 7 bộ test nổi bật</button>
+          <button type="button" class="btn" id="btnTopWeights" style="width:100%;">Xem trọng số & hệ số thuật toán</button>
+        </div>
+
+        <!-- 7. Dev Overlay Toggles -->
+        <div class="dev-block">
+          <div class="popover-section-title">Hiển thị kỹ thuật trên lịch</div>
+          <label class="settings-toggle">
+            <div>
+              <div>Hiện nhãn kỹ thuật trên ô</div>
+              <small>L1–L3, Peak, đếm ngược hạn chót</small>
+            </div>
+            <input type="checkbox" id="chkSettingTechMeta" />
+          </label>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <!-- MODAL: UNIFIED 3-TAB INPUT DRAWER -->
+  <div class="modal-backdrop" id="inputModal" role="dialog" aria-modal="true" aria-labelledby="inputModalTitle">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <div>
+          <h2 id="inputModalTitle" style="font-size:16px;">Thiết lập & Dữ liệu đầu vào</h2>
+          <p style="font-size:12.5px;color:var(--p-muted);">Mọi thay đổi được giữ nguyên và tự động lưu.</p>
+        </div>
+        <button type="button" class="btn btn-sm btn-icon" data-close-modal="inputModal" aria-label="Đóng">✕</button>
+      </div>
+      <div class="modal-tabs" role="tablist">
+        <button type="button" class="modal-tab active" data-input-tab="tasks">1. Công việc</button>
+        <button type="button" class="modal-tab" data-input-tab="commitments">2. Lịch cố định & Ngủ</button>
+        <button type="button" class="modal-tab" data-input-tab="profile">3. Nhịp sinh học & Thói quen</button>
+      </div>
+      <div class="modal-body" id="inputModalBody"></div>
+      <div class="modal-footer">
+        <span id="inputModalLoadHint" class="mono" style="font-size:12px;color:var(--p-muted);"></span>
+        <button type="button" class="btn btn-primary" data-close-modal="inputModal">Hoàn tất & Xem lịch</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: BLOCK INSPECTOR -->
+  <div class="modal-backdrop" id="blockModal" role="dialog" aria-modal="true" aria-labelledby="blockModalTitle">
+    <div class="modal-dialog modal-sm">
+      <div class="modal-header">
+        <h2 id="blockModalTitle" style="font-size:16px;">Chi tiết phiên học</h2>
+        <button type="button" class="btn btn-sm btn-icon" data-close-modal="blockModal" aria-label="Đóng">✕</button>
+      </div>
+      <div class="modal-body" id="blockModalBody"></div>
+    </div>
+  </div>
+
+  <!-- MODAL: CLEAR ALL SCHEDULE (confirm) -->
+  <div class="modal-backdrop" id="clearAllModal" role="dialog" aria-modal="true" aria-labelledby="clearAllModalTitle">
+    <div class="modal-dialog modal-sm">
+      <div class="modal-header">
+        <h2 id="clearAllModalTitle" style="font-size:16px;">Xóa tất cả lịch?</h2>
+        <button type="button" class="btn btn-sm btn-icon" data-close-modal="clearAllModal" aria-label="Đóng">✕</button>
+      </div>
+      <div class="modal-body" style="display:flex;flex-direction:column;gap:12px;font-size:13px;">
+        <p>Sẽ xóa toàn bộ <strong>việc cần làm</strong>, các <strong>khối đã ghim</strong> và <strong>lịch sử check-in</strong> của không gian làm việc này.</p>
+        <div class="mono" id="clearAllSummary" style="font-size:12px;color:var(--p-muted);"></div>
+        <label class="settings-toggle">
+          <div>
+            <div>Xóa cả lịch cố định & thói quen</div>
+            <small>Lớp học, bữa ăn, sự kiện cố định và thói quen lặp.</small>
+          </div>
+          <input type="checkbox" id="chkClearIncludeFixed" />
+        </label>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn" data-close-modal="clearAllModal">Hủy</button>
+        <button type="button" class="btn btn-danger" id="btnConfirmClearAll">Xóa tất cả</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: DISRUPTION / LOCAL REPAIR -->
+  <div class="modal-backdrop" id="disruptionModal" role="dialog" aria-modal="true" aria-labelledby="disruptionModalTitle">
+    <div class="modal-dialog modal-sm">
+      <div class="modal-header">
+        <h2 id="disruptionModalTitle" style="font-size:16px;">Báo sự cố đột xuất & Sửa lịch</h2>
+        <button type="button" class="btn btn-sm btn-icon" data-close-modal="disruptionModal" aria-label="Đóng">✕</button>
+      </div>
+      <div class="modal-body" id="disruptionModalBody"></div>
+    </div>
+  </div>
+
+  <!-- MODAL: OVERLOAD RESCUE (O1-O4) -->
+  <div class="modal-backdrop" id="overloadModal" role="dialog" aria-modal="true" aria-labelledby="overloadModalTitle">
+    <div class="modal-dialog modal-sm">
+      <div class="modal-header">
+        <h2 id="overloadModalTitle" style="font-size:16px;">Gợi ý gỡ kẹt lịch trình</h2>
+        <button type="button" class="btn btn-sm btn-icon" data-close-modal="overloadModal" aria-label="Đóng">✕</button>
+      </div>
+      <div class="modal-body" id="overloadModalBody"></div>
+    </div>
+  </div>
+
+  <!-- TOAST STACK -->
+  <div class="toast-stack" id="toastStack" aria-live="polite"></div>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

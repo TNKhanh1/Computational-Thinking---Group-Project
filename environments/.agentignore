@@ -1,0 +1,16 @@
+# .agentignore — Exclude bulky static, historical & fixture files from AI code scans
+**/*.pdf
+**/*.webp
+**/*.png
+**/*.jpg
+**/*.db
+**/*.db-journal
+**/*.db-shm
+**/*.db-wal
+**/__pycache__/
+**/.pytest_cache/
+tests/fixtures/nl_cases/*.yaml
+Project_Drafts/
+v1.0-alpha-plan/Testing_Plan/papers/
+agents/archive/
+docs/archive/

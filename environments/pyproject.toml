@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "smartschedule"
+version = "1.0.0a1"
+description = "SmartSchedule v1.0-alpha — Chat-First AI Timetable & Cognitive-Ergonomic Scheduler (Group 03 FIT-HCMUS)"
+readme = "../README.md"
+requires-python = ">=3.10"
+
+[tool.setuptools.packages.find]
+where = [".."]
+include = ["smartschedule*", "tools*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["..", "../v1.0-alpha-plan"]

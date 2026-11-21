@@ -1,96 +1,66 @@
-# SmartSchedule — Hướng Dẫn Kiểm Thử & Chạy Benchmark
+# SmartSchedule — Hướng Dẫn Kiểm Thử & Chạy Benchmark (`docs/progress/kiem_thu_va_benchmark.md`)
 
-**Dự án:** SmartSchedule — Trợ Lý Tối Ưu Hóa & Tự Động Xếp Lịch Học Tập  
 **Phụ trách:** Builder 3 (Kiến Trúc Hệ Thống & Kiểm Thử Triển Khai)  
-**Vị trí mã nguồn:** `group03-smartschedule-baseline/verification_tests/`  
-**Mục tiêu tài liệu:** Hướng dẫn trực quan, dễ hiểu nhất cho mọi thành viên trong nhóm để chạy test, viết thêm test và đọc kết quả chẩn đoán lỗi.  
+**Vị trí mã nguồn:** [`tests/`](../../tests/) · **Máy chấm v2.1:** [`v1.0-alpha-plan/Testing_System/`](../../v1.0-alpha-plan/Testing_System/README.md) · **Công cụ:** [`tools/benchmarks/`](../../tools/benchmarks/)  
+**Xem thêm:** [`docs/README.md`](../README.md) · [`v1.0-alpha-plan/README.md`](../../v1.0-alpha-plan/README.md)
 
 ---
 
-## 1. Tổng Quan: Ma Trận Kiểm Thử 60/40
+## 1. Cấu Trúc Thư Mục Kiểm Thử Mới (`tests/`)
 
-Hệ thống kiểm thử tự động của nhóm hiện đã nâng cấp lên **89 bài test tự động** (trong đó **84 bài test vận hành xanh 100%**):
+Từ bản `v1.0-alpha`, toàn bộ bộ kiểm thử đã chuyển từ `group03-smartschedule-baseline/verification_tests/` ra thư mục [`tests/`](../../tests/) tại gốc repo với tên gọi ngắn gọn, sạch sẽ:
 
 ```text
-Tổng Cộng: 89 Bài Kiểm Thử Tự Động
-├── Các Bài Test Vận Hành (84 bài — XANH 100%):
-│   ├── Kiểm tra giao diện HTML, các API xuất lịch (.ics, .csv, .json)
-│   ├── Kiểm tra toán lưới 672 ô (196 ô ngủ + 132 ô học cố định + 344 ô rảnh)
-│   ├── Kiểm tra tính tất định (chạy 3 lần băm ra mã SHA-256 giống nhau 100%)
-│   ├── Kiểm tra kiến trúc: Solver tuyệt đối không dính mã web hay FastAPI
-│   ├── Kiểm tra rò rỉ bộ nhớ: Chạy 50 lần giải lịch bộ nhớ tăng < 350 KB
-│   ├── Kiểm tra 10 kịch bản đối chứng chuẩn của môn học (T01 đến T10)
-│   └── 34 bài test bộ đệm thời gian mới (Feature 001: các hệ số nhân và quy tắc làm tròn)
-│
-└── Các Ca Biên & Bài Test Mục Tiêu (5 bài):
-    ├── 1 BÀI TEST ĐÃ XANH: Đệm thời gian chống ảo tưởng thời gian (Planning Fallacy)
-    └── 4 bài test mục tiêu đang mở: Khớp giờ năng lượng, nghỉ 15p, reason code, hủy habit khi quá tải
+tests/
+├── clean_runner.py         # Trình chạy kiểm thử sạch, ẩn log nhiễu
+├── test_studio.py          # Ứng dụng đồ họa Test Studio (Tkinter)
+├── ui/                     # Kiểm tra giao diện Chat-First & REST API
+├── architecture/           # Kiểm tra quy tắc INV-1..6, rò rỉ bộ nhớ (<350 KB), đa luồng
+├── logical/                # Kiểm tra 6 solver V3, NL Parser, Chat-First, SHA-256 tracer, P1–P3
+├── benchmark/              # Kiểm tra toán lưới 672 ô, Ràng buộc cứng H1–H5, T01–T10
+├── gaps/                   # Bộ test theo dõi mục tiêu nâng cấp
+└── fixtures/nl_cases/      # Bộ 200 ca tiếng Việt/Anh chuẩn hóa (verify_hybrid_200.py)
 ```
 
----
-
-## 2. Cách Chạy Kiểm Thử Dễ Dàng Nhất
-
-### Cách 1: Dùng Giao Diện Đồ Họa Test Studio (Khuyên Dùng Cho Mọi Thành Viên)
-1. Vào thư mục `group03-smartschedule-baseline/verification_tests/`.
-2. Nhấp đúp chuột vào file: **`run_test_studio.bat`**.
-3. Cửa sổ ứng dụng sẽ mở ra:
-   - **Bên trái:** Cây thư mục 5 loại bài test, bấm vào file nào sẽ hiện mã nguồn ở khung giữa.
-   - **Thanh công cụ trên cùng:**
-     - **`▶ Run Selected`**: Chạy riêng file test bạn đang xem.
-     - **`🚀 Run Production Tests`**: Chạy toàn bộ 50 bài test cơ bản (đảm bảo hệ thống đang chạy ổn).
-     - **`🚩 Track Improve Plan Gaps`**: Chạy 5 bài test mục tiêu cải tiến để xem còn thiếu tính năng gì.
-     - **`📊 Run 60/40 Matrix`**: Chạy toàn bộ cả 56 bài test.
-     - **`➕ Add Test File`**: Tạo nhanh 1 file test mới từ các mẫu có sẵn.
+*(Dữ liệu mẫu & kịch bản `T01–T10` nay nằm ở [`data/presets/`](../../data/presets/) và [`data/scenarios/`](../../data/scenarios/).)*
 
 ---
 
-### Cách 2: Dùng Dòng Lệnh Batch (Trong Terminal hoặc Command Prompt)
-Mở terminal tại thư mục `group03-smartschedule-baseline/` và gõ:
+## 2. Cách Chạy Kiểm Thử Nhanh Nhất
+
+### Cách 1: Nhấp Đúp Script Windows (Trong `tools/scripts/`)
+- Vào [`tools/scripts/`](../../tools/scripts/) và mở **`run_test_studio.bat`** để dùng giao diện đồ họa, hoặc chạy **`run_verification_tests.bat --pass`**.
+
+### Cách 2: Chạy Bằng Dòng Lệnh Tại Thư Mục Gốc Repo
 
 ```powershell
-# Chạy bộ test cơ bản đang vận hành (100% xanh)
-.\verification_tests\run_verification_tests.bat --pass
+# 1. Chạy toàn bộ bộ kiểm thử vận hành
+python -B tests/clean_runner.py --pass
 
-# Chạy 5 bài test mục tiêu của kế hoạch cải tiến
-.\verification_tests\run_verification_tests.bat --gaps
+# 2. Chạy riêng từng tầng
+python -B tests/clean_runner.py --ui      # Giao diện & API
+python -B tests/clean_runner.py --arch    # Kiến trúc & rò rỉ bộ nhớ
+python -B tests/clean_runner.py --logic   # Logic thuật toán, NL Parser & Chat-First
+python -B tests/clean_runner.py --bench   # 10 kịch bản T01–T10 & lưới 672 ô
+python -B tests/clean_runner.py --gaps    # Các bài test mục tiêu
 
-# Chạy toàn bộ 56 bài test (Ma trận 60/40)
-.\verification_tests\run_verification_tests.bat --all
+# 3. Kiểm tra máy chấm tự động Testing_System v2.1 + Fuzz v2
+python -B -m pytest -c environments/pyproject.toml v1.0-alpha-plan/Testing_System/tests -q
 
-# Chạy riêng các ca biên (Edge cases)
-.\verification_tests\run_verification_tests.bat --edge
+# 4. Kiểm tra 200 câu lệnh ngôn ngữ tự nhiên Anh/Việt
+python -B tests/fixtures/nl_cases/validate_cases.py
+python -B tests/fixtures/nl_cases/verify_hybrid_200.py
 
-# Chạy riêng theo từng phần
-.\verification_tests\run_verification_tests.bat --ui      # Kiểm tra giao diện & API
-.\verification_tests\run_verification_tests.bat --arch    # Kiểm tra kiến trúc & bộ nhớ
-.\verification_tests\run_verification_tests.bat --logic   # Kiểm tra logic thuật toán
-.\verification_tests\run_verification_tests.bat --bench   # Chạy 10 kịch bản T01-T10
+# 5. Chạy thực nghiệm Benchmark & Grid Search hệ số đệm alpha
+python -B tools/benchmarks/benchmark_runner.py
+python -B tools/benchmarks/benchmark_alpha_grid.py --include-extreme --save-json
 ```
 
 ---
 
-## 3. Cách Đọc Màn Hình Console Sạch Mới
+## 3. Cách Đọc Kết Quả Từ `clean_runner.py`
 
-Để tránh cho các bạn bị hoa mắt bởi hàng trăm dòng cảnh báo kỹ thuật (Starlette, HTTPX, traceback dài dằng dặc), màn hình console mới đã được thiết kế lại cực kỳ gọn gàng với đúng **3 thành phần chính**:
-
-1. **Tín hiệu khởi chạy (Running Signal):** Cho biết đang chạy nhóm test nào và thời gian chạy.
-2. **Giai đoạn chạy (Running Phase):** Phân chia theo 5 tầng kiến trúc rõ ràng.
-3. **Trạng thái từng file (PASSED hoặc FAILED):**
-   - Nếu file **PASSED**: Hiện số lượng test thành công (ví dụ `PASSED (5/5 tests)`).
-   - Nếu file **FAILED**: Chỉ rõ ngay lập tức tên bài test bị lỗi, **nguyên nhân lỗi là gì** (`Point to: ...`), và **sai khác giá trị ở đâu** (`Details: Discrepancy: ...`).
-
-### Ví dụ màn hình báo lỗi rõ ràng khi chạy tính năng chưa hoàn thiện:
-```text
-[PHASE 1/1] Improve Plan Target Feature Gaps (Expected Failures) (verification_tests/development_gap_tests)
-  [FILE] test_improve_plan_gaps.py ............................. FAILED (0 passed, 5 failed)
-    -> [ISSUE] test_fail_circadian_energy_matching
-       Point to: [IMPROVE PLAN GAP: §3.3] Circadian rhythm matching is not implemented in V0. Deep task was placed at Monday 06:30 instead of evening focus hours (>= 18:00).
-       Details:  Discrepancy: assert 6 >= 18
-    -> [ISSUE] test_fail_rest_break_insertion_after_deep_work
-       Point to: [IMPROVE PLAN GAP: Decision D2] 15-minute rest break after Deep work is not implemented in V0. Gap between tasks is 0 min instead of >= 15 min.
-       Details:  Discrepancy: assert 0 >= 1
-```
-
-Nhìn vào đây, bạn sẽ thấy ngay: Bài tập Deep đang bị xếp vào lúc 6 giờ sáng thay vì tối ($\ge 18$ giờ), hoặc khoảng nghỉ giữa 2 việc đang là 0 phút thay vì 15 phút. Sửa đúng điểm này là test sẽ chuyển sang màu xanh!
-
+Màn hình console sạch gồm 3 phần rõ ràng:
+1. **Tín hiệu chạy (`[RUNNING]`):** Thời điểm bắt đầu và bộ test mục tiêu.
+2. **Từng giai đoạn (`[PHASE]`):** Hiển thị tách bạch `tests/ui`, `tests/architecture`, `tests/logical`, `tests/benchmark`.
+3. **Tổng kết (`[FINAL SUMMARY]`):** Thống kê tổng số bài `PASSED` / `FAILED`; nếu có lỗi sẽ chỉ thẳng tên hàm (`Point to:`) và sai lệch giá trị (`Details:`).

@@ -49,5 +49,5 @@ Nhờ vậy, những việc lặt vặt (5–15 phút) không bao giờ bị tă
 ## 4. Các Thành Viên Khác Cần Lưu Ý Gì?
 
 1. **Bạn làm thuật toán (Solver):** Bạn **không cần sửa gì** trong solver cả! Bộ đệm được xử lý sẵn ở tầng Controller, solver chỉ việc nhận thời lượng đã tính đệm và xếp vào ô trống.
-2. **Bạn làm giao diện (Frontend):** Ô nhập việc đã có nút chọn thói quen và dòng chữ xem trước: `Dự trù: 75 phút` để sinh viên luôn biết vì sao lịch của mình được dành 75 phút thay vì 60 phút.
-3. **Kiểm tra kết quả:** Gõ lệnh `python -B verification_tests/clean_runner.py --pass`, bạn sẽ thấy cả **34 bài test mới của bộ đệm đều xanh 100%**!
+2. **Bạn làm giao diện & Trợ lý Chat (`Frontend`):** Khi dời hạn chót qua khung chat, trợ lý hiển thị rõ phần tính lại `⏳ Tính lại thời gian theo thói quen` và bảng `Danh Sách Việc` hiển thị thời lượng dự trù đã cộng đệm.
+3. **Kiểm tra kết quả:** Gõ lệnh `python -B tests/clean_runner.py --pass`, bạn sẽ thấy cả **34 bài test mới của bộ đệm đều xanh 100%**!

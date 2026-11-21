@@ -1,128 +1,72 @@
-# SmartSchedule — System Architecture & Layered Invariants
+# System Architecture & Architectural Invariants (`agents/progress/system_architecture.md`)
 
-**Project:** SmartSchedule — Personal Productivity Assistant for Automated Task & Timetable Scheduling  
-**Course:** CS252 — Computational Thinking · FIT-HCMUS (Group 03 — *The Seven Dwarfs*)  
-**Scope:** Core Domain Architecture, Data Flow, Layer Boundaries, and System Invariants  
-**Target Audience:** AI Coding Assistants & System Architects  
+**Project:** SmartSchedule — Automated Weekly Timetable & Task Scheduler (`v1.0-alpha`)  
+**Scope:** [`smartschedule/`](../../smartschedule/), [`data/`](../../data/), [`tests/`](../../tests/), [`tools/`](../../tools/)  
+**See Also:** [`agents/README.md`](../README.md) · [`v1.0-alpha-plan/README_agents.md`](../../v1.0-alpha-plan/README_agents.md)
 
 ---
 
-## 1. High-Level Architectural Overview
+## 1. Layered Dependency Architecture (Clean Modular Separation)
 
-SmartSchedule is architected as an **isolated, five-layer modular system** with strict one-directional dependency flows. It enforces strict separation of concerns to guarantee that the core mathematical solver remains completely decoupled from delivery mechanisms, web frameworks, and user interfaces.
+SmartSchedule enforces a **strict unidirectional 5-layer hierarchy** so UI/NLP changes never destabilize the mathematical scheduling core:
 
 ```mermaid
 flowchart TD
-    subgraph Layer5["Layer 5: Verification & Test Infrastructure"]
-        Studio["Test Studio GUI (test_studio.py)"]
-        CleanRunner["Clean Runner (clean_runner.py)"]
-        Suites["56 Unit, Boundary & Benchmark Tests"]
-    end
+    L5["Layer 5: Verification & Evaluation\n(tests/, v1.0-alpha-plan/Testing_System/)"]
+    L4B["Layer 4B: Chat & FastAPI Delivery\n(smartschedule/api/, smartschedule/ui/)"]
+    L4A["Layer 4A: Hybrid + Online NLP\n(smartschedule/nlp/)"]
+    L3["Layer 3: Domain Orchestration\n(smartschedule/core/controller.py, overload_triage.py)"]
+    L2["Layer 2: Core Stateless Solvers\n(smartschedule/core/solvers/)"]
+    L1["Layer 1: Pure Data Contracts, Config & Fingerprinting\n(smartschedule/core/{models,config,utils,estimate_buffer,calibration,storage,task_tracer,ics_importer}.py)"]
 
-    subgraph Layer4["Layer 4: Delivery & Web Interface"]
-        API["FastAPI App (web/api.py)"]
-        DualUI["Dual-Mode Frontend (web/index.html & web/app.js)"]
-        DualUI --> StudentUI["Student Mode: 3 Views (Week, Today, Queue)"]
-        DualUI --> LabUI["Lab Mode: 672-Slot Benchmark Workbench"]
-    end
-
-    subgraph Layer3["Layer 3: Orchestration & Control"]
-        Controller["ScheduleController (src/controller.py)"]
-    end
-
-    subgraph Layer2["Layer 2: Core Domain Solvers"]
-        Base["BaseScheduler & TimeGrid (src/solvers/base.py)"]
-        EDF["EDFScheduler (src/solvers/edf.py)"]
-        LST["LSTScheduler (src/solvers/lst.py)"]
-        WSPT["WSPTScheduler (src/solvers/wspt.py)"]
-    end
-
-    subgraph Layer1["Layer 1: Pure Data Models"]
-        Models["Pydantic V2 Schemas (src/models.py)"]
-        Utils["Slot & Time Math (src/utils.py)"]
-        Buffer["Estimate Buffer Rule (src/estimate_buffer.py)"]
-    end
-
-    Studio --> CleanRunner
-    CleanRunner --> Suites
-    Suites --> Controller
-    Suites --> Base
-    API --> Controller
-    Controller --> Base
-    Controller --> Models
-    Controller --> Buffer
-    Base --> EDF
-    Base --> LST
-    Base --> WSPT
-    Base --> Models
-    Base --> Utils
+    L5 --> L4B
+    L5 --> L3
+    L5 --> L2
+    L4B --> L4A
+    L4B --> L3
+    L4A --> L1
+    L3 --> L2
+    L3 --> L1
+    L2 --> L1
 ```
 
 ---
 
-## 2. Layer-by-Layer Specifications
+## 2. Module Responsibilities
 
-### Layer 1: Pure Data Models (`src/models.py` & `src/utils.py`)
-- **Pydantic V2 Schemas:** Defines strictly-typed domain objects with zero business logic dependencies:
-  - `CommitmentsProfile`: Student profile containing `planning_week_start`, `sleep_schedule`, and `fixed_events` (classes, work shifts).
-  - `Task`: Atomic units of work with `duration_min`, `deadline_day`, `deadline_time`, `priority` (1–5), `prerequisites[]`, and `category`.
-  - `FixedEvent`: Locked calendar commitments (`start_time`, `end_time`, `day_of_week`).
-  - `SleepSchedule`: Daily locked recovery windows (`daily_start_time`, `daily_end_time`).
-  - `ScheduleOutput`: Solving response containing `blocks[]`, `unplaced_tasks[]`, and `summary` metrics.
-  - `ScheduledBlock`: Scheduled task allocation with `day`, `start_time`, `end_time`, `start_slot`, `end_slot`, and `reasons[]`.
-  - `ScheduleSummary`: Hard/soft constraint tallies, execution times, and capacity breakdown.
-- **Time Conversion Utilities (`src/utils.py`):**
-  - Discrete slot math ($15\text{ min} = 1\text{ slot}$, $96\text{ slots/day}$, $672\text{ slots/week}$).
-  - `minutes_to_slots(m)`: Converts minutes to discrete slots with ceiling rounding.
-  - `round_up_to_15(m)`: Normalizes irregular durations to 15-minute grid multiples.
-  - `time_to_slot(day, time_str)` & `slot_to_time(slot_idx)`: Bidirectional mapping between string timestamps and array indices.
+### Layer 1: Pure Data Models & Helpers (`smartschedule/core/`)
+- [`models.py`](../../smartschedule/core/models.py): Pydantic V2 contracts (`CommitmentsProfile`, `Task`, `FixedEvent`, `SleepSchedule`, `ScheduleOutput`, `ScheduledBlock`, `ScheduleSummary`). Zero business/web coupling (`INV-2`).
+- [`config.py`](../../smartschedule/core/config.py): Centralized workspace path constants (`REPO_ROOT`, `CORE_DIR`, `UI_DIR`, `PRESETS_DIR`, `SCENARIOS_DIR`, `CALIBRATION_DIR`, `DEFAULT_DB_PATH`) and open solver/ergonomic constants.
+- [`utils.py`](../../smartschedule/core/utils.py): Discrete 15-min slot math (`672` slots/week, up to `1344` for 14 days).
+- [`estimate_buffer.py`](../../smartschedule/core/estimate_buffer.py) & [`calibration.py`](../../smartschedule/core/calibration.py): Planning-Fallacy buffering (`RARELY`/`SOMETIMES`/`OFTEN`, `COGNITIVE_LOAD` $\alpha=1.20/1.35$) and M7 EWMA personal calibration.
+- [`task_tracer.py`](../../smartschedule/core/task_tracer.py): Pure stdlib SHA-256 task keyword fingerprinting and hidden criteria extraction.
+- [`storage.py`](../../smartschedule/core/storage.py) & [`ics_importer.py`](../../smartschedule/core/ics_importer.py): Local SQLite persistence (`data/runtime/local_state.db`) and RFC 5545 `.ics` timetable importer.
 
-### Layer 2: Core Domain Solvers (`src/solvers/`)
-- **`BaseScheduler` (`src/solvers/base.py`):**
-  - Maintains the discrete 1D NumPy/list array of 672 integer slots.
-  - Slot states:
-    - `0` (`FREE`): Open for task scheduling.
-    - `1` (`OCCUPIED`): Locked by fixed commitments (classes, work shifts).
-    - `2` (`SLEEP`): Locked by daily circadian sleep windows.
-    - `100+` (`TASK`): Occupied by a scheduled task block.
-  - Implements slot occupancy queries (`is_range_free()`), lock protection (`lock_range()`), and DAG dependency sorting (`enforce_dependency_order()`).
-- **Concrete Solvers:**
-  - `EDFScheduler` (`src/solvers/edf.py`): Earliest Deadline First with priority-tie-breaking. First-fit placement in earliest free continuous gap.
-  - `LSTScheduler` (`src/solvers/lst.py`): Least Slack Time heuristic ($Slack = Deadline - CurrentTime - Duration$).
-  - `WSPTScheduler` (`src/solvers/wspt.py`): Weighted Shortest Processing Time ($Ratio = Priority / Duration$).
+### Layer 2: Stateless Scheduling Core (`smartschedule/core/solvers/` & `grid_manager.py`)
+- [`grid_manager.py`](../../smartschedule/core/grid_manager.py): Manages `FREE`, `OCCUPIED`, `SLEEP`, `REST`, and scheduled `TASK` masks.
+- [`ergonomic_engine.py`](../../smartschedule/core/solvers/ergonomic_engine.py): Shared stateless domain kernel ($O(1)$ prefix sums, circular Smarr & Schirmer `SJL`, 10-level lexicographic evaluation, Kempe `1/2-eject`, First-Fit feasibility floor, `ALNS` ruin-and-recreate).
+- **6 Registered Solvers (`registry.py`):** `EDF` (`greedy_edf.py`, untouched V0 anchor), `LST` (`greedy_lst.py`, energy-blind V3), `WSPT` (`greedy_wspt.py`, energy-blind V3), `SCORED_GREEDY` (`scored_greedy.py`, circadian portfolio default), `BACKTRACK` (`backtracking.py`, live-state Branch-and-Bound), and `HYBRID_ALNS` (`hybrid_alns.py`, 6th deep optimizer).
+- [`local_repair.py`](../../smartschedule/core/solvers/local_repair.py): `LOCAL_INSERTION`, `FULL_REBUILD` (forwarding active algorithm), and `RIPPLE_SHIFT`.
 
-### Layer 3: Orchestration Controller (`src/controller.py`)
-- Acts as the single entry point for scheduling execution: `ScheduleController.solve_schedule(...)`.
-- Converts raw input dictionaries or Pydantic profiles into solver instances.
-- Executes solver, aggregates `unplaced_tasks` with root-cause diagnostic tags (`CAPACITY_SHORTAGE`, `DEADLINE_PASSED`, `DEPENDENCY_UNMET`), and computes KPI metrics.
-- Validates determinism by executing sequential runs and asserting hash invariance.
+### Layer 3: Domain Orchestration (`smartschedule/core/controller.py`, `overload_triage.py`)
+- Single entrypoint `ScheduleController.solve_schedule(...)`, buffer application, determinacy hash verification, `compare_algorithms`, `compute_schedule_insights`, and overload resolution preview.
 
-### Layer 4: Delivery & Web Interface (`web/`)
-- **FastAPI Backend (`web/api.py`):**
-  - Exposes REST endpoints: `/api/solve`, `/api/presets`, `/api/validate-move`, `/api/export/{fmt}` (JSON, CSV, iCalendar), `/api/tasks/natural-add`.
-  - Handles HTTP status codes, validation error reporting, and CORS middleware.
-- **Technical Workbench (`web/static/`):**
-  - Native JavaScript/CSS interactive weekly grid displaying 672 slots.
-  - Supports preset switching (Minh standard week, Lan high-pressure week).
-  - Includes interactive manual block shifting with instant `/api/validate-move` constraint checks.
+### Layer 4: NLP, FastAPI & Chat-First UI (`smartschedule/nlp/`, `smartschedule/api/`, `smartschedule/ui/`)
+- **4A (`nlp/`):** [`parser_controller.py`](../../smartschedule/nlp/parser_controller.py) (M1 EN/VI + Gemini), [`hybrid_pipeline/`](../../smartschedule/nlp/hybrid_pipeline/) (7-module offline 6-stage NLP), [`context_router.py`](../../smartschedule/nlp/context_router.py) (`gemini-2.5-flash-lite` online context extractor), and [`clause_condenser.py`](../../smartschedule/nlp/clause_condenser.py) (clause-level Vietnamese subject title condenser).
+- **4B (`api/` & `ui/`):** [`app.py`](../../smartschedule/api/app.py), [`chat/`](../../smartschedule/api/chat/) (`thinking_stage.py`, `edge_cases.py`, `handlers.py`), [`health_v21.py`](../../smartschedule/api/health_v21.py), [`v3_services.py`](../../smartschedule/api/v3_services.py), [`test_showcase.py`](../../smartschedule/api/test_showcase.py), [`auth.py`](../../smartschedule/api/auth.py); served over [`smartschedule/ui/`](../../smartschedule/ui/) (`index.html`, `app.js`, `js/*.js`, `css/{tokens,shell,dev-panel,calendar,chat}.css`).
 
-### Layer 5: Verification & Test Infrastructure (`verification_tests/`)
-- Comprehensive pre-deployment test matrix with 56 automated tests.
-- Standalone Native GUI Studio (`test_studio.py`) for visual test creation, editing, and execution.
-- Interpretable Test Runner (`clean_runner.py`) outputting human-readable structured logs without pytest noise.
+### Layer 5: Verification & Benchmarks (`tests/`, `v1.0-alpha-plan/Testing_System/`)
+- Organized under [`tests/`](../../tests/): `ui/`, `architecture/`, `logical/`, `benchmark/`, `gaps/`, and `fixtures/nl_cases/` — orchestrated via [`tests/clean_runner.py`](../../tests/clean_runner.py).
 
 ---
 
-## 3. Strict Architectural Invariants (Must Be Preserved)
-
-All AI agents modifying or extending this codebase must uphold these inviolable constraints:
+## 3. Strict Architectural Invariants (`INV-1` to `INV-6`)
 
 | # | Invariant Rule | Why It Matters | Verification Test |
 | :-: | :--- | :--- | :--- |
-| **INV-1** | **AST Purity (No Web in Solvers):** `src/solvers/` and `src/models.py` must NEVER import `web`, `fastapi`, `starlette`, or HTTP clients. | Ensures core mathematical engine can run in headless CLI, embedded workers, or microservices. | `test_system_architecture.py::test_solvers_do_not_import_web` |
-| **INV-2** | **Model Layer Independence:** `src/models.py` must never import from `src/solvers` or `src/controller.py`. | Prevents circular type references and enforces clear data-to-logic boundaries. | `test_system_architecture.py::test_models_layer_is_pure` |
-| **INV-3** | **Solver Statelessness:** Successive calls to `solve()` on a solver instance must yield identical results without residual cached memory. | Guarantees multi-request determinism and concurrency safety. | `test_system_architecture.py::test_solver_statelessness_across_runs` |
-| **INV-4** | **Protected Mask Tamper Resistance:** Dynamic block removal (`remove_block`) must never clear `SLEEP` (2) or `OCCUPIED` (1) slots. | Prevents scheduling algorithms or manual user edits from mutating biological sleep or hard class schedules. | `test_system_architecture.py::test_cannot_clear_sleep_or_occupied_masks` |
-| **INV-5** | **Strict Memory Stability:** 50 consecutive full-schedule solving operations must not grow heap memory by more than $350\text{ KB}$, with single-solve peak memory bounded $< 10\text{ MB}$. | Protects against memory leaks in long-running production server deployments. | `test_memory_leaks.py::test_solver_memory_leak_over_50_iterations` |
-| **INV-6** | **Thread Safety & Request Isolation:** Concurrent execution across separate threads (e.g. Student A and Student B) must not leak schedule blocks across solver instances. | Essential for multi-user web serving under FastAPI concurrency. | `test_production_failures.py::test_concurrent_solves_thread_safety` |
-
+| **INV-1** | **AST Purity (No API/NLP in Core):** `smartschedule/core/solvers/`, `models.py`, `task_tracer.py`, `calibration.py`, and `ics_importer.py` must NEVER import `smartschedule.api`, `smartschedule.nlp`, `fastapi`, `starlette`, or HTTP clients. | Keeps core engine portable across CLI, FastAPI, and offline workers. | `tests/architecture/test_system_architecture.py` |
+| **INV-2** | **Model Layer Independence:** `smartschedule/core/models.py` never imports `controller` or `solvers`. | Prevents circular imports. | `test_layer_boundary_models_is_pure_data_layer` |
+| **INV-3** | **Solver Statelessness:** Successive `solve()` calls yield identical deterministic outputs and SHA-256 hashes. | Ensures reproducibility and benchmark integrity. | `test_determinism_and_statelessness_all_six_solvers` |
+| **INV-4** | **Protected Mask Tamper Resistance:** `remove_block` can never free `SLEEP` or `OCCUPIED` masks. | Protects user sleep and fixed classes. | `test_grid_mask_tamper_resistance` |
+| **INV-5** | **Strict Memory Stability:** 50 consecutive solves grow heap by `< 350 KB` (`peak < 10 MB`). Heavy/online NLP uses zero-RAM cloud calls or lazy Layer 4 loading. | Prevents server OOM & leaks. | `tests/architecture/test_memory_leaks.py` |
+| **INV-6** | **Thread Safety & Isolation:** Concurrent solves never leak state across threads or user workspaces. | Safe multi-tenant serving. | `tests/architecture/test_production_failures.py` |
