@@ -6,13 +6,13 @@
 > Legacy pre-`v1.0-alpha` docs and old Entries `001–015` have been moved to [`agents/archive/`](archive/).
 
 **Project:** SmartSchedule — Personal AI Timetable & Cognitive-Ergonomic Scheduler (`CS252`, Group 03 *The Seven Dwarfs*, FIT-HCMUS)  
-**Active Branch:** `v1.0-alpha/ui-ux-chat` | **Human Partner Hub:** [`docs/README.md`](../docs/README.md) & [`v1.0-alpha-plan/README.md`](../v1.0-alpha-plan/README.md)
+**Active Sprint:** `v1.0-alpha` Final Completion Sprint (Deadline: **Sat Night Nov 28 / Sun Morning Nov 29, 2026**) | **Human Partner Hub:** [`docs/README.md`](../docs/README.md) & [`v1.0-alpha-plan/README.md`](../v1.0-alpha-plan/README.md)
 
 ---
 
 ## 1. Mandatory First Steps Before Coding
 
-1. **Read [`v1.0-alpha-plan/README_agents.md`](../v1.0-alpha-plan/README_agents.md)** first — it is the master technical index for `v1.0-alpha` (modular codebase map, Chat-First UI/UX, 6-solver algorithmic kernel + Dominant Subset pruning, Online Context-Parsing Model merge, and live task checklists `[x]`/`[ ]`).
+1. **Read [`v1.0-alpha-plan/README_agents.md`](../v1.0-alpha-plan/README_agents.md) & Your Assigned Member Brief in [`v1.0-alpha-plan/Sprint_Tasks/`](../v1.0-alpha-plan/Sprint_Tasks/)** first — each of the 7 members (`M1`..`M7`) owns strictly disjoint files across a 4-wave merge pipeline to guarantee **zero Git merge conflicts**.
 2. **Respect Token Discipline ([`environments/.agentignore`](../environments/.agentignore) & [`environments/CODEBASE_INDEX.md`](../environments/CODEBASE_INDEX.md)):** Never dump large files in `data/scenarios/`, `data/calibration/`, `Project_Drafts/`, or `tests/fixtures/nl_cases/` into context. Use [`environments/CODEBASE_INDEX.md`](../environments/CODEBASE_INDEX.md) to locate symbols directly.
 3. **Import Paths:** The legacy `group03-smartschedule-baseline/` directory no longer exists. Always run Python from the **repository root** using package paths `smartschedule.*` and `tools.*`, and read shared paths from `smartschedule.core.config` (`CORE_DIR`, `NLP_DIR`, `UI_DIR`, `PRESETS_DIR`, `SCENARIOS_DIR`, `CALIBRATION_DIR`, `DEFAULT_DB_PATH`).
 
@@ -22,9 +22,9 @@
 
 | Workstream | Core Directories & Entrypoints | Authoritative Specification |
 | :--- | :--- | :--- |
-| **1. Modular Codebase (`smartschedule/`)** | [`smartschedule/core/`](../smartschedule/core/), [`smartschedule/nlp/`](../smartschedule/nlp/), [`smartschedule/api/`](../smartschedule/api/), [`smartschedule/ui/`](../smartschedule/ui/), [`data/`](../data/), [`tests/`](../tests/), [`tools/`](../tools/) | [`v1.0-alpha-plan/folder_division_plan.md`](../v1.0-alpha-plan/folder_division_plan.md) |
-| **2. Chat-First Ultra-Minimal UI/UX** | [`smartschedule/ui/index.html`](../smartschedule/ui/index.html), [`smartschedule/ui/app.js`](../smartschedule/ui/app.js), `ui/js/*.js`, `ui/css/{shell,dev-panel,calendar,chat}.css`, [`smartschedule/api/chat/`](../smartschedule/api/chat/) | [`v1.0-alpha-plan/UI_Rebuild_Plan/agent_pipeline.md`](../v1.0-alpha-plan/UI_Rebuild_Plan/agent_pipeline.md) |
-| **3. Context-Parsing Upgrade + SHA-256 Tracer** | [`smartschedule/nlp/clause_condenser.py`](../smartschedule/nlp/clause_condenser.py), [`smartschedule/nlp/context_router.py`](../smartschedule/nlp/context_router.py), [`smartschedule/nlp/parser_controller.py`](../smartschedule/nlp/parser_controller.py), [`smartschedule/core/task_tracer.py`](../smartschedule/core/task_tracer.py) | [`v1.0-alpha-plan/UI_Rebuild_Plan/agent_pipeline.md`](../v1.0-alpha-plan/UI_Rebuild_Plan/agent_pipeline.md) |
+| **1. 7-Member `v1.0-alpha` Final Sprint** | Disjoint module assignments across `smartschedule/`, `tests/`, and `tools/member_eval/` | [`v1.0-alpha-plan/README_agents.md`](../v1.0-alpha-plan/README_agents.md) & [`Sprint_Tasks/`](../v1.0-alpha-plan/Sprint_Tasks/) |
+| **2. Modular Codebase (`smartschedule/`)** | [`smartschedule/core/`](../smartschedule/core/), [`smartschedule/nlp/`](../smartschedule/nlp/), [`smartschedule/api/`](../smartschedule/api/), [`smartschedule/ui/`](../smartschedule/ui/), [`data/`](../data/), [`tests/`](../tests/), [`tools/`](../tools/) | [`v1.0-alpha-plan/Completed_Blueprints/folder_division_plan.md`](../v1.0-alpha-plan/Completed_Blueprints/folder_division_plan.md) |
+| **3. Chat-First UI/UX & Context NLP** | [`smartschedule/ui/`](../smartschedule/ui/), [`smartschedule/api/chat/`](../smartschedule/api/chat/), [`smartschedule/nlp/`](../smartschedule/nlp/), [`smartschedule/core/task_tracer.py`](../smartschedule/core/task_tracer.py) | [`v1.0-alpha-plan/Completed_Blueprints/UI_Rebuild_Plan/agent_pipeline.md`](../v1.0-alpha-plan/Completed_Blueprints/UI_Rebuild_Plan/agent_pipeline.md) |
 | **4. Algorithmic Engine & Verification (`v2.1`)** | [`smartschedule/core/solvers/`](../smartschedule/core/solvers/) (`EDF`, `LST`, `WSPT`, `SCORED_GREEDY`, `BACKTRACK`, `HYBRID_ALNS`), [`v1.0-alpha-plan/Testing_System/`](../v1.0-alpha-plan/Testing_System/) | [`v1.0-alpha-plan/Testing_Plan/Testing_Plan.md`](../v1.0-alpha-plan/Testing_Plan/Testing_Plan.md) |
 
 ---
@@ -41,7 +41,6 @@
    - `python -B tests/clean_runner.py --pass`
    - `python -B -m pytest -c environments/pyproject.toml v1.0-alpha-plan/Testing_System/tests -q`
    - `node --check smartschedule/ui/app.js` (when JS changed)
-8. **Bilingual Doc & Dependency Sync:**
-   - Check off finished items in [`v1.0-alpha-plan/README_agents.md`](../v1.0-alpha-plan/README_agents.md) & [`v1.0-alpha-plan/README.md`](../v1.0-alpha-plan/README.md).
-   - Update [`agents/requirements.md`](requirements.md) and [`docs/requirements.md`](../docs/requirements.md) whenever [`environments/requirements.txt`](../environments/requirements.txt) changes.
-   - Log approved changes in [`agents/commit_changes.md`](commit_changes.md) and [`docs/commit_changes.md`](../docs/commit_changes.md). Do **not** commit if the user asks for an uncommitted working tree.
+8. **Zero-Conflict Sprint Discipline & Dependency Sync:**
+   - During the `v1.0-alpha` sprint, check off finished items **only inside your assigned [`v1.0-alpha-plan/Sprint_Tasks/M<k>_*.md`](../v1.0-alpha-plan/Sprint_Tasks/)** file (do NOT edit shared `commit_changes.md` or `v1.0-alpha-plan/README*.md` on feature branches; Leader `M1` consolidates changelogs at release).
+   - Place optional heavy NLP/PDF packages in `environments/requirements-nlp-extra.txt`; update [`agents/requirements.md`](requirements.md) and [`docs/requirements.md`](../docs/requirements.md) whenever `environments/requirements*.txt` changes.

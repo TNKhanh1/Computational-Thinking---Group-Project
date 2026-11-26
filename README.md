@@ -2,14 +2,14 @@
 
 > **Môn học:** Tư duy Tính toán (CS252) — Khoa Công nghệ Thông tin, Trường Đại học Khoa học Tự nhiên, ĐHQG-HCM (FIT-HCMUS)  
 > **Nhóm thực hiện:** Group 03 (*The Seven Dwarfs*)  
-> **Nhánh hiện tại:** **`v1.0-alpha/ui-ux-chat`** — Kiến trúc mô-đun sạch (`smartschedule/`, `data/`, `tests/`, `tools/`), Giao diện **Chat-First Tối Giản**, Bộ 6 Solvers Công Thái Học, Mô hình AI Đọc Ngữ Cảnh Online Siêu Nhẹ (`gemini-2.5-flash-lite` + `clause_condenser`), **`194/194`** Verification Tests, **`39/39`** `Testing_System v2.1 + Fuzz v2` Tests, và **`200/200`** NL Benchmark Cases.
+> **Trạng thái hiện tại:** **`v1.0-alpha`** (`v1.0-alpha-restructured-plan`) — Kiến trúc mô-đun sạch (`smartschedule/`, `data/`, `tests/`, `tools/`), Giao diện **Chat-First Tối Giản**, Bộ 6 Solvers Công Thái Học, Mô hình AI Đọc Ngữ Cảnh Online Siêu Nhẹ (`gemini-2.5-flash-lite` + `clause_condenser`), và **Kế Hoạch Sprint 7 Thành Viên (4 Wave Không Xung Đột)** hướng tới mục tiêu hoàn thiện `v1.0-alpha` vào **tối Thứ 7 (28/11/2026)** & phát hành **sáng Chủ Nhật (29/11/2026)**.
 
 ---
 
 ## 📌 Điểm Bắt Đầu Nhanh
 
-- **Thành viên nhóm:** Đọc [`v1.0-alpha-plan/README.md`](v1.0-alpha-plan/README.md) (bản tóm tắt toàn bộ kế hoạch `v1.0-alpha`, bản đồ thư mục mới & **checklist `[x]` / `[ ]`** theo dõi tiến độ).
-- **AI Coding Agents:** Chỉ cần đọc [`agents/README.md`](agents/README.md) và [`v1.0-alpha-plan/README_agents.md`](v1.0-alpha-plan/README_agents.md) (cấu hình môi trường & chỉ mục token nằm trong [`environments/`](environments/)).
+- **Thành viên nhóm (`M1`–`M7`):** Đọc [`v1.0-alpha-plan/README.md`](v1.0-alpha-plan/README.md) để nắm thứ tự 4 Wave merge không xung đột, sau đó mở file nhiệm vụ riêng của mình trong [`v1.0-alpha-plan/Sprint_Tasks/`](v1.0-alpha-plan/Sprint_Tasks/) để làm và tick `[x]`.
+- **AI Coding Agents:** Đọc [`agents/README.md`](agents/README.md), [`v1.0-alpha-plan/README_agents.md`](v1.0-alpha-plan/README_agents.md) (chứa hợp đồng JSON đóng băng giữa các module) và file `M*` tương ứng trong [`v1.0-alpha-plan/Sprint_Tasks/`](v1.0-alpha-plan/Sprint_Tasks/). Cấu hình môi trường & chỉ mục token nằm trong [`environments/`](environments/).
 
 ---
 
@@ -44,13 +44,14 @@ Computational-Thinking---Group-Project/
 │                                          #         ui/, architecture/, logical/, benchmark/, gaps/, fixtures/)
 ├── tools/                                 # Cổng chấm mù member_eval/, benchmarks/, docker/, scripts/*.bat
 │
-├── v1.0-alpha-plan/                       # 🎯 KẾ HOẠCH TRUNG TÂM v1.0-alpha
-│   ├── README.md & README_agents.md       # Tổng hợp + Checklist theo dõi cho thành viên & AI Agents
-│   ├── folder_division_plan.md            # Bản thiết kế chia thư mục giảm tải token
-│   ├── UI_Rebuild_Plan/                   # Đặc tả Chat-First UI/UX & Merged Context-Parsing Model
+├── v1.0-alpha-plan/                       # 🎯 KẾ HOẠCH TRUNG TÂM v1.0-alpha (Sprint 7 Thành Viên)
+│   ├── README.md & README_agents.md       # Lộ trình 4-Wave không xung đột & Hợp đồng JSON đóng băng
+│   ├── Sprint_Tasks/                      # 7 file giao việc riêng (M1..M7) khớp work_division.pdf
+│   ├── Completed_Blueprints/              # Bản thiết kế nền đã xong (folder_division_plan, UI_Rebuild_Plan)
 │   ├── Testing_Plan/                      # Báo cáo Benchmark, CT_Rationale_Log, Evaluation Plan & papers/
 │   └── Testing_System/                    # Máy chấm tự động 4 Trụ Cột v2.1 + Fuzz v2 (39/39 tests)
 │
+├── MVP/                                   # 📄 Báo cáo MVP (`MVP/report.md`)
 ├── agents/                                # 🤖 Cổng Tài Liệu Cho AI Agent (agents/README.md entrypoint)
 ├── docs/                                  # 📘 Trung Tâm Tài Liệu Tiếng Việt (docs/README.md & progress/)
 └── Project_Drafts/                        # 📚 Bản thảo & đề xuất học phần cũ (Proposal, Baseline_Plan, Improve_Plan)
@@ -96,19 +97,20 @@ python -B tools/benchmarks/benchmark_runner.py
 
 | Đối Tượng | Điểm Bắt Đầu | Nội Dung |
 | :--- | :--- | :--- |
-| **Thành viên Nhóm 03** | [`v1.0-alpha-plan/README.md`](v1.0-alpha-plan/README.md) & [`docs/README.md`](docs/README.md) | Kế hoạch `v1.0-alpha`, checklist tiến độ `[x]`/`[ ]`, giải thích dễ hiểu bằng tiếng Việt. |
-| **AI Agents & Developers** | [`agents/README.md`](agents/README.md) & [`v1.0-alpha-plan/README_agents.md`](v1.0-alpha-plan/README_agents.md) | Quy tắc bất biến `INV-1..6`, cấu trúc tầng `smartschedule/`, lệnh test & checklist kỹ thuật. |
+| **Thành viên Nhóm 03** | [`v1.0-alpha-plan/README.md`](v1.0-alpha-plan/README.md) & [`v1.0-alpha-plan/Sprint_Tasks/`](v1.0-alpha-plan/Sprint_Tasks/) | Lộ trình 4-Wave, bảng phân công `M1`–`M7` & checklist tiến độ `[x]`/`[ ]` tiếng Việt. |
+| **AI Agents & Developers** | [`agents/README.md`](agents/README.md) & [`v1.0-alpha-plan/README_agents.md`](v1.0-alpha-plan/README_agents.md) | Quy tắc bất biến `INV-1..6`, hợp đồng JSON đóng băng, cấu trúc `smartschedule/` & lệnh test. |
 | **Kỹ sư API & Học thuật** | [`docs/technical_handbook.md`](docs/technical_handbook.md) & [`v1.0-alpha-plan/Testing_Plan/`](v1.0-alpha-plan/Testing_Plan/) | Hợp đồng JSON API, báo cáo `220` đề × `6` thuật, nhật ký Tư duy Tính toán `CT_Rationale_Log.md`. |
 
 ---
 
-## 📝 Lịch Sử Commit Tái Cấu Trúc (`v1.0-alpha/ui-ux-chat`)
+## 📝 Lịch Sử Cập Nhật Kế Hoạch & Tái Cấu Trúc
 
-| Commit | Phạm Vi | Nội Dung Tóm Tắt |
+| Mốc / Commit | Phạm Vi | Nội Dung Tóm Tắt |
 | :--- | :--- | :--- |
 | **`e56ab06`** | Chia thư mục & `environments/` | Chuyển đổi `group03-smartschedule-baseline/` thành `smartschedule/`, `data/`, `tests/`, `tools/` và gom toàn bộ cấu hình môi trường vào `environments/`. |
 | **`5a96211`** | `Project_Drafts/` | Gom nhóm các tài liệu đề xuất học phần ban đầu (`Baseline_Plan/`, `Improve_Plan/`, `Proposal/`) vào `Project_Drafts/`. |
 | **`7a76ef3`** | `agents/`, `docs/`, `v1.0-alpha-plan/` | Làm mới cổng hướng dẫn `v1.0-alpha`, dọn sạch các mục/link lỗi thời khỏi `README.md` & `progress/`, cập nhật `requirements.md` và lưu trữ nhật ký cũ `001–015`. |
+| **`v1.0-alpha-restructured-plan`** | `v1.0-alpha-plan/`, `agents/`, `docs/` | Tái cấu trúc kế hoạch `v1.0-alpha` thành **Sprint 7 thành viên (`Sprint_Tasks/M1..M7`)** theo 4 Wave giảm xung đột merge, lưu trữ blueprint cũ vào `Completed_Blueprints/` và chốt deadline tối Thứ 7 / sáng Chủ Nhật. |
 
 ---
 *Dự án học phần Tư duy Tính toán (CS252) — Nhóm 03 The Seven Dwarfs, FIT-HCMUS.*
