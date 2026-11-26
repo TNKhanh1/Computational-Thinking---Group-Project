@@ -1,98 +1,102 @@
-# SmartSchedule `v1.0-alpha` — Master Technical Guide & Execution Checklist (`v1.0-alpha-plan/README_agents.md`)
+# SmartSchedule `v1.0-alpha` — Master Agent Execution & Zero-Conflict Sprint Plan (`v1.0-alpha-plan/README_agents.md`)
 
 > [!IMPORTANT]
-> **MANDATORY AGENT HUB (`v1.0-alpha/ui-ux-chat`):**
-> After reading [`agents/README.md`](../agents/README.md), read this document completely before planning edits. It unifies all four `v1.0-alpha` workstreams — **Modular Directory Rebase**, **Ultra-Minimal Chat-First UI/UX**, **Algorithmic Engine & Dominant Subset Design**, and **Efficient Free Context-Parsing Model Upgrade** — with exact module paths and checkable `[x]`/`[ ]` progress trackers.
->
-> **Open Contribution Note:** If you (or any teammate / AI agent) identify a cleaner architecture, faster context-parsing model, or better UX idea for `v1.0-alpha`, feel free to propose and update [`README.md`](README.md) and [`README_agents.md`](README_agents.md) directly!
+> **MANDATORY INSTRUCTIONS FOR ALL AI CODING AGENTS (7-MEMBER FINAL `v1.0-alpha` SPRINT):**
+> 1. **Identify Your Assigned Member (`M1`–`M7`) First:** Ask your human user which team member they are (or infer from their branch/request), then **immediately read ONLY their dedicated brief in [`Sprint_Tasks/`](Sprint_Tasks/)**:
+>    - [`M1_Pham_Duc_Minh.md`](Sprint_Tasks/M1_Pham_Duc_Minh.md) — Leader (`25125028`): First-Time Onboarding, Real-Week Start, User Profile Popover & Wave 2B/3 Integration
+>    - [`M2_Tran_Nguyen_Khanh.md`](Sprint_Tasks/M2_Tran_Nguyen_Khanh.md) — Thinker 1 (`25125019`): Free Lazy-Loaded Context Engine (`spaCy`/HF Encoders), Negation Rules & Thinking Stage
+>    - [`M3_Hoang_Minh_Anh.md`](Sprint_Tasks/M3_Hoang_Minh_Anh.md) — Thinker 2 (`25125001`): Conversational Sleep/Chronotype/`PersonalHabit` Coach & 7-Member Blind Evaluation (`Calibration_Report.md`)
+>    - [`M4_Nguyen_Trong_Tien.md`](Sprint_Tasks/M4_Nguyen_Trong_Tien.md) — Thinker 3 (`25125037`): Full Chat Lifecycle Intents (`DELETE`, `COMPLETE`, `BATCH_ADD`, `QUERY`) & `handlers.py` Plug-in Dispatcher
+>    - [`M5_Le_Tien_Binh.md`](Sprint_Tasks/M5_Le_Tien_Binh.md) — Builder 1 (`25125007`): Conversational Emergency Disruption $\to$ `LocalRepairEngine` (`LOCAL_INSERTION`) & Real-Week / Item CRUD APIs
+>    - [`M6_Le_Minh_Nhat.md`](Sprint_Tasks/M6_Le_Minh_Nhat.md) — Builder 2 (`25125032`): `.ics` / Syllabus Chat Upload (`Docling`), Chat Persistence across `F5`, 1-Click Undo & Item Delete/Edit UI
+>    - [`M7_Nguyen_Nguyen_Gia_Bao.md`](Sprint_Tasks/M7_Nguyen_Nguyen_Gia_Bao.md) — Builder 3 (`25125006`): Mobile/Tablet Slide-Over CSS, `INV-1..6` Lazy-Import Memory Guardrails (`<350KB`) & Full E2E Release Gate
+> 2. **Strict Zero-Conflict File Lock:** Never edit files outside the *Exclusive File Ownership* section of your member's brief. Do **NOT** modify `agents/commit_changes.md`, `docs/commit_changes.md`, or `v1.0-alpha-plan/README*.md` on feature branches — tick `[x]` checkboxes **only** inside your member's `Sprint_Tasks/M<k>_*.md` file!
 
 ---
 
-## 1. Unified `v1.0-alpha` Architecture Overview
+## 1. Sprint Timeline & Conflict-Free Merge Order (Thu Nov 26 $\to$ Sun Morning Nov 29, 2026)
 
-### 1.1. Modular Codebase Division (`folder_division_plan.md`)
-Legacy `group03-smartschedule-baseline/` has been permanently replaced at repository root:
-- **`smartschedule/`** — Installable Python application (`pyproject.toml`):
-  - `smartschedule/core/` (**Layers 1–3**): Pure domain models, workspace/parameter config (`config.py`), grid math (`utils.py`), Planning-Fallacy buffering (`estimate_buffer.py`), M7 EWMA calibration (`calibration.py`), SHA-256 keyword tracer (`task_tracer.py`), SQLite persistence (`storage.py`), `.ics` importer (`ics_importer.py`), orchestration (`controller.py`, `overload_triage.py`), grid (`grid_manager.py`), and 6 stateless solvers (`solvers/`).
-  - `smartschedule/nlp/` (**Layer 4A**): M1 Gemini + deterministic controller (`parser_controller.py`), 7-module 6-stage offline pipeline (`hybrid_pipeline/`), `v1.0-alpha` online lightweight context extractor (`context_router.py`), and clause-level Vietnamese subject title condenser (`clause_condenser.py`).
-  - `smartschedule/api/` (**Layer 4B**): FastAPI server (`app.py`), modular Chat-First subpackage (`chat/handlers.py`, `chat/thinking_stage.py`, `chat/edge_cases.py`), auth (`auth.py`), `Testing_System v2.1` bridge (`health_v21.py`), V3 catalog/benchmark services (`v3_services.py`), and showcase (`test_showcase.py`).
-  - `smartschedule/ui/` (**Layer 4B Static Assets**): `index.html`, ES module coordinator `app.js`, submodules `js/*.js`, and modular stylesheets `css/{tokens,shell,dev-panel,calendar,chat}.css` loaded via `css/app.css`.
-- **`data/`** — `presets/`, `scenarios/` (`t01..t10`), `calibration/` (`alpha_grid_calibration.json`), and gitignored `runtime/local_state.db`.
-- **`tests/`** — `clean_runner.py`, `test_studio.py`, `conftest.py`, `ui/`, `architecture/`, `logical/`, `benchmark/`, `gaps/`, and `fixtures/nl_cases/`.
-- **`tools/`** — `member_eval/` (Blind Human Evaluation on `:8010`), `benchmarks/`, `docker/`, and Windows runners in `scripts/*.bat`.
-- **`v1.0-alpha-plan/`** — Planning specs ([`UI_Rebuild_Plan/`](UI_Rebuild_Plan/), [`folder_division_plan.md`](folder_division_plan.md), [`Testing_Plan/`](Testing_Plan/)) and automated evaluator ([`Testing_System/`](Testing_System/)).
-
-### 1.2. Ultra-Minimal Chat-First UI/UX ([`UI_Rebuild_Plan/agent_pipeline.md`](UI_Rebuild_Plan/agent_pipeline.md))
-- **Default Entry (`#viewChat`, `"Trợ lý xếp lịch"`):** Antigravity-clean spacious chat canvas. Clicking `#btnBrandHome` (`SS SmartSchedule`) always returns to `#viewChat`.
-- **Collapsible Left Sidebar (`#leftNavSidebar`):** Only 3 views (`Trợ lý xếp lịch`, `Lịch Trình Tuần`, `Danh Sách Việc`) + bottom `Developer Mode` switch (`#chkDeveloperMode`). Collapsing hides the entire sidebar (`display: none !important`); `"Chuyển nhanh tuần"` is removed.
-- **Minimal Settings & Zero Composer Clutter:** `"Nền năng lượng sinh học"` and `"Tiện ích nhanh"` removed from `#settingsPopover` (backward-compatible DOM IDs retained `.sr-only` `hidden`); `"Chỉnh nhanh việc đã lưu"` removed; clicking either suggestion card sets mode badge hints without injecting text prefixes; every assistant reply exposes a single post-action button **`🗓️ Kiểm tra lịch trình`**.
-- **Calendar + Collapsible Right Copilot (`#calendarCopilotDrawer`, `"Trợ lý tinh chỉnh trực tiếp"`):**
-  - Aligned `"Hôm nay"` week pill (`#topbarWeekPill`) & clean single-row day headers in `render-calendar.js`.
-  - Header arrow `#btnToggleCopilotDrawer` collapses the right drawer in-place to expand the calendar; `#btnExpandCopilotDrawer` (`"💬 Mở trợ lý"`) is strictly `display: none !important` whenever the copilot is open.
-- **Developer Mode (`💭 Thinking Stage` + Hidden Badges):** Renders `.chat-thinking-stage` summarizing parsed context, why weaker dominated solvers (`EDF`/`LST`/`WSPT`) were pruned in favor of circadian-aware solvers (`SCORED_GREEDY`, `HYBRID_ALNS`), and SHA-256 hidden parameter mutations.
-
-### 1.3. Algorithmic Kernel & Constraints (`smartschedule/core/`)
-- **6 Registered Solvers (`solvers/registry.py`):** `EDF` (`V0` anchor), `LST` & `WSPT` (`V3` Energy-Blind), `SCORED_GREEDY` (fast circadian portfolio default), `BACKTRACK` (Branch-and-Bound), and `HYBRID_ALNS` (`ALNS` Ruin-and-Recreate + Regret-2).
-- **Behavioral Modules:** `estimate_buffer.py` (`RARELY`/`SOMETIMES`/`OFTEN` + `COGNITIVE_LOAD` `1.20/1.35`), `calibration.py` (M7 EWMA), `task_tracer.py` (deterministic stdlib SHA-256 keyword fingerprinting), and `edge_cases.py` (`DEADLOCK` red recovery vs `DENSE_WARNING` yellow warning).
-- **Non-Negotiable Invariants (`INV-1..6`):** Never import `smartschedule.api`, `smartschedule.nlp`, `fastapi`, or `google-genai` into `smartschedule/core/`; never mutate solver outputs or introduce memory growth (`< 350 KB` over 50 runs); keep end-to-end chat turn SLA `< 10,000 ms` (`< 1s` local).
-
-### 1.4. Context-Parsing Upgrade: Efficient Free Models (`smartschedule/nlp/`)
-- **Current Layer 4 Baseline:** [`clause_condenser.py`](../smartschedule/nlp/clause_condenser.py) (`< 2 ms`, deterministic cross-day bounds & Vietnamese subject-title condensation such as `"Làm bài tập Computational Thinking"`) + [`context_router.py`](../smartschedule/nlp/context_router.py) (optional Gemini call via `environments/.env` `GEMINI_API_KEY`).
-- **Open-Source / Free Efficiency Upgrade Candidates (Layer 4 Lazy-Loaded ONLY — never violate `INV-5` `< 350 KB` solver heap delta):**
-  - **Transformer Encoder Models (Hugging Face):** `DeBERTa`, `RoBERTa`, `BERT`, and `StructBERT` for deep bidirectional context (NER, QA, contextual classification), plus polarity/nuance encoders such as `cardiffnlp/twitter-roberta-base-sentiment-latest` to handle negation and stress nuance better than rule lexicons.
-  - **spaCy Pipelines (MIT license, free):** Fast dependency parsing, POS tagging, NER, and transformer backbones across 75+ languages for lightweight clause & action-title separation.
-  - **Stanza & Stanford CoreNLP:** Open-source syntactic dependency parsing, constituency parsing, and multilingual linguistic analysis.
-  - **Vision-Language & Document Parsers (`Qwen2-VL`, `Docling`):** Local structured parsing for layout-heavy syllabi or multi-page assignment attachments in chat.
+| Wave | Window (`UTC+7`) | PR Merge Order & Owner | Scope & Why Merge Conflicts = `0%` |
+| :--- | :--- | :--- | :--- |
+| **Wave 0** | **Thu Nov 26, `22:30–23:59`** | All 7 Members (`git checkout -b v1.0-alpha/m<k>-...` from `main`) | Shared plug-in function signatures frozen below; zero overlapping files assigned. |
+| **Wave 1** | **Fri Nov 27 $\to$ Sat Nov 28 `12:30`** | **1st:** `M5` (Lê Tiến Bình — Fri `22:00`)<br>**2nd:** `M2` (Trần Nguyên Khánh — Fri `23:00`)<br>**3rd:** `M3` (Hoàng Minh Anh — Sat `12:00`)<br>**4th:** `M4` (Nguyễn Trọng Tiến — Fri `23:30` / Sat `12:30`) | Pure backend/NLP modules in disjoint files (`controller.py`/`app.py` vs `context_router.py`/`thinking_stage.py` vs `profile_habit_chat.py` vs `lifecycle_intents.py`/`handlers.py` with `try/except ImportError` dynamic dispatch). |
+| **Wave 2A** | **Sat Nov 28, `08:00–19:00`** | **5th:** `M6` (Lê Minh Nhật — Sat `19:00`) | Owns component JS modules exclusively (`undo-history.js`, `chat-assistant.js`, `modals.js`, `render-list.js`, `state.js`, `api.js`) without touching `index.html` or `app.js`. |
+| **Wave 2B** | **Sat Nov 28, `19:00–22:30`** | **6th:** `M1` (Phạm Đức Minh — Sat `22:00`)<br>**7th:** `M7` (Nguyễn Nguyễn Gia Bảo — Sat `22:30`) | Rebased onto Wave 1 + Wave 2A: `M1` owns `index.html` + `app.js` + `onboarding.*`; `M7` owns `css/{shell,calendar,chat}.css` + `tests/architecture/*` + E2E tests. |
+| **Wave 3** | **Sat Nov 28 `22:30` $\to$ Sun Nov 29 `10:00`** | **All 7** (Blind Eval on `:8010`) $\to$ **`M3`** (`Calibration_Report.md` Sun `09:00`) $\to$ **`M7`** (QA Gate Sun `09:30`) $\to$ **`M1`** (Tag `v1.0-alpha` Sun `10:00`) | Final human-vs-`v2.1` calibration, `clean_runner.py --pass` + `Testing_System` verification, single consolidated `commit_changes.md` entry, and `v1.0-alpha` tag. |
 
 ---
 
-## 2. Core Directory & File Reference Map
+## 2. Shared Cross-Module Plug-In Contracts (Frozen at Wave 0)
 
-- **Entrypoint / Environments:** [`smartschedule/main.py`](../smartschedule/main.py), [`smartschedule/core/config.py`](../smartschedule/core/config.py), [`environments/README.md`](../environments/README.md), [`environments/pyproject.toml`](../environments/pyproject.toml), [`environments/CODEBASE_INDEX.md`](../environments/CODEBASE_INDEX.md), [`Project_Drafts/README.md`](../Project_Drafts/README.md)
-- **Domain Core (Layers 1–3):** [`smartschedule/core/models.py`](../smartschedule/core/models.py), [`controller.py`](../smartschedule/core/controller.py), [`task_tracer.py`](../smartschedule/core/task_tracer.py), [`estimate_buffer.py`](../smartschedule/core/estimate_buffer.py), [`calibration.py`](../smartschedule/core/calibration.py), [`solvers/ergonomic_engine.py`](../smartschedule/core/solvers/ergonomic_engine.py)
-- **NLP & Context Model (Layer 4A):** [`smartschedule/nlp/context_router.py`](../smartschedule/nlp/context_router.py), [`clause_condenser.py`](../smartschedule/nlp/clause_condenser.py), [`parser_controller.py`](../smartschedule/nlp/parser_controller.py), [`hybrid_pipeline/hybrid_parser.py`](../smartschedule/nlp/hybrid_pipeline/hybrid_parser.py)
-- **API & Chat Orchestration (Layer 4B):** [`smartschedule/api/app.py`](../smartschedule/api/app.py), [`chat/handlers.py`](../smartschedule/api/chat/handlers.py), [`chat/thinking_stage.py`](../smartschedule/api/chat/thinking_stage.py), [`chat/edge_cases.py`](../smartschedule/api/chat/edge_cases.py)
-- **Frontend UI (Layer 4B):** [`smartschedule/ui/index.html`](../smartschedule/ui/index.html), [`app.js`](../smartschedule/ui/app.js), [`js/chat-assistant.js`](../smartschedule/ui/js/chat-assistant.js), [`js/render-calendar.js`](../smartschedule/ui/js/render-calendar.js), [`css/chat.css`](../smartschedule/ui/css/chat.css)
-- **Verification & Tooling:** [`tests/clean_runner.py`](../tests/clean_runner.py), [`tests/logical/test_chat_first_ui_and_task_tracer.py`](../tests/logical/test_chat_first_ui_and_task_tracer.py), [`v1.0-alpha-plan/Testing_System/tests/`](Testing_System/tests/), [`tools/member_eval/`](../tools/member_eval/)
+To let **Wave 1 (`M2`, `M3`, `M4`, `M5`)** and **Wave 2 (`M1`, `M6`, `M7`)** develop in parallel without waiting on each other, adhere strictly to these interfaces:
 
----
-
-## 3. Verified Commands (Run From Repository Root)
-
-```powershell
-# Verification suites (Verified 100% green after modular rebase)
-python -B tests/clean_runner.py --pass                                              # 194/194 passed
-python -B -m pytest -c environments/pyproject.toml v1.0-alpha-plan/Testing_System/tests -q   # 39/39 passed
-python -B tests/fixtures/nl_cases/verify_hybrid_200.py                              # 200/200 passed
-node --check smartschedule/ui/app.js                           # JS syntax check
-
-# Run servers
-python -B -m smartschedule.main --serve                        # Web App :8000
-python -B -m uvicorn tools.member_eval.app:app --port 8010     # Blind Eval :8010
+### 2.1. Chat Turn Response Contract (`POST /api/chat/turn`)
+Every new chat sub-handler (`profile_habit_chat.py` in `M3`, `lifecycle_intents.py` in `M4`, `disruption_chat.py` in `M5`) MUST return a dictionary compatible with `handlers.py` (`process_chat_turn`):
+```python
+{
+    "status": "APPLIED" | "NEEDS_CLARIFICATION" | "INFO_ONLY" | "CANCELLED",
+    "intent": str,                        # e.g. "DELETE_ITEM", "COMPLETE_TASK", "DISRUPTION_REPAIR", "UPDATE_PROFILE_HABIT", "QUERY_SCHEDULE"
+    "finalized": bool,
+    "finalized_message_vi": str,
+    "reply_vi": str,                      # Friendly, jargon-free Vietnamese reply
+    "thinking_summary": dict | None,      # Built via build_thinking_summary(...) for Developer Mode
+    "pending_draft": dict | None,
+    "missing_fields": list[str],
+    "quick_chips": list[dict[str, str]],  # [{"label": "...", "prompt": "..."}]
+    "mutated_task_id": str | None,
+    "traced_task": dict | None,
+    "remaining_estimation": dict | None,
+    "edge_case": dict | None,
+    "post_actions": list[dict[str, str]], # Default: [{"action": "OPEN_CALENDAR", "label": "🗓️ Kiểm tra lịch trình"}]
+    "updated_commitments": dict,
+    "updated_tasks": list[dict],
+    "updated_pinned_blocks": list[dict],
+    "schedule": dict | None,              # Enriched ScheduleOutput dict when status == "APPLIED"
+    "execution_time_ms": float,
+}
 ```
 
+### 2.2. Backend Item CRUD & Real-Week Init Endpoints (`M5` $\leftrightarrow$ `M1`, `M6`)
+- `POST /api/workspace/init-real-week`
+  - Request: `{"workspace_id": "default", "sleep_start": "23:30", "sleep_end": "06:30", "focus_preference": "BALANCED", "estimate_habit": "SOMETIMES"}`
+  - Response: `{"commitments": {...}, "tasks": [], "pinned_blocks": [], "schedule": {...}}`
+- `POST /api/tasks/delete`
+  - Request: `{"workspace_id": "default", "commitments": {...}, "tasks": [...], "pinned_blocks": [...], "task_id": "...", "algorithm": "SCORED_GREEDY"}`
+  - Response: `{"deleted_task_id": "...", "updated_tasks": [...], "updated_pinned_blocks": [...], "schedule": {...}}`
+- `POST /api/fixed-events/upsert` & `POST /api/fixed-events/delete`
+  - Request: `{"workspace_id": "default", "commitments": {...}, "tasks": [...], "pinned_blocks": [...], "event": {...} | "event_id": "...", "algorithm": "SCORED_GREEDY"}`
+  - Response: `{"updated_commitments": {...}, "schedule": {...}}`
+
+### 2.3. Frontend Undo & Attachment Exports (`M6` $\leftrightarrow$ `M1`)
+- `smartschedule/ui/js/undo-history.js` (`M6`) exports:
+  - `pushUndoSnapshot(state, actionLabel)`
+  - `popUndoSnapshot(state)` $\to$ returns `{ snapshot, actionLabel } | null`
+  - `canUndo()` $\to$ `boolean`
+
 ---
 
-## 4. `v1.0-alpha` Execution Checklist (Tick `[x]` Upon Verified Completion)
+## 3. Non-Negotiable Architecture & Performance Guardrails (`INV-1` to `INV-6`)
 
-### Phase 1 — Codebase Modularization (`folder_division_plan.md`)
-- [x] Eliminate `group03-smartschedule-baseline/` via `git mv` into `smartschedule/`, `data/`, `tests/`, `tools/` (preserving `.env` & `data/runtime/local_state.db`).
-- [x] Modularize `chat_service.py` -> `smartschedule/nlp/{clause_condenser,context_router}.py` + `smartschedule/api/chat/{thinking_stage,edge_cases,handlers}.py`.
-- [x] Split `app.css` -> `shell.css`, `dev-panel.css`, `calendar.css`, `chat.css` and consolidate environment/packaging files into [`environments/`](../environments/) + historical course drafts into [`Project_Drafts/`](../Project_Drafts/).
-- [x] Rewire `smartschedule.core.config` path constants, `environments/pyproject.toml` `[tool.pytest.ini_options]`, and all test/tool paths (`194/194`, `39/39`, `200/200` green).
-- [x] Overhaul `agents/README.md` (single AI entrypoint), `docs/README.md`, `agents/requirements.md`, `docs/requirements.md`, `progress/README.md`, archive Entries `001–015`, and commit modular division (`e56ab06`) + `Project_Drafts/` (`5a96211`).
-- [ ] Final pre-merge branch review on `v1.0-alpha/ui-ux-chat` once team validation completes.
+1. **`INV-1` & `INV-2` Layer Purity:** `smartschedule/core/` must NEVER import `smartschedule.api`, `smartschedule.nlp`, `fastapi`, `spacy`, `transformers`, `docling`, or `google-genai`. `models.py` never imports `controller` or `solvers`.
+2. **`INV-3` & `INV-4` Frozen Solver Portfolio:** Do **NOT** modify `smartschedule/core/solvers/*` or `v1.0-alpha-plan/Testing_System/*`. All 6 solvers (`EDF`, `LST`, `WSPT`, `SCORED_GREEDY`, `BACKTRACK`, `HYBRID_ALNS`) must retain bit-identical `determinism_hash` outputs and protect `SLEEP`/`OCCUPIED` masks.
+3. **`INV-5` Memory & Latency SLA:**
+   - Optional NLP/PDF libraries (`spacy`, `onnxruntime`, `transformers`, `docling`, `pypdf`) belong in `environments/requirements-nlp-extra.txt` and MUST be lazy-imported inside Layer 4 functions so 50 consecutive solves keep heap growth `< 350 KB` (`peak < 10 MB`).
+   - Solver SLA `<= 1,000 ms` (`N <= 50`); end-to-end `/api/chat/turn` SLA `< 10,000 ms` (`< 150 ms` local deterministic path).
+4. **Backward-Compatible DOM Contracts:** Never remove contracted DOM IDs in `smartschedule/ui/index.html` (`#viewChat`, `#viewCalendar`, `#viewList`, `#viewWeights`, `#viewBenchmark`, `#viewShowcase`, `#inputModal`, `#devSidePanel`, `#stFocusTimerPanel`, `#stHealthV21Panel`, `#chkSettingEnergy`, `#btnOpenDisruption`).
 
-### Phase 2 — Chat-First UI/UX & Context-Parsing Model Upgrade (`smartschedule/nlp/`)
-- [x] Implement Revision 2–4 ultra-minimal UI rules (`#viewChat` entry, `#btnBrandHome`, clean Settings, full left sidebar collapse, in-place right copilot collapse + strictly hidden `#btnExpandCopilotDrawer`, aligned `"Hôm nay"`).
-- [x] Implement cross-day single-task condenser (`clause_condenser.py`), initial `context_router.py` hook, multi-turn clarification, and Developer Mode `💭` Thinking Stage.
-- [x] Add automated verification in `tests/logical/test_chat_first_ui_and_task_tracer.py` (`7/7` passed).
-- [ ] Benchmark & integrate free memory/latency-efficient context models (Hugging Face `DeBERTa`/`RoBERTa`/`BERT`/`StructBERT` & `cardiffnlp/twitter-roberta-base-sentiment-latest`, MIT `spaCy` pipelines, or `Stanza`/`CoreNLP`) strictly lazy-loaded in Layer 4 (`smartschedule/nlp/`) while preserving `INV-5`.
-- [ ] Evaluate local document/attachment parsing via `Docling` / `Qwen2-VL` for multi-page PDF syllabi or assignment uploads.
-- [ ] Perform live interactive browser verification (Chrome/Edge desktop & mobile widths) after server startup.
-- [ ] Open suggestions: teammates & AI agents may append improved model benchmarks or architecture refinements directly here.
+---
 
-### Phase 3 — Algorithmic & Evaluation Milestones
-- [x] Keep `INV-1..6`, 6 solvers (`EDF`..`HYBRID_ALNS`), `DEADLOCK`/`DENSE_WARNING` chat reporting, and `Testing_System v2.1` (`39/39`) green.
-- [ ] Collect blind human evaluation sessions across all 7 team members in `tools/member_eval/` and generate updated `Calibration_Report.md` (`>= 25%` friction cluster audit).
-- [ ] Run updated multi-regime benchmarks (`tools/benchmarks/benchmark_runner.py`, `benchmark_alpha_grid.py`) for final CS252 report & slides.
+## 4. Directory Map & Mandatory Pre-PR Verification
+
+- **Codebase Index:** [`environments/CODEBASE_INDEX.md`](../environments/CODEBASE_INDEX.md) (respect [`environments/.agentignore`](../environments/.agentignore))
+- **Member Sprint Briefs:** [`Sprint_Tasks/M1_Pham_Duc_Minh.md`](Sprint_Tasks/M1_Pham_Duc_Minh.md) .. [`Sprint_Tasks/M7_Nguyen_Nguyen_Gia_Bao.md`](Sprint_Tasks/M7_Nguyen_Nguyen_Gia_Bao.md)
+- **Completed Pre-Sprint Specs:** [`Completed_Blueprints/`](Completed_Blueprints/) (`folder_division_plan.md`, `UI_Rebuild_Plan/`)
+- **Academic & Evaluator Specs:** [`Testing_Plan/`](Testing_Plan/) & [`Testing_System/`](Testing_System/)
+
+```powershell
+# Run from repository root before opening any PR:
+python -B tests/clean_runner.py --pass
+python -B -m pytest -c environments/pyproject.toml v1.0-alpha-plan/Testing_System/tests -q
+python -B tests/fixtures/nl_cases/verify_hybrid_200.py
+node --check smartschedule/ui/app.js
+```

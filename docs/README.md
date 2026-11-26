@@ -1,13 +1,13 @@
 # SmartSchedule — Cổng Thông Tin Dành Cho Thành Viên Nhóm (`docs/README.md`)
 
 > [!IMPORTANT]
-> **ĐIỂM BẮT ĐẦU CHO THÀNH VIÊN & AI AGENT:**
-> - **Thành viên nhóm:** Vui lòng đọc ngay [`v1.0-alpha-plan/README.md`](../v1.0-alpha-plan/README.md) để nắm bức tranh tổng thể `v1.0-alpha` (cấu trúc thư mục mới `smartschedule/`, giao diện Chat-First tối giản, thuật toán xếp lịch, mô hình AI đọc ngữ cảnh online, và **bảng checklist đánh dấu `[x]` / `[ ]`** để cả nhóm theo dõi tiến độ).
-> - **AI Agent hỗ trợ bạn:** Yêu cầu Agent đọc [`agents/README.md`](../agents/README.md) và [`v1.0-alpha-plan/README_agents.md`](../v1.0-alpha-plan/README_agents.md) trước khi sửa mã nguồn.
+> **ĐIỂM BẮT ĐẦU CHO ĐỢT NƯỚC RÚT HOÀN THIỆN `v1.0-alpha` (HẠN CHÓT: ĐÊM THỨ BẢY 28/11 – SÁNG CN 29/11/2026):**
+> - **Thành viên nhóm:** Đọc ngay [`v1.0-alpha-plan/README.md`](../v1.0-alpha-plan/README.md) để xem lộ trình phối hợp 4 đợt không xung đột Git, sau đó mở **phiếu nhiệm vụ cá nhân của riêng bạn trong [`v1.0-alpha-plan/Sprint_Tasks/`](../v1.0-alpha-plan/Sprint_Tasks/)** (`M1` đến `M7`).
+> - **AI Agent hỗ trợ bạn:** Yêu cầu Agent đọc [`agents/README.md`](../agents/README.md), [`v1.0-alpha-plan/README_agents.md`](../v1.0-alpha-plan/README_agents.md) và đúng phiếu `Sprint_Tasks/M<k>_...md` của bạn trước khi sửa mã nguồn.
 > - *Lưu ý:* Các tài liệu cũ không còn sử dụng ở `v1.0-alpha` và nhật ký `001–015` đã được cất riêng tại [`docs/archive/`](archive/).
 
 **Dự án:** SmartSchedule — Trợ Lý Xếp Lịch Học Tập Thông Minh (`CS252`, Nhóm 03 *The Seven Dwarfs*, FIT-HCMUS)  
-**Nhánh phát triển hiện tại:** `v1.0-alpha/ui-ux-chat`
+**Giai đoạn hiện tại:** Nước rút hoàn thiện `v1.0-alpha` trên `main` (7 nhánh cá nhân độc lập file)
 
 ---
 
