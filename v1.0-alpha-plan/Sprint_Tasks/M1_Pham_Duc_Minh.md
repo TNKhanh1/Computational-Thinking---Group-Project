@@ -11,9 +11,9 @@ Hiện tại khi một người dùng mới mở ứng dụng lần đầu tiên
 **Nhiệm vụ của bạn trong `v1.0-alpha`:**
 1. **Màn hình Chào mừng 30 giây cho người mới (`onboarding.js`):** Khi mở web lần đầu (chưa có dữ liệu lưu), hiển thị hộp chào ngắn gọn cho chọn 1 trong 2 hướng:
    - **"🚀 Bắt đầu với lịch trống tuần này"**: Đặt lịch về đúng ngày Thứ Hai của tuần thực tế hiện tại, cho chọn nhanh Giờ ngủ (mặc định `23:30 – 06:30`) và Khung giờ tỉnh táo nhất (`Buổi sáng` / `Buổi chiều` / `Buổi tối` / `Cân bằng`).
-   - **"👀 Xem thử lịch mẫu sinh viên"**: Nạp bộ lịch mẫu để dùng thử ngay.
+   - **"👀 Xem thử lịch mẫu sinh viên (Sample Input $\to$ Output)"**: Nạp bộ lịch mẫu chuẩn `MINH_FIT_HCMUS` (`9` công việc gồm cả đồ thị phụ thuộc `PRJ-1, PRJ-2 -> PRJ-3` — dùng trực tiếp để demo Sample Input $\to$ Sample Output theo feedback giảng viên tại [`../Testing_Plan/Formal_Spec_And_Patterns.md`](../Testing_Plan/Formal_Spec_And_Patterns.md)).
 2. **Nút chỉnh nhanh "Hồ sơ Giờ ngủ & Năng lượng" cho người dùng thường:** Đặt gọn trong nút Cài đặt góc trên bên phải (`#settingsPopover`) để sinh viên không cần bật `Developer Mode` vẫn đổi được giờ ngủ, nhịp sinh học và thói quen trừ hao thời gian.
-3. **Ghép nối giao diện tổng (`index.html` & `app.js` — chỉ một mình bạn sửa 2 file này ở Wave 2B để 0% xung đột Git):** Nối thêm phím tắt `Enter` để gửi tin nhắn (`Shift + Enter` xuống dòng) ở khung chat, gắn module Hoàn tác (`undo-history.js` của Nhật `M6`), và điều phối gộp PR của cả nhóm vào tối Thứ Bảy / sáng Chủ Nhật.
+3. **Ghép nối giao diện tổng (`index.html` & `app.js` — chỉ một mình bạn sửa 2 file này ở Wave 2B để 0% xung đột Git) & Điều phối Slide Cuối Kỳ:** Nối thêm phím tắt `Enter` để gửi tin nhắn (`Shift + Enter` xuống dòng) ở khung chat, gắn module Hoàn tác (`undo-history.js` của Nhật `M6`), điều phối gộp PR của cả nhóm và ráp bộ slide cuối kỳ theo đúng khung [`Formal_Spec_And_Patterns.md`](../Testing_Plan/Formal_Spec_And_Patterns.md).
 
 ---
 
@@ -58,4 +58,4 @@ python -B tests/clean_runner.py --pass
 - [ ] Bổ sung mục chỉnh nhanh **Giờ ngủ & Khung giờ tỉnh táo** ngay trong menu Cài đặt cho người dùng thường.
 - [ ] Nối phím `Enter` gửi chat (hỗ trợ gõ tiếng Việt Unikey/Telex `!e.isComposing`), `Shift+Enter` xuống dòng, và ghép nối nút Hoàn tác / Nhập `.ics` từ `M6`.
 - [ ] Viết test `tests/ui/test_onboarding_and_user_profile.py` và chạy xanh `clean_runner.py --pass`.
-- [ ] **(Sáng Chủ Nhật 29/11)** Duyệt & merge tuần tự các PR Wave 1 $\to$ Wave 2A $\to$ Wave 2B, tổng hợp `commit_changes.md`, gắn tag `v1.0-alpha`.
+- [ ] **(Sáng Chủ Nhật 29/11)** Duyệt & merge tuần tự các PR Wave 1 $\to$ Wave 2A $\to$ Wave 2B, tổng hợp `commit_changes.md`, gắn tag `v1.0-alpha`, và điều phối ráp slide thuyết trình từ [`Formal_Spec_And_Patterns.md`](../Testing_Plan/Formal_Spec_And_Patterns.md) (§9 Evaluation + Sample Input $\to$ Output).

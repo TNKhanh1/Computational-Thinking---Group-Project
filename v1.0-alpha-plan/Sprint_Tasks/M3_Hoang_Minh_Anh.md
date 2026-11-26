@@ -50,8 +50,9 @@ Hiện tại khung chat chưa hiểu nhóm câu này (nó đang hiểu nhầm th
    - **Sleep Schedule Update:** e.g. *"Ngủ từ 23h30 đến 6h30"*, *"Đổi giờ thức dậy sang 6h sáng"*. Enforce biological minimum $\ge 6\text{h}$ (`360m`): if user requests $< 6\text{h}$ sleep, return a caring Vietnamese warning (`status="NEEDS_CLARIFICATION"` with safe 6h+ quick chips) instead of crashing Pydantic validation!
    - **Chronotype / Focus Preference & Estimate Habit:** e.g. *"Mình học hiệu quả nhất buổi sáng"* $\to$ `focus_preference = "MORNING"`; *"Mình hay ước lượng thiếu giờ lắm"* $\to$ `estimate_habit = "OFTEN"`.
    - **`PersonalHabit` Add / Remove:** e.g. *"Đọc sách 3 lần/tuần mỗi lần 45 phút buổi tối"* $\to$ appends `PersonalHabit` (`frequency_per_week=3`, `duration_min=45`, `preferred_window="EVENING"`), re-solves via `ScheduleController.solve_schedule`, saves workspace state if `auto_save=True`, and returns standard chat turn response dict (`status="APPLIED"`, `reply_vi`, `updated_commitments`, `schedule`, `post_actions`).
-3. **Blind Evaluation Aggregation (`Wave 3`):**
-   - Verify `python -B tools/member_eval/evaluate_schedule.py --mode report` / `GET /api/eval/report?write_md=true` cleanly aggregates all member review JSONs into `tools/member_eval/Calibration_Report.md`.
+3. **Pattern-to-Rule Traceability & Blind Evaluation Aggregation (`Wave 1` & `Wave 3`):**
+   - When building `thinking_summary` via `build_thinking_summary(...)` inside `profile_habit_chat.py`, highlight the exact behavioral pattern enforced (`P6`: Hard biological sleep floor $\ge 6\text{h} = 24$ slots; `P3`: 2-way Circadian Synchrony `MORNING/AFTERNOON/EVENING/BALANCED`; `P1` & `P12a`: Planning Fallacy Buffer & Clipped LoA-4 EWMA $\in [1.00, 1.60]$; see [`../Testing_Plan/Formal_Spec_And_Patterns.md`](../Testing_Plan/Formal_Spec_And_Patterns.md)).
+   - Verify `python -B tools/member_eval/evaluate_schedule.py --mode report` / `GET /api/eval/report?write_md=true` cleanly aggregates all member review JSONs into `tools/member_eval/Calibration_Report.md`, providing empirical human-vs-`v2.1` evidence for your §11 Conclusion slides.
 
 ### Verification Commands (Must Pass 100% Before PR)
 ```powershell
