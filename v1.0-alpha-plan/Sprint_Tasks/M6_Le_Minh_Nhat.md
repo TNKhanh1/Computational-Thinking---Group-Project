@@ -16,11 +16,11 @@
 
 ## 2. Instructions for AI Coding Agent (Technical Spec & Boundaries)
 
-### Exclusive File Ownership (Conflict-Free Guarantee)
+### Exclusive File Ownership (Conflict-Free Guarantee — Lightweight Pure UI JS Scope)
 - **CREATE:**
   - `smartschedule/ui/js/undo-history.js`
-  - `smartschedule/nlp/doc_attachment_parser.py`
   - `tests/ui/test_ics_undo_and_persistence.py`
+  *(Lưu ý: Phần xử lý logic đọc file đề bài ở tầng Python `smartschedule/nlp/doc_attachment_parser.py` đã được chuyển sang cho Gia Bảo `M7` đảm nhận để giảm tải kỹ thuật backend cho bạn!)*
 - **MODIFY (Wave 2A ONLY):**
   - `smartschedule/ui/js/chat-assistant.js` *(SOLE OWNER in this sprint!)*
   - `smartschedule/ui/js/modals.js` *(SOLE OWNER in this sprint!)*
@@ -37,9 +37,12 @@
    - Persist `chatMessages` (trimmed to the latest `30` messages) inside workspace state serialization (`state.js`) so refreshing the browser (`F5`) restores the conversation seamlessly; add a subtle `🧹 Làm mới chat` icon button in the chat/copilot header to clear transcript without deleting scheduled tasks.
    - Add a compact `📎` file button (`accept=".ics,.txt,.md,.pdf"`) + drag-drop zone inside `.chat-composer-form`:
      - `.ics` files call `api.importIcs(...)` (`POST /api/import/ics`) and render a clean confirmation card in chat showing imported classes & deadlines (`[✅ Áp dụng vào lịch]`).
-     - `.txt`/`.md`/`.pdf` syllabus/assignment files extract text via `smartschedule/nlp/doc_attachment_parser.py` (lazy-loading `docling` or `pypdf` if installed, falling back to UTF-8 text extraction so zero mandatory heavy deps are required!).
-3. **Single-Item Delete/Edit in `modals.js` & `render-list.js`:**
+     - `.txt`/`.md`/`.pdf` syllabus/assignment files simply read text/base64 in JS and pass `attachments: [{ filename, content }]` inside the existing `api.sendChatTurn(...)` payload (`M7` & `M4` handle all backend parsing automatically!).
+3. **Single-Item Delete/Edit in `modals.js` & `render-list.js` + Developer Mode `Pattern -> Rule` & `DAG` Badges (`chat-assistant.js`):**
    - Add a `"🗑️ Xóa công việc này"` button inside `renderBlockInspectorModal` (`modals.js`) and a delete/edit trigger on Fixed Event rows in `renderListView` (`render-list.js`), invoking `callbacks.onDeleteTask(taskId)` / `callbacks.onDeleteFixedEvent(eventId)`.
+   - **Final Presentation Score Booster in `chat-assistant.js`:**
+     - Inside `_renderThinkingStage(thinkingSummary)`, if `Array.isArray(thinkingSummary.pattern_rules) && thinkingSummary.pattern_rules.length > 0`, render a crisp `"🔗 Pattern → Quy tắc Logic Tất định:"` block displaying each item's `pattern_id`, `pattern_name`, and `deterministic_rule` (directly answering the instructor's Pattern Recognition feedback live on screen!).
+     - Inside `_renderHiddenParamDebugCard(task)`, display `Phụ thuộc DAG: <strong>${esc((task.depends_on || []).join(", ") || "Độc lập")}</strong>` (and `Khung né: ...` if `task.avoid_windows` exists) so live DAG prerequisite demos are visually unmistakable.
 
 ### Verification Commands (Must Pass 100% Before PR)
 ```powershell
@@ -54,6 +57,6 @@ python -B tests/clean_runner.py --pass
 
 ## 3. Checklist Cá Nhân (Tick `[x]` trên nhánh của bạn)
 - [ ] Tạo `smartschedule/ui/js/undo-history.js` và gắn nút **`↩ Hoàn tác`** lên Toast thông báo.
-- [ ] Lưu giữ 30 tin nhắn gần nhất qua `F5` (`state.js`) + thêm nút `🧹 Làm mới chat` và nút `📎` tải file `.ics` / đề bài ngay trên khung chat (`chat-assistant.js` + `doc_attachment_parser.py`).
-- [ ] Thêm nút **Xóa công việc / Xóa lịch cố định** trong `modals.js` và `render-list.js`.
-- [ ] Viết test `tests/ui/test_ics_undo_and_persistence.py` và kiểm tra xanh `node --check` + `clean_runner.py --pass`.
+- [ ] Lưu giữ 30 tin nhắn gần nhất qua `F5` (`state.js`) + thêm nút `🧹 Làm mới chat` và nút `📎` chọn file `.ics` / đề bài gửi kèm trong khung chat (`chat-assistant.js`).
+- [ ] Thêm nút **Xóa công việc / Xóa lịch cố định** trong `modals.js` và `render-list.js`, đồng thời hiển thị huy hiệu **`🔗 Pattern → Deterministic Logic Rule`** + **`Phụ thuộc DAG`** ở `Developer Mode` (`chat-assistant.js`).
+- [ ] Viết test `tests/ui/test_ics_undo_and_persistence.py` và kiểm tra xanh `node --check` + `clean_runner.py --pass` (phối hợp cùng Tiến `M4` chuẩn bị slide §5 Abstraction từ [`Formal_Spec_And_Patterns.md`](../Testing_Plan/Formal_Spec_And_Patterns.md)).
