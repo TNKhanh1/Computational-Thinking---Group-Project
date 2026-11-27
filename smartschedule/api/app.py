@@ -17,6 +17,7 @@ Implements all endpoints specified in baseline_plan.md ยง8 and improve_plan.md ย
 
 from datetime import datetime, timedelta, timezone
 import hashlib
+import inspect
 import json
 import math
 from pathlib import Path
@@ -1289,11 +1290,18 @@ def api_delete_task(payload: Dict[str, Any] = Body(...), request: Request = None
 
         if bool(payload.get("save", saved_state is not None)):
             next_state = dict(saved_state or {})
+            prev_completed = dict(next_state.get("completedBlocks") or {})
+            cleaned_completed = {
+                bid: binfo
+                for bid, binfo in prev_completed.items()
+                if not str(bid).startswith(f"{target_id}_") and bid != target_id
+            }
             next_state.update(
                 {
                     "commitments": profile.model_dump(),
                     "tasks": [t.model_dump() for t in kept_tasks],
                     "pinnedBlocks": [pb.model_dump() for pb in kept_pins],
+                    "completedBlocks": cleaned_completed,
                     "currentSchedule": enriched,
                 }
             )
@@ -1441,6 +1449,27 @@ def api_adapt_next_week(payload: Dict[str, Any] = Body(default={}), request: Req
                 next_monday = ws_dt + timedelta(days=7)
                 target_profile.planning_week_start = next_monday.isoformat()
                 target_profile.now = next_monday.replace(hour=8, minute=0).isoformat()
+
+                # Shift ISO `due` / `start_after` timestamps belonging to the previous week forward +7 days
+                shifted_tasks: List[Task] = []
+                for nt in next_tasks:
+                    upd_fields: Dict[str, Any] = {}
+                    if nt.due:
+                        try:
+                            due_dt = datetime.fromisoformat(str(nt.due).replace("Z", "+00:00"))
+                            if due_dt < next_monday:
+                                upd_fields["due"] = (due_dt + timedelta(days=7)).isoformat()
+                        except ValueError:
+                            pass
+                    if nt.start_after and "T" in str(nt.start_after):
+                        try:
+                            sa_dt = datetime.fromisoformat(str(nt.start_after).replace("Z", "+00:00"))
+                            if sa_dt < next_monday:
+                                upd_fields["start_after"] = (sa_dt + timedelta(days=7)).isoformat()
+                        except ValueError:
+                            pass
+                    shifted_tasks.append(nt.model_copy(update=upd_fields, deep=True) if upd_fields else nt)
+                next_tasks = shifted_tasks
             except ValueError:
                 pass
 

@@ -20,12 +20,15 @@ import ast
 from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
+import sys
+import types
 
 from fastapi.testclient import TestClient
 import pytest
 
 from smartschedule.api.app import app
 from smartschedule.api.chat.disruption_chat import (
+    extract_disruption_fields,
     handle_disruption_chat_turn,
     is_disruption_intent,
     is_disruption_prompt,
@@ -33,7 +36,7 @@ from smartschedule.api.chat.disruption_chat import (
 from smartschedule.core.config import CORE_DIR, PRESETS_DIR
 from smartschedule.core.controller import ScheduleController
 from smartschedule.core.cross_week_adapter import adapt_preferences_for_next_week
-from smartschedule.core.models import CommitmentsProfile, SleepSchedule, Task
+from smartschedule.core.models import CommitmentsProfile, FixedEvent, SleepSchedule, Task
 
 
 @pytest.fixture()
@@ -585,3 +588,213 @@ def test_m5_core_modules_strict_layer_purity():
         if isinstance(node, ast.ImportFrom) and node.module
     }
     assert not any(m.startswith("smartschedule.core.solvers") for m in adapter_imps)
+
+
+# ===========================================================================
+# GROUP E: Red-Team Adversarial & Integration Edge Cases (Passes 1–3)
+# ===========================================================================
+
+def test_nan_inf_bool_garbage_logs_ignored_safely(monday_profile: CommitmentsProfile):
+    tasks = [
+        Task(task_id="T1", title="Code", duration_min=60, category="CODING", cognitive_load=3, deadline_day="Friday")
+    ]
+    corrupt_logs = [
+        {"category": "CODING", "estimated_duration_min": float("nan"), "actual_duration_min": 60, "fatigue_after": float("nan")},
+        {"category": "CODING", "estimated_duration_min": 60, "actual_duration_min": float("inf"), "fatigue_after": float("inf")},
+        {"category": "CODING", "estimated_duration_min": True, "actual_duration_min": 120},
+        {"category": "CODING", "estimated_duration_min": -30, "actual_duration_min": 60},
+    ]
+    res = adapt_preferences_for_next_week(
+        monday_profile,
+        tasks,
+        timeline_logs=corrupt_logs,
+        kappa=float("nan"),
+        lambda_ewma=float("inf"),
+    )
+    assert res["category_alphas"]["CODING"]["sample_count"] == 0
+    assert res["category_alphas"]["CODING"]["alpha_light"] == pytest.approx(1.20)
+    assert res["category_alphas"]["CODING"]["alpha_heavy"] == pytest.approx(1.35)
+
+
+def test_disruption_vietnamese_midnight_now_and_clean_titles():
+    ref = datetime(2026, 11, 25, 14, 17, tzinfo=timezone(timedelta(hours=7)))  # Wednesday 14:17
+    prof = ScheduleController.build_empty_current_week_profile(reference_dt=ref)
+
+    f_midnight = extract_disruption_fields("Tối thứ 5 từ 8h đến 12h đêm bận việc đột xuất", prof)
+    assert f_midnight["day_of_week"] == "Thursday"
+    assert f_midnight["start_time"] == "20:00"
+    assert f_midnight["end_time"] == "23:59"
+
+    f_24h = extract_disruption_fields("Tối thứ 5 từ 20h đến 24h cúp điện đột xuất", prof)
+    assert f_24h["day_of_week"] == "Thursday"
+    assert f_24h["start_time"] == "20:00"
+    assert f_24h["end_time"] == "23:59"
+    assert "cúp điện" in f_24h["title"].lower()
+
+    f_now = extract_disruption_fields("Ngay bây giờ mình bận họp khẩn cấp 90 phút", prof)
+    assert f_now["day_of_week"] == "Wednesday"
+    assert f_now["start_time"] == "14:15"
+    assert f_now["end_time"] == "15:45"
+    assert "họp khẩn cấp" in f_now["title"].lower()
+
+    f_zero = extract_disruption_fields("Chiều thứ 4 từ 14h đến 14h họp đột xuất", prof)
+    assert "time_range" in f_zero["missing_fields"]
+
+
+def test_advisory_buffer_trims_partial_class_overlap_and_is_idempotent(monday_profile: CommitmentsProfile):
+    prof = monday_profile.model_copy(deep=True)
+    prof.fixed_events.append(
+        FixedEvent(
+            event_id="CLS_TTH",
+            title="Evening Seminar",
+            day_of_week=["Tuesday", "Thursday"],
+            start_time="19:00",
+            end_time="20:15",
+            category="ACADEMIC_CLASS",
+        )
+    )
+    tasks = [Task(task_id="T1", title="Study", duration_min=60, deadline_day="Saturday")]
+    logs = [
+        {"disruption_slot_window": "Thursday 19:30-21:00"},
+        {"disruption_slot_window": "Thursday 19:30-21:00"},
+    ]
+    r1 = adapt_preferences_for_next_week(prof, tasks, timeline_logs=logs)
+    r2 = adapt_preferences_for_next_week(r1["adapted_profile"], tasks, timeline_logs=logs + logs)
+
+    adv_events = [fe for fe in r2["adapted_profile"].fixed_events if fe.category == "ADVISORY_BUFFER"]
+    assert len(adv_events) == 1
+    assert adv_events[0].day_of_week == "Thursday"
+    assert adv_events[0].start_time == "20:15"
+    assert adv_events[0].end_time == "21:00"
+
+
+def test_overloaded_schedule_and_disruption_edge_case_no_crash(
+    isolated_db: Path, monday_profile: CommitmentsProfile
+):
+    heavy_tasks = [
+        Task(
+            task_id=f"HV_{i}",
+            title=f"Heavy Task {i}",
+            duration_min=240,
+            priority=5,
+            cognitive_load=3,
+            deadline_day="Monday",
+            deadline_time="20:00",
+        ).model_dump()
+        for i in range(5)
+    ]
+    res = handle_disruption_chat_turn(
+        {
+            "prompt": "Thứ Hai từ 09:00 đến 11:00 họp khẩn cấp",
+            "commitments": monday_profile.model_dump(),
+            "tasks": heavy_tasks,
+            "auto_save": False,
+        }
+    )
+    assert res["status"] == "APPLIED"
+    assert res["edge_case"] is not None
+    assert res["edge_case"]["code"] == "POST_DISRUPTION_OVERLOAD"
+
+
+def test_adapt_next_week_advance_week_shifts_iso_deadlines(
+    isolated_db: Path, monday_profile: CommitmentsProfile
+):
+    client = TestClient(app)
+    iso_task = {
+        "task_id": "T_ISO_DUE",
+        "title": "Chat-Created ISO Task",
+        "duration_min": 60,
+        "category": "CODING",
+        "cognitive_load": 3,
+        "due": "2026-11-27T23:59:00+07:00",
+        "start_after": "2026-11-24T09:00:00+07:00",
+    }
+    resp = client.post(
+        "/api/workspace/adapt-next-week",
+        json={
+            "workspace_id": "ws_iso_shift",
+            "commitments": monday_profile.model_dump(),
+            "next_week_tasks": [iso_task],
+            "timeline_logs": [],
+            "advance_week": True,
+            "apply": False,
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["schedule"]["summary"]["tasks_placed"] == 1
+    assert body["adapted_tasks"][0]["due"].startswith("2026-12-04")
+
+
+def test_delete_task_cleans_completed_blocks_in_workspace(
+    isolated_db: Path, monday_profile: CommitmentsProfile
+):
+    client = TestClient(app)
+    ws_id = "ws_del_completed"
+    tasks = [
+        {"task_id": "DEL_ME", "title": "Old", "duration_min": 60, "deadline_day": "Thursday"},
+        {"task_id": "KEEP_ME", "title": "Keep", "duration_min": 60, "deadline_day": "Friday"},
+    ]
+    client.put(
+        "/api/state",
+        json={
+            "workspace_id": ws_id,
+            "state": {
+                "commitments": monday_profile.model_dump(),
+                "tasks": tasks,
+                "completedBlocks": {
+                    "DEL_ME_P1": {"actual_min": 60},
+                    "KEEP_ME_P1": {"actual_min": 45},
+                },
+            },
+        },
+    )
+    r_del = client.post("/api/tasks/delete", json={"workspace_id": ws_id, "task_id": "DEL_ME"})
+    assert r_del.status_code == 200
+    st = client.get("/api/state", params={"workspace_id": ws_id}).json()["state"]
+    assert "DEL_ME_P1" not in st["completedBlocks"]
+    assert "KEEP_ME_P1" in st["completedBlocks"]
+
+
+def test_multi_week_simulation_dynamic_m7_simulator_hookup(
+    isolated_db: Path, monkeypatch: pytest.MonkeyPatch
+):
+    mock_mod = types.ModuleType("smartschedule.core.student_simulator")
+
+    class MockM7InSilicoSimulator:
+        def __init__(self, student_id: str, seed: int = 42, latent_profile=None):
+            self.student_id = student_id
+            self.seed = seed
+
+        def simulate_week_execution(self, profile, tasks, schedule):
+            is_eve = profile.focus_preference == "EVENING"
+            return [
+                {
+                    "task_id": b.task_id,
+                    "block_id": b.block_id,
+                    "category": b.category,
+                    "cognitive_load": b.cognitive_load or 3,
+                    "day": b.day,
+                    "window": "EVENING" if int(b.start_time[:2]) >= 18 else "MORNING",
+                    "estimated_duration_min": 60,
+                    "planned_duration_min": b.duration_min,
+                    "actual_duration_min": 85 if (is_eve or int(b.start_time[:2]) >= 18) else 0,
+                    "adhered": bool(is_eve or int(b.start_time[:2]) >= 18),
+                    "overrun_min": 0 if b.duration_min >= 85 else 25,
+                    "fatigue_after": 0.40,
+                    "disruption_slot_window": "Thursday 19:30-21:00",
+                }
+                for b in schedule.blocks
+            ]
+
+    mock_mod.InSilicoStudentSimulator = MockM7InSilicoSimulator
+    monkeypatch.setitem(sys.modules, "smartschedule.core.student_simulator", mock_mod)
+
+    client = TestClient(app)
+    resp = client.post("/api/simulation/multi-week", json={"weeks": 4, "n_students": 1, "seed": 42})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["simulator_backend"] == "InSilicoStudentSimulator"
+    assert body["converged"] is True
+    assert body["weeks_summary"][-1]["on_time_value_pct"] > body["weeks_summary"][0]["on_time_value_pct"]
+

@@ -130,11 +130,16 @@ class ScheduleController:
             pinned_blocks=pinned_blocks,
         )
         escalated = False
+        is_hard_capacity_overload = (
+            out.overload is not None
+            and getattr(out.overload, "error_type", "") == "CAPACITY_SHORTAGE"
+            and int(getattr(out.overload, "shortage_minutes", 0) or 0) > 120
+        )
         if (
             req_algo == "SCORED_GREEDY"
             and out.summary.tasks_unplaced > 0
             and "HYBRID_ALNS" in cls.SOLVER_REGISTRY
-            and not (out.overload is not None and out.overload.is_overloaded)
+            and not is_hard_capacity_overload
         ):
             alns_out, alns_grid = cls.solve_schedule(
                 profile=profile,

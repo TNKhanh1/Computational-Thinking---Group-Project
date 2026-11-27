@@ -14,8 +14,9 @@ Learns next-week personal parameters from prior execution logs (`timeline_logs` 
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import math
 import re
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 from smartschedule.core.config import ALPHA_HEAVY_DEFAULT, ALPHA_LIGHT_DEFAULT
 from smartschedule.core.estimate_buffer import multiplier_for_load
@@ -77,8 +78,24 @@ _WEEKDAY_CANONICAL: Dict[str, str] = {
 }
 
 
+def _safe_finite_float(val: Any) -> Optional[float]:
+    """Convert `val` to float strictly rejecting `None`, `bool`, `NaN`, and `+/-Inf`."""
+    if val is None or isinstance(val, bool):
+        return None
+    try:
+        f = float(val)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(f):
+        return None
+    return f
+
+
 def _clip(val: float, lo: float, hi: float) -> float:
-    return min(hi, max(lo, float(val)))
+    f = _safe_finite_float(val)
+    if f is None:
+        return lo
+    return min(hi, max(lo, f))
 
 
 def _window_from_hour(hour_val: float) -> str:
@@ -250,6 +267,59 @@ def _estimate_weekly_load_ratio(profile: CommitmentsProfile, tasks: Sequence[Tas
     return float(demand_min) / float(free_min)
 
 
+def _expand_fixed_event_day_names(day_of_week: Any) -> Set[str]:
+    all_days = {"Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"}
+    if isinstance(day_of_week, list):
+        out: Set[str] = set()
+        for item in day_of_week:
+            out |= _expand_fixed_event_day_names(item)
+        return out
+    raw = str(day_of_week or "").strip()
+    if raw.upper() == "ALL":
+        return set(all_days)
+    if "," in raw:
+        out = set()
+        for part in raw.split(","):
+            out |= _expand_fixed_event_day_names(part.strip())
+        return out
+    canon = _WEEKDAY_CANONICAL.get(raw.lower())
+    return {canon} if canon else set()
+
+
+def _occupied_day_offsets(profile: CommitmentsProfile, day_canon: str) -> Set[int]:
+    """Return all 0..95 slot offsets on `day_canon` already locked by sleep or non-advisory FixedEvents."""
+    locked: Set[int] = set()
+    sleep_s = parse_time_to_slot_offset(profile.sleep_schedule.daily_start_time, is_end_or_deadline=False)
+    sleep_e = parse_time_to_slot_offset(profile.sleep_schedule.daily_end_time, is_end_or_deadline=True)
+    if sleep_s > sleep_e:
+        locked.update(range(sleep_s, 96))
+        locked.update(range(0, sleep_e))
+    elif sleep_s < sleep_e:
+        locked.update(range(sleep_s, sleep_e))
+
+    for fe in profile.fixed_events:
+        if str(fe.category or "").strip().upper() == "ADVISORY_BUFFER":
+            continue
+        if day_canon not in _expand_fixed_event_day_names(fe.day_of_week):
+            continue
+        try:
+            es = parse_time_to_slot_offset(fe.start_time, is_end_or_deadline=False)
+            ee = parse_time_to_slot_offset(fe.end_time, is_end_or_deadline=True)
+            if ee > es:
+                locked.update(range(es, ee))
+        except Exception:
+            continue
+    return locked
+
+
+def _slot_offset_to_hhmm(slot_off: int) -> str:
+    clamped = max(0, min(96, int(slot_off)))
+    if clamped >= 96:
+        return "23:59"
+    hh, q = divmod(clamped, 4)
+    return f"{hh:02d}:{q * 15:02d}"
+
+
 def adapt_preferences_for_next_week(
     profile: CommitmentsProfile,
     next_tasks: Sequence[Task],
@@ -261,11 +331,17 @@ def adapt_preferences_for_next_week(
     Adapt fallacy buffers, circadian peak window, ultradian chunk pacing, and day-specific
     recurring disruption buffers for Week t+1 from Week <= t execution logs (Pattern P13).
     """
-    eff_kappa = max(0.0, float(kappa))
-    eff_lambda = _clip(float(lambda_ewma), 0.05, 0.95)
+    k_val = _safe_finite_float(kappa)
+    eff_kappa = max(0.0, k_val if k_val is not None else KAPPA_EMPIRICAL_BAYES)
+    l_val = _safe_finite_float(lambda_ewma)
+    eff_lambda = _clip(l_val if l_val is not None else LAMBDA_CATEGORY_EWMA, 0.05, 0.95)
     ordered_logs = _ensure_chronological_order(timeline_logs)
 
     adapted_profile = profile.model_copy(deep=True)
+    # Remove previously auto-injected ADVISORY_BUFFER events so multi-week re-runs stay idempotent
+    adapted_profile.fixed_events = [
+        fe for fe in adapted_profile.fixed_events if str(fe.category or "").strip().upper() != "ADVISORY_BUFFER"
+    ]
     raw_tasks_copy: List[Task] = [t.model_copy(deep=True) for t in (next_tasks or [])]
     preference_shifts: List[Dict[str, Any]] = []
     pattern_rules: List[Dict[str, str]] = []
@@ -279,19 +355,14 @@ def adapt_preferences_for_next_week(
     all_valid_ratios: List[float] = []
 
     for entry in ordered_logs:
-        est_raw = entry.get("estimated_duration_min") or entry.get("estimated_min")
-        act_raw = entry.get("actual_duration_min") or entry.get("actual_min")
+        est_raw = entry.get("estimated_duration_min") if entry.get("estimated_duration_min") is not None else entry.get("estimated_min")
+        act_raw = entry.get("actual_duration_min") if entry.get("actual_duration_min") is not None else entry.get("actual_min")
         adhered_flag = entry.get("adhered")
-        if adhered_flag is False and (act_raw is None or float(act_raw or 0) <= 0):
+        est_f = _safe_finite_float(est_raw)
+        act_f = _safe_finite_float(act_raw)
+        if adhered_flag is False and (act_f is None or act_f <= 0.0):
             continue
-        if est_raw is None or act_raw is None:
-            continue
-        try:
-            est_f = float(est_raw)
-            act_f = float(act_raw)
-        except (TypeError, ValueError):
-            continue
-        if est_f <= 0.0 or act_f <= 0.0:
+        if est_f is None or act_f is None or est_f <= 0.0 or act_f <= 0.0:
             continue
 
         ratio = _clip(act_f / est_f, RATIO_CLIP_MIN, RATIO_CLIP_MAX)
@@ -530,21 +601,14 @@ def adapt_preferences_for_next_week(
     long_block_troubled = 0
 
     for entry in ordered_logs:
-        if entry.get("fatigue_after") is not None:
-            try:
-                fv = float(entry["fatigue_after"])
-                if 0.0 <= fv <= 1.5:
-                    fatigue_values.append(fv)
-            except (TypeError, ValueError):
-                pass
+        fv = _safe_finite_float(entry.get("fatigue_after"))
+        if fv is not None and 0.0 <= fv <= 1.5:
+            fatigue_values.append(fv)
 
-        ref_dur = entry.get("planned_duration_min") or entry.get("estimated_duration_min") or 0
-        act_dur = entry.get("actual_duration_min") or 0
-        try:
-            ref_dur_f = float(ref_dur)
-            act_dur_f = float(act_dur)
-        except (TypeError, ValueError):
-            ref_dur_f, act_dur_f = 0.0, 0.0
+        ref_dur = entry.get("planned_duration_min") if entry.get("planned_duration_min") is not None else entry.get("estimated_duration_min")
+        act_dur = entry.get("actual_duration_min")
+        ref_dur_f = _safe_finite_float(ref_dur) or 0.0
+        act_dur_f = _safe_finite_float(act_dur) or 0.0
 
         if ref_dur_f > LONG_BLOCK_MIN_THRESHOLD:
             long_block_total += 1
@@ -619,35 +683,53 @@ def adapt_preferences_for_next_week(
     chronic_disruption_zones: List[Dict[str, Any]] = []
     if zone_counts:
         est_rho = _estimate_weekly_load_ratio(adapted_profile, adapted_tasks)
-        existing_spans = {
-            (str(fe.day_of_week), fe.start_time, fe.end_time)
-            for fe in adapted_profile.fixed_events
-            if isinstance(fe.day_of_week, str)
-        }
+        reserved_by_day: Dict[str, Set[int]] = {}
+
         for (day_canon, s_hhmm, e_hhmm), cnt in sorted(zone_counts.items()):
             if cnt < CHRONIC_DISRUPTION_MIN_COUNT:
                 continue
-            can_reserve = est_rho <= ADVISORY_BUFFER_MAX_RHO and (day_canon, s_hhmm, e_hhmm) not in existing_spans
+            z_start = parse_time_to_slot_offset(s_hhmm, is_end_or_deadline=False)
+            z_end = parse_time_to_slot_offset(e_hhmm, is_end_or_deadline=True)
+            locked_slots = _occupied_day_offsets(adapted_profile, day_canon) | reserved_by_day.get(day_canon, set())
+            free_subslots = [s for s in range(z_start, z_end) if s not in locked_slots]
+
+            # Find longest contiguous non-overlapping free run inside the chronic disruption span
+            best_run: List[int] = []
+            cur_run: List[int] = []
+            for s in free_subslots:
+                if not cur_run or s == cur_run[-1] + 1:
+                    cur_run.append(s)
+                else:
+                    if len(cur_run) > len(best_run):
+                        best_run = cur_run
+                    cur_run = [s]
+            if len(cur_run) > len(best_run):
+                best_run = cur_run
+
+            can_reserve = est_rho <= ADVISORY_BUFFER_MAX_RHO and len(best_run) >= 2
             action_tag = "ADVISORY_BUFFER_ADDED" if can_reserve else "ADVISORY_WARNING_ONLY"
+            eff_s_hhmm = _slot_offset_to_hhmm(best_run[0]) if can_reserve else s_hhmm
+            eff_e_hhmm = _slot_offset_to_hhmm(best_run[-1] + 1) if can_reserve else e_hhmm
+
             if can_reserve:
                 adapted_profile.fixed_events.append(
                     FixedEvent(
-                        event_id=f"ADV_RESERVE_{day_canon[:3].upper()}_{s_hhmm.replace(':', '')}",
-                        title=f"Khoảng đệm dự phòng phát sinh ({day_canon} {s_hhmm}–{e_hhmm})",
+                        event_id=f"ADV_RESERVE_{day_canon[:3].upper()}_{eff_s_hhmm.replace(':', '')}",
+                        title=f"Khoảng đệm dự phòng phát sinh ({day_canon} {eff_s_hhmm}–{eff_e_hhmm})",
                         day_of_week=day_canon,
-                        start_time=s_hhmm,
-                        end_time=e_hhmm,
+                        start_time=eff_s_hhmm,
+                        end_time=eff_e_hhmm,
                         category="ADVISORY_BUFFER",
                     )
                 )
-                existing_spans.add((day_canon, s_hhmm, e_hhmm))
+                reserved_by_day.setdefault(day_canon, set()).update(best_run)
 
             chronic_disruption_zones.append(
                 {
                     "day_of_week": day_canon,
-                    "start_time": s_hhmm,
-                    "end_time": e_hhmm,
-                    "slot_window": f"{day_canon} {s_hhmm}-{e_hhmm}",
+                    "start_time": eff_s_hhmm,
+                    "end_time": eff_e_hhmm,
+                    "slot_window": f"{day_canon} {eff_s_hhmm}-{eff_e_hhmm}",
                     "occurrences": cnt,
                     "action": action_tag,
                 }
@@ -655,17 +737,17 @@ def adapt_preferences_for_next_week(
             preference_shifts.append(
                 {
                     "shift_type": "CHRONIC_DISRUPTION_ZONE",
-                    "target": f"{day_canon} {s_hhmm}–{e_hhmm}",
+                    "target": f"{day_canon} {eff_s_hhmm}–{eff_e_hhmm}",
                     "old_value": "FREE",
                     "new_value": action_tag,
                     "occurrences": cnt,
                     "message_vi": (
-                        f"Khung giờ {day_canon} {s_hhmm}–{e_hhmm} đã có việc đột xuất lặp lại {cnt} lần. "
+                        f"Khung giờ {day_canon} {eff_s_hhmm}–{eff_e_hhmm} đã có việc đột xuất lặp lại {cnt} lần. "
                         f"Hệ thống tự động khoanh vùng dự phòng riêng ngày {day_canon} để tránh xếp bài quan trọng vào đây."
                     ),
                     "pattern_id": "P13",
                     "deterministic_rule": (
-                        f"count(disruption[{day_canon} {s_hhmm}-{e_hhmm}])={cnt} >= 2 -> day-scoped ADVISORY_BUFFER"
+                        f"count(disruption[{day_canon} {s_hhmm}-{e_hhmm}])={cnt} >= 2 -> day-scoped {action_tag}"
                     ),
                 }
             )

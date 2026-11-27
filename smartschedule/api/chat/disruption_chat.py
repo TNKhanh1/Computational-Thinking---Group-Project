@@ -30,14 +30,13 @@ from smartschedule.core.solvers.local_repair import LocalRepairEngine
 from smartschedule.core.storage import load_workspace_state, save_workspace_state
 from smartschedule.nlp.clause_condenser import (
     _WEEKDAY_VI_MAP,
-    _clean_conversational_title,
     _extract_flexible_duration_min,
     _extract_time_range,
     _parse_clock_token,
     _resolve_day_token,
     _resolve_now_weekday,
 )
-from smartschedule.nlp.parser_controller import _strip_accents
+from smartschedule.nlp.parser_controller import WEEKDAYS, _strip_accents
 
 _RECURRING_EXCLUSION_RE = re.compile(
     r"\b(?:hang\s*ngay|moi\s*ngay|hang\s*tuan|moi\s*tuan|moi\s*thu|moi\s*sang|moi\s*chieu|moi\s*toi|"
@@ -110,6 +109,19 @@ def is_disruption_prompt(prompt: str) -> bool:
     return is_disruption_intent(prompt)
 
 
+def _normalize_midnight_end_bounds(norm_text: str) -> str:
+    """
+    Normalize Vietnamese midnight end-of-day expressions (`'24h'`, `'24:00'`, `'12h dem'`, `'0h dem'`, `'nua dem'`)
+    to `'23:59'` when appearing after `- / den / toi / to` so same-day range parsers never wrap to `00:00` or `12:00`.
+    """
+    out = re.sub(
+        r"(-|–|—|\bden\b|\btoi\b|\bto\b)\s*(?:24\s*(?::\s*00|h|gio)?|(?:12|0)\s*(?::\s*00|h|gio)\s*dem|nua\s*dem)\b",
+        r"\1 23:59",
+        norm_text,
+    )
+    return out
+
+
 def _adjust_pm_from_context(
     s_time: Optional[str],
     e_time: Optional[str],
@@ -117,7 +129,7 @@ def _adjust_pm_from_context(
 ) -> Tuple[Optional[str], Optional[str]]:
     """
     Handle Vietnamese leading period-of-day cues such as `'Chiều thứ 4 từ 2h đến 4h'`
-    where `'chiều'` precedes the weekday rather than trailing the hour digits.
+    or `'Tối thứ 5 từ 8h đến 12h đêm'` where `'chiều/tối'` precedes the weekday.
     """
     if not s_time or not e_time:
         return s_time, e_time
@@ -132,9 +144,34 @@ def _adjust_pm_from_context(
         sh += 12
     if 1 <= eh <= 11:
         eh += 12
+    elif eh == 12 and em == 0 and sh >= 12:
+        eh, em = 23, 59
     if sh <= 23 and eh <= 23 and (eh * 60 + em) > (sh * 60 + sm):
         return f"{sh:02d}:{sm:02d}", f"{eh:02d}:{em:02d}"
     return s_time, e_time
+
+
+def _resolve_immediate_now_window(norm_text: str, profile: CommitmentsProfile) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    """Support `'Ngay bây giờ / Bây giờ / Lúc này mình bận họp khẩn 90 phút'` anchored to `profile.now`."""
+    if not re.search(r"\b(?:ngay\s+bay\s+gio|bay\s+gio|luc\s+nay|hien\s+tai|right\s+now)\b", norm_text):
+        return None, None, None
+    dur_min, dur_inferred = _extract_flexible_duration_min(norm_text)
+    eff_dur = int(dur_min) if (not dur_inferred and dur_min and dur_min > 0) else 60
+
+    ref = profile.now or profile.planning_week_start or "2026-11-02T08:00:00+07:00"
+    try:
+        dt = datetime.fromisoformat(str(ref).replace("Z", "+00:00"))
+        day_en = WEEKDAYS[dt.weekday()]
+        # Align start down to 15-min slot boundary
+        start_total = dt.hour * 60 + (dt.minute // 15) * 15
+        end_total = min(23 * 60 + 59, start_total + max(15, eff_dur))
+        if end_total <= start_total:
+            return day_en, None, None
+        sh, sm = divmod(start_total, 60)
+        eh, em = divmod(end_total, 60)
+        return day_en, f"{sh:02d}:{sm:02d}", f"{eh:02d}:{em:02d}"
+    except Exception:
+        return None, None, None
 
 
 def _extract_single_start_plus_duration(norm_text: str) -> Tuple[Optional[str], Optional[str]]:
@@ -150,7 +187,7 @@ def _extract_single_start_plus_duration(norm_text: str) -> Tuple[Optional[str], 
         return None, None
     dur_min, dur_inferred = _extract_flexible_duration_min(norm_text)
     if dur_inferred or not dur_min or dur_min <= 0:
-        return s_time, None
+        return None, None
 
     sh, sm = map(int, s_time.split(":"))
     if 1 <= sh <= 11 and re.search(r"\b(?:chieu|toi|dem)\b", norm_text) and not re.search(r"\b(?:sang|am)\b", norm_text):
@@ -160,22 +197,66 @@ def _extract_single_start_plus_duration(norm_text: str) -> Tuple[Optional[str], 
     total_end_min = min(23 * 60 + 59, sh * 60 + sm + int(dur_min))
     eh, em = divmod(total_end_min, 60)
     if (eh * 60 + em) <= (sh * 60 + sm):
-        return s_time, None
+        return None, None
     return s_time, f"{eh:02d}:{em:02d}"
 
 
 def _clean_disruption_title(raw_text: str) -> str:
-    cleaned = _clean_conversational_title(raw_text)
-    cleaned = re.sub(
-        r"^(?:minh\s+|em\s+|toi\s+)?(?:bi\s+|co\s+)?(?:ban\s+|ket\s+)?",
-        "",
-        cleaned,
-        flags=re.IGNORECASE,
-    ).strip(" ,:-.")
-    norm_c = _strip_accents(cleaned).lower()
-    if not cleaned or norm_c in ("dot xuat", "ban", "ban dot xuat", "viec dot xuat", "ket lich"):
+    """
+    Dedicated disruption event title extractor that strips temporal anchors (`'Tối thứ 5'`, `'từ 8h đến 12h đêm'`,
+    `'ngay bây giờ'`, `'trong 90 phút'`) while preserving the meaningful disruption phrase (`'Họp CLB đột xuất'`,
+    `'Cúp điện đột xuất'`, `'Khám bệnh đột xuất'`).
+    """
+    work = str(raw_text or "").split("\n")[0].strip()
+    if not work:
         return "Sự kiện bận đột xuất"
-    return cleaned[0].upper() + cleaned[1:]
+
+    # Strip explicit time ranges, start clocks, durations, and temporal weekday/period anchors
+    strip_patterns = (
+        r"\b(?:từ|tu|from)\s+\d{1,2}\s*(?::|h|giờ|gio)?\s*(?:\d{1,2}|rưỡi|ruoi)?\s*(?:am|pm|sáng|sang|trưa|trua|chiều|chieu|tối|toi|đêm|dem)?\s*(?:-|–|—|đến|den|tới|toi|to)\s*(?:\d{1,2}\s*(?::|h|giờ|gio)?\s*(?:\d{1,2}|rưỡi|ruoi)?\s*(?:am|pm|sáng|sang|trưa|trua|chiều|chieu|tối|toi|đêm|dem)?|nửa\s*đêm|nua\s*dem)\b",
+        r"\b\d{1,2}\s*(?::|h|giờ|gio)\s*(?:\d{1,2}|rưỡi|ruoi)?\s*(?:am|pm|sáng|sang|trưa|trua|chiều|chieu|tối|toi|đêm|dem)?\s*(?:-|–|—|đến|den|tới|toi|to)\s*\d{1,2}\s*(?::|h|giờ|gio)?\s*(?:\d{1,2}|rưỡi|ruoi)?\s*(?:am|pm|sáng|sang|trưa|trua|chiều|chieu|tối|toi|đêm|dem)?\b",
+        r"\b(?:lúc|luc|vào|vao)\s*\d{1,2}\s*(?::|h|giờ|gio)\s*(?:\d{1,2}|rưỡi|ruoi)?\s*(?:am|pm|sáng|sang|trưa|trua|chiều|chieu|tối|toi|đêm|dem)?\b",
+        r"\b(?:kéo\s*dài|keo\s*dai|trong(?:\s*vòng|\s*khoảng)?|khoảng|khoang|mất|mat|tầm|tam)?\s*\d+(?:[.,]\d+)?\s*(?:tiếng|tieng|giờ|gio|h|hours?|hrs?|phút|phut|p|mins?|minutes?)(?:\s*(?:rưỡi|ruoi))?\b",
+        r"\b(?:buổi\s+|buoi\s+)?(?:sáng|sang|trưa|trua|chiều|chieu|tối|toi|đêm|dem)?\s*(?:ngày\s+|ngay\s+)?(?:thứ\s*(?:[2-7]|hai|ba|tư|tu|năm|nam|sáu|sau|bảy|bay)|t[2-7]|chủ\s*nhật|chu\s*nhat|cn|hôm\s*nay|hom\s*nay|ngày\s*mai|ngay\s*mai|mai|ngay\s*kia|ngày\s*kia|monday|tuesday|wednesday|thursday|friday|saturday|sunday|today|tomorrow)\b",
+        r"\b(?:ngay\s+bây\s+giờ|ngay\s+bay\s+gio|bây\s+giờ|bay\s+gio|lúc\s+này|luc\s+nay|hiện\s+tại|hien\s+tai)\b",
+    )
+    for pat in strip_patterns:
+        work = re.sub(pat, " ", work, flags=re.IGNORECASE)
+
+    work = re.sub(
+        r"^\s*(?:mình|minh|em|tôi|toi)\s+(?:bị\s+|bi\s+|có\s+|co\s+|đang\s+|dang\s+)?",
+        "",
+        work,
+        flags=re.IGNORECASE,
+    )
+    work = re.sub(
+        r"^\s*(?:bị\s+|bi\s+|có\s+|co\s+)?(?:bận\s+|ban\s+|kẹt\s+|ket\s+)(?=(?:họp|hop|việc|viec|lịch|lich|khám|kham|đi|di))",
+        "",
+        work,
+        flags=re.IGNORECASE,
+    )
+    work = re.sub(r"\s{2,}", " ", work).strip(" ,;:-.")
+    norm_c = _strip_accents(work).lower().strip()
+    generic_leftovers = {
+        "",
+        "ban",
+        "ket",
+        "dot xuat",
+        "ban dot xuat",
+        "viec dot xuat",
+        "ket lich",
+        "ket lich dot xuat",
+        "ban viec",
+        "ban viec dot xuat",
+        "sang",
+        "trua",
+        "chieu",
+        "toi",
+        "dem",
+    }
+    if norm_c in generic_leftovers or len(norm_c) < 3:
+        return "Sự kiện bận đột xuất"
+    return work[0].upper() + work[1:]
 
 
 def extract_disruption_fields(
@@ -185,16 +266,25 @@ def extract_disruption_fields(
 ) -> Dict[str, Any]:
     """Extract `(title, day_of_week, start_time, end_time)` merging optional `pending_draft`."""
     draft = dict(pending_draft) if isinstance(pending_draft, dict) else {}
-    norm = _strip_accents(prompt or "").lower()
+    norm_raw = _strip_accents(prompt or "").lower()
+    norm = _normalize_midnight_end_bounds(norm_raw)
     now_day = _resolve_now_weekday(profile)
 
-    day_of_week = _resolve_day_token(prompt, now_day) or draft.get("day_of_week")
+    now_d, now_s, now_e = _resolve_immediate_now_window(norm, profile)
+    day_of_week = _resolve_day_token(prompt, now_day) or now_d or draft.get("day_of_week")
+
     s_time, e_time = _extract_time_range(norm)
-    s_time, e_time = _adjust_pm_from_context(s_time, e_time, norm)
+    s_time, e_time = _adjust_pm_from_context(s_time, e_time, norm_raw)
     if not s_time or not e_time:
         fb_s, fb_e = _extract_single_start_plus_duration(norm)
-        s_time = s_time or fb_s or draft.get("start_time")
-        e_time = e_time or fb_e or draft.get("end_time")
+        s_time = s_time or fb_s or now_s or draft.get("start_time")
+        e_time = e_time or fb_e or now_e or draft.get("end_time")
+
+    if s_time and e_time:
+        sh, sm = map(int, s_time.split(":"))
+        eh, em = map(int, e_time.split(":"))
+        if (eh * 60 + em) <= (sh * 60 + sm):
+            s_time, e_time = None, None
 
     new_title = _clean_disruption_title(prompt)
     if draft.get("title") and new_title == "Sự kiện bận đột xuất":
@@ -599,7 +689,7 @@ def handle_disruption_chat_turn(
     )
 
     edge_case_dict = None
-    if rep_out.schedule.overload and rep_out.schedule.overload.is_overloaded:
+    if rep_out.schedule.overload is not None:
         edge_case_dict = {
             "has_edge_case": True,
             "severity": "WARNING",
