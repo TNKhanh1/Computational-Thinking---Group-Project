@@ -60,7 +60,7 @@ python -B -m pytest -c environments/pyproject.toml v1.0-alpha-plan/Testing_Syste
 ---
 
 ## 3. Checklist Cá Nhân (Tick `[x]` trên nhánh của bạn)
-- [ ] **(Wave 1A)** Xây dựng `smartschedule/core/student_simulator.py` (5 phương trình tâm lý tất định theo `seed`, trả `timeline_logs` chuẩn cho `M5`).
-- [ ] **(Wave 1A)** Xây dựng `smartschedule/nlp/doc_attachment_parser.py` biên dịch đề bài `.pdf/.md/.txt` thành `DocumentConstraintDigest` + viết `test_student_simulator_and_doc_parser.py` (gửi `M4` Trọng Tiến kiểm định bằng Claude Plan).
+- [x] **(Wave 1A)** Xây dựng `smartschedule/core/student_simulator.py` (5 phương trình tâm lý tất định theo `seed`, trả `timeline_logs` chuẩn cho `M5`).
+- [x] **(Wave 1A)** Xây dựng `smartschedule/nlp/doc_attachment_parser.py` biên dịch đề bài `.pdf/.md/.txt` thành `DocumentConstraintDigest` + viết `test_student_simulator_and_doc_parser.py` (gửi `M4` Trọng Tiến kiểm định bằng Claude Plan).
 - [ ] **(Wave 2B)** Hoàn thiện responsive CSS (`shell.css`, `calendar.css`, `chat.css`) + khóa `INV-1..6` trong `tests/architecture/*`.
 - [ ] **(Wave 2B & Wave 3)** Viết `tests/ui/test_v1_alpha_user_journeys.py` và chạy cổng kiểm định cuối cùng sáng Chủ Nhật trước khi `M1` gắn tag `v1.0-alpha`.

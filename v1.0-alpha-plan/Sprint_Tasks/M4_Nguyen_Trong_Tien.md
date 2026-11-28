@@ -57,7 +57,7 @@ python -B -m pytest -c environments/pyproject.toml v1.0-alpha-plan/Testing_Syste
 ---
 
 ## 4. Checklist Cá Nhân (Tick `[x]` trên nhánh của bạn)
-- [ ] Tạo `intent_classifier.py` + `lifecycle_intents.py` (`DELETE`, `COMPLETE`, `BATCH_ADD`, `QUERY`, `ADAPT_NEXT_WEEK`).
-- [ ] Nâng cấp `handlers.py` nối `depends_on` DAG (có chặn chu trình), đối chiếu đề bài đính kèm (`M7`), học thích nghi tuần sau (`M5`), và điều phối an toàn `M3`/`M5`/`M7`.
+- [x] Tạo `intent_classifier.py` + `lifecycle_intents.py` (`DELETE`, `COMPLETE`, `BATCH_ADD`, `QUERY`, `ADAPT_NEXT_WEEK`).
+- [x] Nâng cấp `handlers.py` nối `depends_on` DAG (có chặn chu trình), đối chiếu đề bài đính kèm (`M7`), học thích nghi tuần sau (`M5`), và điều phối an toàn `M3`/`M5`/`M7`.
 - [ ] Viết `tests/logical/test_chat_lifecycle_and_grounding.py` và chạy xanh toàn bộ test.
 - [ ] **(Chiều/Tối T7 28/11)** Chạy **Claude Plan Verification Audit** kiểm chứng toán học & ca biên trên code của `M5` (Bình) & `M7` (Bảo), và chốt 4 slide §5 Abstraction từ [`Formal_Spec_And_Patterns.md`](../Testing_Plan/Formal_Spec_And_Patterns.md).

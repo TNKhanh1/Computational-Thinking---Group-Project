@@ -15,9 +15,16 @@ Implements all endpoints specified in baseline_plan.md §8 and improve_plan.md �
   - POST /api/export/{fmt}         -> Exports schedule as .ics, .csv, or .json
 """
 
+from datetime import datetime, timedelta, timezone
+import hashlib
+import inspect
 import json
+import math
 from pathlib import Path
+import random
+import time
 from typing import Any, Dict, List, Optional, Tuple
+import uuid
 
 from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -25,6 +32,7 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Res
 
 from smartschedule.core.calibration import compute_ewma_calibration, format_pilot_markdown_report
 from smartschedule.core.controller import ScheduleController
+from smartschedule.core.cross_week_adapter import adapt_preferences_for_next_week
 from smartschedule.core.exporter import export_to_csv, export_to_ics, export_to_json
 from smartschedule.core.ics_importer import parse_ics_calendar
 from smartschedule.core.models import (
@@ -57,6 +65,7 @@ from smartschedule.api.auth import (
     resolve_workspace_id,
 )
 from smartschedule.api.chat import process_chat_turn
+from smartschedule.api.chat.disruption_chat import handle_disruption_chat_turn, is_disruption_intent
 from smartschedule.api.health_v21 import evaluate_schedule_v21
 from smartschedule.api.test_showcase import get_showcase_case, list_showcase
 from smartschedule.api.v3_services import (
@@ -418,7 +427,7 @@ def api_solver_weights(payload: Dict[str, Any] = Body(...)):
 def api_solve_schedule(payload: Dict[str, Any] = Body(...)):
     """Run the selected scheduling algorithm on the discrete 15-min grid and return v2.1 health telemetry."""
     try:
-        profile, tasks, algorithm, pinned_blocks = _extract_profile_and_tasks(payload)
+        profile, tasks, algorithm, pinned_blocks = _extract_profile_and_tasks(payload, apply_buffer=False)
         raw_tasks = _extract_raw_tasks(payload)
         out, _ = ScheduleController.solve_schedule(
             profile=profile,
@@ -437,7 +446,7 @@ def api_solve_schedule(payload: Dict[str, Any] = Body(...)):
 def api_compare_algorithms(payload: Dict[str, Any] = Body(...)):
     """Run two algorithms side-by-side for Dual-Algorithm Comparative View (baseline_plan.md §7.4 Option 3)."""
     try:
-        profile, tasks, _, pinned_blocks = _extract_profile_and_tasks(payload)
+        profile, tasks, _, pinned_blocks = _extract_profile_and_tasks(payload, apply_buffer=False)
         raw_tasks = _extract_raw_tasks(payload)
         algo_left = str(payload.get("algo_left") or "GREEDY_EDF_FIRST_FIT")
         algo_right = str(payload.get("algo_right") or "SCORED_GREEDY")
@@ -557,6 +566,24 @@ def api_repair_schedule(payload: Dict[str, Any] = Body(...)):
             mode=mode,
             algorithm=algorithm,
         )
+        if payload.get("workspace_id"):
+            ws_id = str(payload["workspace_id"]).strip()
+            rec = load_workspace_state(workspace_id=ws_id)
+            if isinstance(rec, dict) and isinstance(rec.get("state"), dict):
+                st = dict(rec["state"])
+                d_logs = list(st.get("disruption_logs") or [])
+                d_logs.append(
+                    {
+                        "event_id": disruption.event_id,
+                        "title": disruption.title,
+                        "day_of_week": disruption.day_of_week,
+                        "start_time": disruption.start_time,
+                        "end_time": disruption.end_time,
+                        "disruption_slot_window": f"{disruption.day_of_week} {disruption.start_time}-{disruption.end_time}",
+                    }
+                )
+                st["disruption_logs"] = d_logs[-50:]
+                save_workspace_state(st, workspace_id=ws_id)
         return rep_out.model_dump()
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -567,7 +594,7 @@ def api_repair_schedule(payload: Dict[str, Any] = Body(...)):
 def api_task_overrun(payload: Dict[str, Any] = Body(...)):
     """Simulate Task Duration Overrun or Set Target Task Duration (Scenario T05 / Use Case UC9)."""
     try:
-        profile, tasks, algorithm, _ = _extract_profile_and_tasks(payload)
+        profile, tasks, algorithm, _ = _extract_profile_and_tasks(payload, apply_buffer=False)
         task_id = str(payload.get("task_id") or payload.get("block_id") or (tasks[0].task_id if tasks else ""))
         extra_min = int(payload.get("extra_min") or payload.get("extra_minutes") or 0)
         overrun_pct = float(payload.get("overrun_pct") or 30.0)
@@ -726,6 +753,7 @@ def api_natural_language_add(payload: Dict[str, Any] = Body(...)):
 def api_chat_turn(payload: Dict[str, Any] = Body(...), request: Request = None):
     """
     Conversational Scheduling Turn Endpoint (< 10s SLA):
+      - Emergency one-off disruption routing via LocalRepairEngine (Pattern P8, >= 90% stability).
       - Multi-turn slot filling for missing content or start/end time.
       - SHA-256 keyword task traceability & hidden criteria tuning.
       - Deadline adjustment + remaining-time & personal habit/EWMA buffer re-estimation.
@@ -736,6 +764,15 @@ def api_chat_turn(payload: Dict[str, Any] = Body(...), request: Request = None):
         enriched_payload["workspace_id"] = resolve_workspace_id(
             request, str(payload.get("workspace_id") or "default")
         )
+        prompt_str = str(enriched_payload.get("prompt") or enriched_payload.get("text") or "").strip()
+        mode_hint = str(enriched_payload.get("mode_hint") or "AUTO")
+        pending_draft = (
+            enriched_payload.get("pending_draft")
+            if isinstance(enriched_payload.get("pending_draft"), dict)
+            else None
+        )
+        if is_disruption_intent(prompt_str, mode_hint=mode_hint, pending_draft=pending_draft):
+            return handle_disruption_chat_turn(enriched_payload)
         return process_chat_turn(enriched_payload)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -1071,4 +1108,822 @@ def api_import_ics(payload: Dict[str, Any] = Body(...)):
         tz_offset_hours=tz_offset,
         default_task_duration_min=default_dur,
     )
+
+
+# ---------------------------------------------------------------------------
+# v1.0-alpha M5 Endpoints: Real-Week Init, Single-Item CRUD, Cross-Week
+# Preference Adaptation (Pattern P13), & Closed-Loop Multi-Week Simulation
+# ---------------------------------------------------------------------------
+
+def _load_workspace_bundle_for_mutation(
+    payload: Dict[str, Any],
+    request: Optional[Request],
+) -> Tuple[str, Optional[Dict[str, Any]], CommitmentsProfile, List[Task], str, List[ScheduleBlock]]:
+    ws_id = resolve_workspace_id(request, str(payload.get("workspace_id") or "default"))
+    rec = load_workspace_state(workspace_id=ws_id)
+    saved_state = dict(rec["state"]) if isinstance(rec, dict) and isinstance(rec.get("state"), dict) else None
+
+    merged = dict(payload)
+    if saved_state is not None:
+        if "commitments" not in merged and "profile" not in merged and saved_state.get("commitments"):
+            merged["commitments"] = saved_state["commitments"]
+        if "tasks" not in merged and saved_state.get("tasks") is not None:
+            merged["tasks"] = saved_state["tasks"]
+        if "pinned_blocks" not in merged and saved_state.get("pinnedBlocks") is not None:
+            merged["pinned_blocks"] = saved_state["pinnedBlocks"]
+        if "algorithm" not in merged and saved_state.get("activeSolver"):
+            merged["algorithm"] = saved_state["activeSolver"]
+
+    profile, raw_tasks, algorithm, pinned_blocks = _extract_profile_and_tasks(merged, apply_buffer=False)
+    return ws_id, saved_state, profile, raw_tasks, algorithm, pinned_blocks
+
+
+def _synthesize_real_user_timeline_logs(
+    ws_id: str,
+    saved_state: Optional[Dict[str, Any]],
+    provided_logs: Optional[List[Dict[str, Any]]],
+) -> List[Dict[str, Any]]:
+    """
+    Bridge real human SQLite telemetry (`completion_logs` + `completedBlocks` + `disruption_logs`)
+    into `CrossWeekPreferenceAdapter`'s unified `timeline_logs` contract (Fix M-5).
+    """
+    if isinstance(provided_logs, list) and len(provided_logs) > 0:
+        out_logs = [dict(x) for x in provided_logs if isinstance(x, dict)]
+    else:
+        rows = list_completion_logs(workspace_id=ws_id, limit=200)
+        sched_blocks = ((saved_state or {}).get("currentSchedule") or {}).get("blocks") or []
+        completed_map = (saved_state or {}).get("completedBlocks") or {}
+
+        blocks_by_task: Dict[str, List[Dict[str, Any]]] = {}
+        for blk in sched_blocks:
+            if isinstance(blk, dict) and blk.get("task_id"):
+                blocks_by_task.setdefault(str(blk["task_id"]), []).append(blk)
+
+        out_logs = []
+        # Rows come newest-first; reverse so chronological order holds
+        for r in reversed(rows):
+            entry = dict(r)
+            tid = str(entry.get("task_id") or "")
+            matched_blks = blocks_by_task.get(tid) or []
+            if matched_blks:
+                b0 = matched_blks[0]
+                if not entry.get("start_time") and b0.get("start_time"):
+                    entry["start_time"] = b0["start_time"]
+                if entry.get("cognitive_load") is None and b0.get("cognitive_load") is not None:
+                    entry["cognitive_load"] = b0["cognitive_load"]
+                if entry.get("planned_duration_min") is None and b0.get("duration_min") is not None:
+                    entry["planned_duration_min"] = b0["duration_min"]
+            entry.setdefault("adhered", True)
+            out_logs.append(entry)
+
+        # Include uncompleted scheduled blocks when user tracked partial block completions in workspace
+        if isinstance(completed_map, dict) and len(completed_map) > 0 and sched_blocks:
+            for blk in sched_blocks:
+                if not isinstance(blk, dict):
+                    continue
+                bid = str(blk.get("block_id") or "")
+                if bid and bid not in completed_map:
+                    out_logs.append(
+                        {
+                            "task_id": blk.get("task_id"),
+                            "block_id": bid,
+                            "category": blk.get("category") or "DEADLINE",
+                            "cognitive_load": blk.get("cognitive_load"),
+                            "start_time": blk.get("start_time"),
+                            "estimated_duration_min": blk.get("duration_min"),
+                            "planned_duration_min": blk.get("duration_min"),
+                            "actual_duration_min": 0,
+                            "adhered": False,
+                        }
+                    )
+
+    if isinstance(saved_state, dict):
+        for d_item in saved_state.get("disruption_logs") or []:
+            if isinstance(d_item, dict) and d_item.get("disruption_slot_window"):
+                out_logs.append({"disruption_slot_window": d_item["disruption_slot_window"]})
+    return out_logs
+
+
+@app.post("/api/workspace/init-real-week")
+def api_init_real_week(payload: Dict[str, Any] = Body(default={}), request: Request = None):
+    """Initialize an empty schedule anchored to the current real-world Monday (`00:00:00+07:00`)."""
+    try:
+        ws_id = resolve_workspace_id(request, str(payload.get("workspace_id") or "default"))
+        sleep_start = str(payload.get("sleep_start") or payload.get("daily_start_time") or "23:30")
+        sleep_end = str(payload.get("sleep_end") or payload.get("daily_end_time") or "06:30")
+        focus_pref = str(payload.get("focus_preference") or "BALANCED")
+        est_habit = payload.get("estimate_habit", "SOMETIMES")
+        student_id = str(payload.get("student_id") or "STUDENT_USER")
+
+        profile = ScheduleController.build_empty_current_week_profile(
+            student_id=student_id,
+            daily_start_time=sleep_start,
+            daily_end_time=sleep_end,
+            focus_preference=focus_pref,
+            estimate_habit=est_habit,
+        )
+        out, _, _ = ScheduleController.solve_adaptive(
+            profile=profile,
+            tasks=[],
+            algorithm="SCORED_GREEDY",
+            pinned_blocks=[],
+        )
+        enriched = _enrich_response(out, profile=profile, raw_tasks=[], pinned_blocks=[])
+
+        if bool(payload.get("save", True)):
+            save_workspace_state(
+                {
+                    "commitments": profile.model_dump(),
+                    "tasks": [],
+                    "pinnedBlocks": [],
+                    "completedBlocks": {},
+                    "activeSolver": "SCORED_GREEDY",
+                    "currentSchedule": enriched,
+                    "chatMessages": [],
+                    "disruption_logs": [],
+                },
+                workspace_id=ws_id,
+            )
+
+        return {
+            "workspace_id": ws_id,
+            "commitments": profile.model_dump(),
+            "tasks": [],
+            "pinned_blocks": [],
+            "schedule": enriched,
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/tasks/delete")
+def api_delete_task(payload: Dict[str, Any] = Body(...), request: Request = None):
+    """Delete a single task, clean orphaned `depends_on` references & pins, and re-solve."""
+    try:
+        target_id = str(payload.get("task_id") or "").strip()
+        if not target_id:
+            raise ValueError("Field 'task_id' is required.")
+
+        ws_id, saved_state, profile, raw_tasks, algorithm, pinned_blocks = _load_workspace_bundle_for_mutation(
+            payload, request
+        )
+        kept_tasks: List[Task] = []
+        for t in raw_tasks:
+            if t.task_id == target_id:
+                continue
+            if target_id in (t.depends_on or []):
+                cleaned_deps = [dep for dep in t.depends_on if dep != target_id]
+                kept_tasks.append(t.model_copy(update={"depends_on": cleaned_deps}, deep=True))
+            else:
+                kept_tasks.append(t)
+
+        kept_pins = [pb for pb in pinned_blocks if pb.task_id != target_id]
+        out, _, _ = ScheduleController.solve_adaptive(
+            profile=profile,
+            tasks=kept_tasks,
+            algorithm=algorithm,
+            pinned_blocks=kept_pins,
+        )
+        enriched = _enrich_response(out, profile=profile, raw_tasks=kept_tasks, pinned_blocks=kept_pins)
+
+        if bool(payload.get("save", saved_state is not None)):
+            next_state = dict(saved_state or {})
+            prev_completed = dict(next_state.get("completedBlocks") or {})
+            cleaned_completed = {
+                bid: binfo
+                for bid, binfo in prev_completed.items()
+                if not str(bid).startswith(f"{target_id}_") and bid != target_id
+            }
+            next_state.update(
+                {
+                    "commitments": profile.model_dump(),
+                    "tasks": [t.model_dump() for t in kept_tasks],
+                    "pinnedBlocks": [pb.model_dump() for pb in kept_pins],
+                    "completedBlocks": cleaned_completed,
+                    "currentSchedule": enriched,
+                }
+            )
+            save_workspace_state(next_state, workspace_id=ws_id)
+
+        return {
+            "deleted_task_id": target_id,
+            "updated_tasks": [t.model_dump() for t in kept_tasks],
+            "updated_pinned_blocks": [pb.model_dump() for pb in kept_pins],
+            "schedule": enriched,
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/fixed-events/upsert")
+def api_upsert_fixed_event(payload: Dict[str, Any] = Body(...), request: Request = None):
+    """Create or update a single FixedEvent by `event_id` and re-solve the schedule."""
+    try:
+        ev_raw = payload.get("event") or payload.get("fixed_event")
+        if not isinstance(ev_raw, dict):
+            raise ValueError("Field 'event' must be an object.")
+
+        ev_dict = dict(ev_raw)
+        if not ev_dict.get("event_id") and not ev_dict.get("id"):
+            ev_dict["event_id"] = f"EVENT_{uuid.uuid4().hex[:6].upper()}"
+        ev_model = FixedEvent.model_validate(ev_dict)
+        if ev_model.start_time == ev_model.end_time:
+            raise ValueError("FixedEvent start_time and end_time cannot be identical.")
+
+        ws_id, saved_state, profile, raw_tasks, algorithm, pinned_blocks = _load_workspace_bundle_for_mutation(
+            payload, request
+        )
+        updated_profile = profile.model_copy(deep=True)
+        replaced = False
+        new_events: List[FixedEvent] = []
+        for fe in updated_profile.fixed_events:
+            if fe.event_id == ev_model.event_id:
+                new_events.append(ev_model)
+                replaced = True
+            else:
+                new_events.append(fe)
+        if not replaced:
+            new_events.append(ev_model)
+        updated_profile.fixed_events = new_events
+
+        out, _, _ = ScheduleController.solve_adaptive(
+            profile=updated_profile,
+            tasks=raw_tasks,
+            algorithm=algorithm,
+            pinned_blocks=pinned_blocks,
+        )
+        enriched = _enrich_response(out, profile=updated_profile, raw_tasks=raw_tasks, pinned_blocks=pinned_blocks)
+
+        if bool(payload.get("save", saved_state is not None)):
+            next_state = dict(saved_state or {})
+            next_state.update(
+                {
+                    "commitments": updated_profile.model_dump(),
+                    "tasks": [t.model_dump() for t in raw_tasks],
+                    "pinnedBlocks": [pb.model_dump() for pb in pinned_blocks],
+                    "currentSchedule": enriched,
+                }
+            )
+            save_workspace_state(next_state, workspace_id=ws_id)
+
+        return {
+            "event": ev_model.model_dump(),
+            "updated_commitments": updated_profile.model_dump(),
+            "schedule": enriched,
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/fixed-events/delete")
+def api_delete_fixed_event(payload: Dict[str, Any] = Body(...), request: Request = None):
+    """Delete a single FixedEvent by `event_id` and re-solve the schedule."""
+    try:
+        event_id = str(payload.get("event_id") or "").strip()
+        if not event_id:
+            raise ValueError("Field 'event_id' is required.")
+
+        ws_id, saved_state, profile, raw_tasks, algorithm, pinned_blocks = _load_workspace_bundle_for_mutation(
+            payload, request
+        )
+        updated_profile = profile.model_copy(deep=True)
+        updated_profile.fixed_events = [fe for fe in updated_profile.fixed_events if fe.event_id != event_id]
+
+        out, _, _ = ScheduleController.solve_adaptive(
+            profile=updated_profile,
+            tasks=raw_tasks,
+            algorithm=algorithm,
+            pinned_blocks=pinned_blocks,
+        )
+        enriched = _enrich_response(out, profile=updated_profile, raw_tasks=raw_tasks, pinned_blocks=pinned_blocks)
+
+        if bool(payload.get("save", saved_state is not None)):
+            next_state = dict(saved_state or {})
+            next_state.update(
+                {
+                    "commitments": updated_profile.model_dump(),
+                    "tasks": [t.model_dump() for t in raw_tasks],
+                    "pinnedBlocks": [pb.model_dump() for pb in pinned_blocks],
+                    "currentSchedule": enriched,
+                }
+            )
+            save_workspace_state(next_state, workspace_id=ws_id)
+
+        return {
+            "deleted_event_id": event_id,
+            "updated_commitments": updated_profile.model_dump(),
+            "schedule": enriched,
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/workspace/adapt-next-week")
+def api_adapt_next_week(payload: Dict[str, Any] = Body(default={}), request: Request = None):
+    """
+    Cross-Week Fallacy Buffer & Preference Adaptation Endpoint (`Pattern P13`, LoA-4 default `apply=False`).
+    Adapts per-category buffers, revealed chronotype, ultradian pacing, and day-specific advisory buffers.
+    """
+    try:
+        ws_id, saved_state, profile, fallback_tasks, algorithm, _ = _load_workspace_bundle_for_mutation(
+            payload, request
+        )
+        raw_next_list = payload.get("next_week_tasks")
+        if isinstance(raw_next_list, list):
+            next_tasks = [Task.model_validate(t) for t in raw_next_list]
+        else:
+            next_tasks = fallback_tasks
+
+        target_profile = profile.model_copy(deep=True)
+        if bool(payload.get("advance_week", False)):
+            try:
+                ws_dt = datetime.fromisoformat(str(target_profile.planning_week_start).replace("Z", "+00:00"))
+                next_monday = ws_dt + timedelta(days=7)
+                target_profile.planning_week_start = next_monday.isoformat()
+                target_profile.now = next_monday.replace(hour=8, minute=0).isoformat()
+
+                # Shift ISO `due` / `start_after` timestamps belonging to the previous week forward +7 days
+                shifted_tasks: List[Task] = []
+                for nt in next_tasks:
+                    upd_fields: Dict[str, Any] = {}
+                    if nt.due:
+                        try:
+                            due_dt = datetime.fromisoformat(str(nt.due).replace("Z", "+00:00"))
+                            if due_dt < next_monday:
+                                upd_fields["due"] = (due_dt + timedelta(days=7)).isoformat()
+                        except ValueError:
+                            pass
+                    if nt.start_after and "T" in str(nt.start_after):
+                        try:
+                            sa_dt = datetime.fromisoformat(str(nt.start_after).replace("Z", "+00:00"))
+                            if sa_dt < next_monday:
+                                upd_fields["start_after"] = (sa_dt + timedelta(days=7)).isoformat()
+                        except ValueError:
+                            pass
+                    shifted_tasks.append(nt.model_copy(update=upd_fields, deep=True) if upd_fields else nt)
+                next_tasks = shifted_tasks
+            except ValueError:
+                pass
+
+        provided_logs = payload.get("timeline_logs") if isinstance(payload.get("timeline_logs"), list) else None
+        eff_logs = _synthesize_real_user_timeline_logs(ws_id, saved_state, provided_logs)
+        kappa = float(payload.get("kappa", 3.0))
+
+        adapt_res = adapt_preferences_for_next_week(
+            profile=target_profile,
+            next_tasks=next_tasks,
+            timeline_logs=eff_logs,
+            kappa=kappa,
+        )
+        adapted_profile: CommitmentsProfile = adapt_res["adapted_profile"]
+        adapted_tasks: List[Task] = adapt_res["adapted_tasks"]
+
+        out, _, _ = ScheduleController.solve_adaptive(
+            profile=adapted_profile,
+            tasks=adapted_tasks,
+            algorithm=algorithm,
+            pinned_blocks=[],
+        )
+        enriched = _enrich_response(out, profile=adapted_profile, raw_tasks=adapted_tasks, pinned_blocks=[])
+
+        apply_changes = bool(payload.get("apply", False))
+        if apply_changes:
+            next_state = dict(saved_state or {})
+            next_state.update(
+                {
+                    "commitments": adapt_res["adapted_commitments"],
+                    "tasks": adapt_res["adapted_tasks_dump"],
+                    "pinnedBlocks": [],
+                    "completedBlocks": {},
+                    "currentSchedule": enriched,
+                }
+            )
+            save_workspace_state(next_state, workspace_id=ws_id)
+
+        return {
+            "workspace_id": ws_id,
+            "applied": apply_changes,
+            "adapted_commitments": adapt_res["adapted_commitments"],
+            "adapted_tasks": adapt_res["adapted_tasks_dump"],
+            "category_alphas": adapt_res["category_alphas"],
+            "preference_shifts": adapt_res["preference_shifts"],
+            "chronic_disruption_zones": adapt_res["chronic_disruption_zones"],
+            "pattern_rules": adapt_res["pattern_rules"],
+            "schedule": enriched,
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+class _DeterministicFallbackStudentSimulator:
+    """
+    Self-contained 5-equation psychometric fallback twin (`MCTQ` + `Buehler LogNormal` +
+    `Steel 2007 TMT` + `McFadden RUM` + `Albulescu Fatigue`) used when `student_simulator.py`
+    (`M7`) is not yet merged on a standalone Wave 1A branch.
+    """
+
+    def __init__(self, student_id: str, seed: int = 42, latent_profile: Optional[Dict[str, Any]] = None) -> None:
+        self.student_id = student_id
+        self.rng = random.Random(int(seed))
+        cfg = dict(latent_profile or {})
+        self.true_peak_hour: float = float(cfg.get("true_peak_hour", 20.5))
+        self.impulsiveness_gamma: float = float(cfg.get("gamma", self.rng.betavariate(2.0, 5.0)))
+        self.category_bias: Dict[str, float] = {
+            "CODING": 1.44,
+            "PROJECT": 1.38,
+            "ASSIGNMENT": 1.25,
+            "EXAM": 1.32,
+            "READING": 1.05,
+            "DEADLINE": 1.20,
+            "HABIT": 1.02,
+        }
+        if isinstance(cfg.get("category_bias"), dict):
+            for k, v in cfg["category_bias"].items():
+                self.category_bias[str(k).upper()] = float(v)
+        self.chronic_disruption_window: Optional[str] = str(
+            cfg.get("chronic_disruption_window", "Thursday 19:30-21:00")
+        )
+
+    def _window_for_hour(self, h: float) -> str:
+        hi = int(h) % 24
+        if 6 <= hi < 12:
+            return "MORNING"
+        if 12 <= hi < 18:
+            return "AFTERNOON"
+        if 18 <= hi < 24:
+            return "EVENING"
+        return "NIGHT"
+
+    def simulate_week_execution(
+        self,
+        profile: CommitmentsProfile,
+        tasks: List[Task],
+        schedule: ScheduleOutput,
+    ) -> List[Dict[str, Any]]:
+        task_map = {t.task_id: t for t in tasks}
+        ordered_blocks = sorted(schedule.blocks, key=lambda b: (b.start_slot, b.end_slot))
+        fatigue = 0.12
+        prev_end_slot: Optional[int] = None
+        prev_day_idx: Optional[int] = None
+        logs: List[Dict[str, Any]] = []
+
+        # Thursday 19:30-21:00 recurring club disruption -> slots [3*96 + 78, 3*96 + 84)
+        disr_start, disr_end = 3 * 96 + 78, 3 * 96 + 84
+
+        for blk in ordered_blocks:
+            day_idx = blk.start_slot // 96
+            if prev_day_idx is not None and day_idx > prev_day_idx:
+                fatigue = max(0.05, fatigue * 0.25)
+            elif prev_end_slot is not None and (blk.start_slot - prev_end_slot) >= 1:
+                fatigue = max(0.05, fatigue * 0.60)
+
+            start_hour = ((blk.start_slot % 96) * 15) / 60.0
+            mid_hour = (((blk.start_slot + blk.end_slot) * 0.5 % 96) * 15) / 60.0
+            circ_dist = min(abs(mid_hour - self.true_peak_hour), 24.0 - abs(mid_hour - self.true_peak_hour))
+            circ_fit = max(0.0, 1.0 - (circ_dist / 8.0))
+
+            t_obj = task_map.get(blk.task_id)
+            raw_task_est = int(t_obj.duration_min) if t_obj is not None else int(blk.duration_min)
+            total_chunks = max(1, int(blk.total_chunks or 1))
+            est_chunk_min = max(15, int(round(raw_task_est / float(total_chunks))))
+            planned_min = int(blk.duration_min)
+            load = int(blk.cognitive_load or (t_obj.cognitive_load if t_obj and t_obj.cognitive_load else 2))
+            prio = int(blk.priority or (t_obj.priority if t_obj else 3))
+            cat = str(blk.category or (t_obj.category if t_obj else "DEADLINE")).strip().upper()
+
+            dl_slot = blk.deadline_slot if blk.deadline_slot is not None else (day_idx * 96 + 92)
+            slack_hours = max(0.05, ((dl_slot - blk.start_slot) * 15.0) / 60.0)
+            expectancy = max(0.08, 0.25 + 0.75 * circ_fit - 0.30 * fatigue)
+            u_task = (expectancy * (0.45 + 0.55 * (prio / 5.0))) / (
+                1.0 + self.impulsiveness_gamma * min(3.0, slack_hours / 24.0)
+            )
+            u_distract = 0.30
+            logit = 5.0 * (u_task - u_distract - 0.22 * fatigue)
+            p_adhere = 1.0 / (1.0 + math.exp(-max(-12.0, min(12.0, logit))))
+
+            collides_disruption = (
+                self.chronic_disruption_window is not None
+                and blk.start_slot < disr_end
+                and blk.end_slot > disr_start
+            )
+            if collides_disruption:
+                p_adhere *= 0.25
+
+            adhered = self.rng.random() < p_adhere
+            bias = self.category_bias.get(cat, 1.18)
+            noise = math.exp(self.rng.gauss(0.0, 0.07))
+            speed_Circ = 1.12 - 0.20 * circ_fit
+            actual_min = (
+                max(15, int(math.ceil((est_chunk_min * bias * speed_Circ * noise) / 15.0) * 15))
+                if adhered
+                else 0
+            )
+            overrun_min = max(0, actual_min - planned_min) if adhered else planned_min
+
+            if adhered:
+                hours_spent = actual_min / 60.0
+                fatigue_gain = (0.16 if load >= 3 else 0.09) * hours_spent
+                fatigue = min(1.0, fatigue + fatigue_gain)
+
+            logs.append(
+                {
+                    "task_id": blk.task_id,
+                    "block_id": blk.block_id,
+                    "category": cat,
+                    "cognitive_load": load,
+                    "day": blk.day,
+                    "window": self._window_for_hour(start_hour),
+                    "start_hour": round(start_hour, 2),
+                    "estimated_duration_min": est_chunk_min,
+                    "planned_duration_min": planned_min,
+                    "actual_duration_min": actual_min,
+                    "adhered": adhered,
+                    "overrun_min": overrun_min,
+                    "fatigue_after": round(fatigue, 4),
+                    "disruption_slot_window": self.chronic_disruption_window if collides_disruption else None,
+                }
+            )
+            prev_end_slot = blk.end_slot
+            prev_day_idx = day_idx
+
+        if self.chronic_disruption_window and not any(x.get("disruption_slot_window") for x in logs):
+            logs.append({"disruption_slot_window": self.chronic_disruption_window, "adhered": True})
+        return logs
+
+
+def _build_default_multiweek_benchmark_scenario() -> Tuple[CommitmentsProfile, List[Task], Dict[str, Any]]:
+    """
+    Canonical closed-loop evaluation persona (Formal_Spec_And_Patterns.md §6 Step 4):
+    A latent Night-Owl student (`true_peak_hour=20.5`) who initially misreports `'MORNING'`,
+    underestimates `CODING`/`PROJECT` tasks (`~1.44x`), and faces recurring Thursday `19:30–21:00`
+    club disruptions.
+    """
+    profile = CommitmentsProfile(
+        student_id="SIM_NIGHT_OWL_01",
+        planning_week_start="2026-11-02T00:00:00+07:00",
+        now="2026-11-02T07:00:00+07:00",
+        sleep_schedule=SleepSchedule(daily_start_time="23:45", daily_end_time="06:30", is_hard_lock=True),
+        fixed_events=[
+            FixedEvent(
+                event_id="CLS_MWF",
+                title="Lớp chính khóa Chiều T2-T4-T6",
+                day_of_week=["Monday", "Wednesday", "Friday"],
+                start_time="13:30",
+                end_time="16:30",
+                category="ACADEMIC_CLASS",
+            )
+        ],
+        estimate_habit=None,
+        focus_preference="MORNING",
+        buffer_mode="HABIT",
+    )
+    tasks = [
+        Task(
+            task_id="SIM_CODE_1",
+            title="Cài đặt thuật toán Đồ án",
+            duration_min=90,
+            deadline_day="Wednesday",
+            deadline_time="23:59",
+            priority=5,
+            category="CODING",
+            cognitive_load=3,
+            is_splittable=False,
+        ),
+        Task(
+            task_id="SIM_CODE_2",
+            title="Tối ưu cấu trúc dữ liệu & Test",
+            duration_min=90,
+            deadline_day="Friday",
+            deadline_time="23:59",
+            priority=5,
+            category="CODING",
+            cognitive_load=3,
+            is_splittable=False,
+        ),
+        Task(
+            task_id="SIM_PRJ_1",
+            title="Thiết kế kiến trúc mô-đun",
+            duration_min=75,
+            deadline_day="Thursday",
+            deadline_time="22:00",
+            priority=4,
+            category="PROJECT",
+            cognitive_load=3,
+            is_splittable=False,
+        ),
+        Task(
+            task_id="SIM_READ_1",
+            title="Đọc tài liệu buổi tối T2",
+            duration_min=60,
+            start_after="Monday 18:30",
+            deadline_day="Tuesday",
+            deadline_time="23:00",
+            priority=3,
+            category="READING",
+            cognitive_load=2,
+            preferred_window="EVENING",
+        ),
+        Task(
+            task_id="SIM_READ_2",
+            title="Tổng hợp ghi chú buổi tối T4",
+            duration_min=60,
+            start_after="Wednesday 18:30",
+            deadline_day="Thursday",
+            deadline_time="23:00",
+            priority=3,
+            category="READING",
+            cognitive_load=2,
+            preferred_window="EVENING",
+        ),
+        Task(
+            task_id="SIM_ASG_1",
+            title="Bài tập tự luyện cuối tuần",
+            duration_min=60,
+            deadline_day="Saturday",
+            deadline_time="22:00",
+            priority=4,
+            category="ASSIGNMENT",
+            cognitive_load=3,
+        ),
+    ]
+    latent_cfg = {
+        "true_peak_hour": 20.5,
+        "category_bias": {"CODING": 1.44, "PROJECT": 1.38, "ASSIGNMENT": 1.28, "READING": 1.05},
+        "chronic_disruption_window": "Thursday 19:30-21:00",
+    }
+    return profile, tasks, latent_cfg
+
+
+def _instantiate_student_simulator(student_id: str, seed: int, latent_cfg: Dict[str, Any]) -> Tuple[Any, str]:
+    try:
+        from smartschedule.core.student_simulator import InSilicoStudentSimulator  # type: ignore
+
+        sig = inspect.signature(InSilicoStudentSimulator.__init__).parameters
+        kwargs: Dict[str, Any] = {}
+        if "student_id" in sig:
+            kwargs["student_id"] = student_id
+        if "seed" in sig:
+            kwargs["seed"] = seed
+        if "latent_profile" in sig:
+            kwargs["latent_profile"] = latent_cfg
+        return InSilicoStudentSimulator(**kwargs), "InSilicoStudentSimulator"
+    except ImportError:
+        return _DeterministicFallbackStudentSimulator(student_id=student_id, seed=seed, latent_profile=latent_cfg), "DeterministicFallbackTwin"
+
+
+@app.post("/api/simulation/multi-week")
+def api_simulate_multi_week(payload: Dict[str, Any] = Body(default={})):
+    """
+    Closed-loop K-week behavioral adaptation simulation (`Pattern P13 + P14b`):
+    `Solve Week k -> Simulate In-Silico Student -> Adapt Preferences for Week k+1`.
+    Defaults to `weeks=4, n_students=1` (`< 500 ms` interactive SLA) and supports cohort runs (`n_students > 1`).
+    """
+    t0 = time.perf_counter()
+    try:
+        weeks = max(1, min(12, int(payload.get("weeks") or 4)))
+        n_students = max(1, min(50, int(payload.get("n_students") or 1)))
+        base_seed = int(payload.get("seed") if payload.get("seed") is not None else 42)
+        algorithm = str(payload.get("algorithm") or "SCORED_GREEDY")
+
+        has_custom_tasks = isinstance(payload.get("tasks"), list) and len(payload["tasks"]) > 0
+        if has_custom_tasks:
+            init_profile, init_tasks, _, _ = _extract_profile_and_tasks(payload, apply_buffer=False)
+            latent_cfg = payload.get("latent_profile") if isinstance(payload.get("latent_profile"), dict) else {
+                "true_peak_hour": 20.5,
+                "category_bias": {"CODING": 1.44, "PROJECT": 1.38, "ASSIGNMENT": 1.28, "READING": 1.05},
+                "chronic_disruption_window": "Thursday 19:30-21:00",
+            }
+        else:
+            init_profile, init_tasks, latent_cfg = _build_default_multiweek_benchmark_scenario()
+            if isinstance(payload.get("latent_profile"), dict):
+                latent_cfg.update(payload["latent_profile"])
+
+        per_week_adherence: List[List[float]] = [[] for _ in range(weeks)]
+        per_week_ontime_val: List[List[float]] = [[] for _ in range(weeks)]
+        rep_learned_alphas: List[Dict[str, float]] = [{} for _ in range(weeks)]
+        rep_learned_focus: List[str] = ["" for _ in range(weeks)]
+        backend_name = "DeterministicFallbackTwin"
+
+        for s_idx in range(n_students):
+            stu_seed = base_seed + s_idx * 9973
+            sim, backend_name = _instantiate_student_simulator(
+                student_id=f"{init_profile.student_id}_{s_idx + 1}",
+                seed=stu_seed,
+                latent_cfg=latent_cfg,
+            )
+            cur_profile = init_profile.model_copy(deep=True)
+            cur_tasks = [t.model_copy(deep=True) for t in init_tasks]
+            cumulative_logs: List[Dict[str, Any]] = []
+
+            for w_idx in range(weeks):
+                sched_out, _ = ScheduleController.solve_schedule(
+                    profile=cur_profile,
+                    tasks=cur_tasks,
+                    algorithm=algorithm,
+                )
+                week_logs = sim.simulate_week_execution(cur_profile, cur_tasks, sched_out)
+                cumulative_logs.extend(week_logs)
+
+                block_logs = [lg for lg in week_logs if lg.get("task_id")]
+                if block_logs:
+                    adh_cnt = sum(1 for lg in block_logs if bool(lg.get("adhered", False)))
+                    adh_pct = 100.0 * float(adh_cnt) / float(len(block_logs))
+                else:
+                    adh_pct = 0.0
+
+                # Compute effective on-time priority value accounting for both adherence AND overrun safety
+                total_prio = sum(int(t.priority) for t in init_tasks) or 1
+                earned_prio = 0.0
+                logs_by_tid: Dict[str, List[Dict[str, Any]]] = {}
+                for lg in block_logs:
+                    logs_by_tid.setdefault(str(lg["task_id"]), []).append(lg)
+
+                for t_raw in init_tasks:
+                    t_logs = logs_by_tid.get(t_raw.task_id, [])
+                    if not t_logs:
+                        continue
+                    if all(bool(lg.get("adhered", False)) for lg in t_logs):
+                        total_overrun = sum(int(lg.get("overrun_min") or 0) for lg in t_logs)
+                        # Unbuffered overruns degrade effective on-time value proportionally
+                        overrun_penalty = min(0.45, total_overrun / float(max(30, t_raw.duration_min * 2)))
+                        earned_prio += float(t_raw.priority) * (1.0 - overrun_penalty)
+
+                ontime_val_pct = 100.0 * earned_prio / float(total_prio)
+                per_week_adherence[w_idx].append(adh_pct)
+                per_week_ontime_val[w_idx].append(ontime_val_pct)
+
+                if s_idx == 0:
+                    rep_learned_focus[w_idx] = str(cur_profile.focus_preference or "BALANCED")
+                    cur_alphas_snap: Dict[str, float] = {}
+                    for ct in cur_tasks:
+                        cat_u = str(ct.category or "DEADLINE").upper()
+                        cur_alphas_snap[cat_u] = round(float(ct.alpha_heavy if (ct.cognitive_load or 2) >= 3 else ct.alpha_light), 3)
+                    rep_learned_alphas[w_idx] = cur_alphas_snap
+
+                # Adapt parameters from cumulative logs onto clean raw template tasks for Week w+1
+                adapt_next = adapt_preferences_for_next_week(
+                    profile=cur_profile,
+                    next_tasks=init_tasks,
+                    timeline_logs=cumulative_logs,
+                    kappa=3.0,
+                )
+                cur_profile = adapt_next["adapted_profile"]
+                cur_tasks = adapt_next["adapted_tasks"]
+
+        weeks_summary: List[Dict[str, Any]] = []
+        for w_idx in range(weeks):
+            mean_adh = round(sum(per_week_adherence[w_idx]) / float(len(per_week_adherence[w_idx])), 2)
+            mean_val = round(sum(per_week_ontime_val[w_idx]) / float(len(per_week_ontime_val[w_idx])), 2)
+            weeks_summary.append(
+                {
+                    "week": w_idx + 1,
+                    "adherence_pct": mean_adh,
+                    "on_time_value_pct": mean_val,
+                    "learned_alphas": rep_learned_alphas[w_idx],
+                    "learned_focus": rep_learned_focus[w_idx],
+                }
+            )
+
+        converged = bool(
+            len(weeks_summary) >= 2
+            and weeks_summary[-1]["adherence_pct"] >= weeks_summary[0]["adherence_pct"]
+            and weeks_summary[-1]["on_time_value_pct"] > weeks_summary[0]["on_time_value_pct"]
+        )
+        canonical_payload = json.dumps(
+            {
+                "seed": base_seed,
+                "weeks": weeks,
+                "n_students": n_students,
+                "algorithm": algorithm,
+                "weeks_summary": weeks_summary,
+            },
+            sort_keys=True,
+        )
+        det_hash = hashlib.sha256(canonical_payload.encode("utf-8")).hexdigest()[:16]
+        exec_ms = round((time.perf_counter() - t0) * 1000.0, 2)
+
+        return {
+            "weeks": weeks,
+            "n_students": n_students,
+            "seed": base_seed,
+            "simulator_backend": backend_name,
+            "weeks_summary": weeks_summary,
+            "converged": converged,
+            "determinism_hash": det_hash,
+            "execution_time_ms": exec_ms,
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
