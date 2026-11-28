@@ -56,7 +56,7 @@ python -B tests/clean_runner.py --pass
 ---
 
 ## 3. Checklist Cá Nhân (Tick `[x]` trên nhánh của bạn)
-- [ ] Tạo `smartschedule/ui/js/undo-history.js` và gắn nút **`↩ Hoàn tác`** lên Toast thông báo.
-- [ ] Lưu giữ 30 tin nhắn gần nhất qua `F5` (`state.js`) + thêm nút `🧹 Làm mới chat` và nút `📎` chọn file `.ics` / đề bài gửi kèm trong khung chat (`chat-assistant.js`).
-- [ ] Thêm nút **Xóa công việc / Xóa lịch cố định** trong `modals.js` và `render-list.js`, đồng thời hiển thị huy hiệu **`🔗 Pattern → Deterministic Logic Rule`** + **`Phụ thuộc DAG`** ở `Developer Mode` (`chat-assistant.js`).
-- [ ] Viết test `tests/ui/test_ics_undo_and_persistence.py` và kiểm tra xanh `node --check` + `clean_runner.py --pass` (phối hợp cùng Tiến `M4` chuẩn bị slide §5 Abstraction từ [`Formal_Spec_And_Patterns.md`](../Testing_Plan/Formal_Spec_And_Patterns.md)).
+- [x] Tạo `smartschedule/ui/js/undo-history.js` và gắn nút **`↩ Hoàn tác`** lên Toast thông báo.
+- [x] Lưu giữ 30 tin nhắn gần nhất qua `F5` (`state.js`) + thêm nút `🧹 Làm mới chat` và nút `📎` chọn file `.ics` / đề bài gửi kèm trong khung chat (`chat-assistant.js`).
+- [x] Thêm nút **Xóa công việc / Xóa lịch cố định** trong `modals.js` và `render-list.js`, đồng thời hiển thị huy hiệu **`🔗 Pattern → Deterministic Logic Rule`** + **`Phụ thuộc DAG`** ở `Developer Mode` (`chat-assistant.js`).
+- [x] Viết test `tests/ui/test_ics_undo_and_persistence.py` và kiểm tra xanh `node --check` + `clean_runner.py --pass` (phối hợp cùng Tiến `M4` chuẩn bị slide §5 Abstraction từ [`Formal_Spec_And_Patterns.md`](../Testing_Plan/Formal_Spec_And_Patterns.md)).
