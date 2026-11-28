@@ -452,7 +452,8 @@ def test_closed_loop_4_week_adaptation_convergence_and_latency():
         fresh_tasks = [t.model_copy(deep=True) for t in base_tasks]
         if adapt_preferences_for_next_week is not None:
             adapted = adapt_preferences_for_next_week(profile, fresh_tasks, all_history)
-            profile = adapted["adapted_commitments"]
+            # M5 contract: `adapted_profile` is the CommitmentsProfile; `adapted_commitments` is its dict dump.
+            profile = adapted["adapted_profile"]
             tasks = adapted["adapted_tasks"]
         else:
             profile, tasks = _local_p13_adapt_fallback(profile, fresh_tasks, all_history)

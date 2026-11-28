@@ -258,6 +258,8 @@ class InSilicoStudentSimulator:
             cfg.get("recurring_disruptions")
             or cfg.get("recurring_disruption")
             or cfg.get("chronic_disruption")
+            # M5 contract key (api/app.py multi-week scenario + fallback twin)
+            or cfg.get("chronic_disruption_window")
         )
         self.recurring_disruptions: List[Tuple[int, int, str]] = _parse_disruption_spec(raw_disruptions)
         self.poisson_disruption_rate: float = max(0.0, float(cfg.get("poisson_disruption_rate", 0.02)))
