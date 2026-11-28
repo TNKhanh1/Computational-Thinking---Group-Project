@@ -3,7 +3,10 @@
  * Fixed Events, ScheduleBlocks, 15m Recovery Rests, and optional Sleep.
  */
 
-import { state } from "./state.js";
+import { api } from "./api.js";
+import { showToast } from "./modals.js";
+import { invalidateSolverCaches, serializeWorkspaceState, state } from "./state.js";
+import { popUndoSnapshot, pushUndoSnapshot } from "./undo-history.js";
 import {
   CATEGORY_LABELS,
   WEEKDAYS_VI_FULL,
@@ -19,6 +22,8 @@ import {
   slotToDayIndex,
   slotToMinuteInDay,
 } from "./utils.js";
+
+let _inlineEditingFixedId = null;
 
 export function renderListView(container, callbacks) {
   const horizonDays = Math.max(7, Math.min(14, Number(state.commitments.horizon_days) || 7));
@@ -72,6 +77,8 @@ export function renderListView(container, callbacks) {
       const eSlot = d * 96 + Math.floor(ev.endMin / 15);
       items.push({
         kind: "fixed",
+        eventId: ev.event_id || ev.id || "",
+        fixedEvent: ev,
         startMin: ev.startMin,
         endMin: ev.endMin,
         durationMin: ev.durationMin,
@@ -176,6 +183,27 @@ export function renderListView(container, callbacks) {
               : it.category === "MEAL"
                 ? "badge-teal"
                 : "badge-neutral";
+          const isEditableFixed = it.kind === "fixed" && Boolean(it.eventId);
+          const isEditingThis = isEditableFixed && _inlineEditingFixedId === it.eventId;
+
+          if (isEditingThis) {
+            const ev = it.fixedEvent || {};
+            return `
+              <div class="chrono-item is-editing-fixed">
+                <div><span class="badge badge-info">Đang sửa</span></div>
+                <div style="grid-column:span 2;">
+                  <form class="inline-fixed-edit-form" data-inline-fixed-form="${esc(it.eventId)}" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;">
+                    <input type="text" class="input" name="title" value="${esc(ev.title || it.title)}" required style="flex:1;min-width:150px;min-height:30px;padding:4px 8px;" aria-label="Tên lịch cố định" />
+                    <input type="time" class="input mono" name="start_time" value="${esc(ev.start_time || minToHHMM(it.startMin))}" required style="width:105px;min-height:30px;padding:4px 6px;" aria-label="Giờ bắt đầu" />
+                    <input type="time" class="input mono" name="end_time" value="${esc(ev.end_time || minToHHMM(it.endMin))}" required style="width:105px;min-height:30px;padding:4px 6px;" aria-label="Giờ kết thúc" />
+                    <button type="submit" class="btn btn-primary btn-sm">💾 Lưu</button>
+                    <button type="button" class="btn btn-sm btn-ghost" data-cancel-inline-fixed>Hủy</button>
+                  </form>
+                </div>
+                <div class="chrono-item-actions"></div>
+              </div>`;
+          }
+
           return `
             <div class="chrono-item ${it.temporal === "past" ? "is-past" : ""} ${it.temporal === "now" ? "is-now" : ""}">
               <div>${temporalBadge}</div>
@@ -186,7 +214,14 @@ export function renderListView(container, callbacks) {
                   <span class="badge ${catBadgeCls}">${esc(CATEGORY_LABELS[it.category] || it.category)}</span>
                 </div>
               </div>
-              <div class="chrono-item-actions" style="color:var(--p-muted);font-size:12px;">Cố định</div>
+              <div class="chrono-item-actions" style="color:var(--p-muted);font-size:12px;">
+                ${
+                  isEditableFixed
+                    ? `<button type="button" class="btn btn-sm" data-list-edit-fixed="${esc(it.eventId)}" title="Chỉnh sửa lịch cố định này">✏️ Sửa</button>
+                       <button type="button" class="btn btn-sm btn-danger" data-list-delete-fixed="${esc(it.eventId)}" title="Xóa lịch cố định này">🗑️ Xóa</button>`
+                    : "Cố định"
+                }
+              </div>
             </div>`;
         }
 
@@ -211,6 +246,7 @@ export function renderListView(container, callbacks) {
               <button type="button" class="btn btn-sm" data-list-pin="${esc(b.block_id)}">${it.isPinned ? "Bỏ ghim" : "Ghim"}</button>
               <button type="button" class="btn btn-sm" data-list-checkin="${esc(b.block_id)}">Hoàn thành</button>
               <button type="button" class="btn btn-sm btn-tonal" data-list-inspect="${esc(b.block_id)}">Chi tiết</button>
+              <button type="button" class="btn btn-sm btn-danger" data-list-delete-task="${esc(b.task_id)}" title="Xóa công việc này" aria-label="Xóa công việc ${esc(it.title)}">🗑️</button>
             </div>
           </div>`;
       })
@@ -290,4 +326,158 @@ export function renderListView(container, callbacks) {
   container.querySelectorAll("[data-list-checkin]").forEach((btn) =>
     btn.addEventListener("click", () => callbacks.onInspectBlock(btn.getAttribute("data-list-checkin"), "checkin"))
   );
+
+  const _syncAfterFallbackMutation = async (toastMsg) => {
+    await api.saveState(serializeWorkspaceState(state), state.workspaceId).catch(() => null);
+    renderListView(container, callbacks);
+    showToast(toastMsg, "ok", {
+      onUndo: async () => {
+        const restored = popUndoSnapshot(state);
+        if (!restored) return;
+        await api.saveState(serializeWorkspaceState(state), state.workspaceId).catch(() => null);
+        renderListView(container, callbacks);
+        showToast(`↩ Đã hoàn tác: ${restored.actionLabel}`, "ok");
+      },
+    });
+  };
+
+  container.querySelectorAll("[data-list-delete-task]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const taskId = btn.getAttribute("data-list-delete-task");
+      if (!taskId) return;
+      if (typeof callbacks?.onDeleteTask === "function") {
+        callbacks.onDeleteTask(taskId);
+        return;
+      }
+      const taskObj = (state.tasks || []).find((t) => t.task_id === taskId);
+      const label = `Xóa công việc "${taskObj?.title || taskId}"`;
+      pushUndoSnapshot(state, label);
+      try {
+        const res = await api.deleteTask({
+          workspace_id: state.workspaceId,
+          commitments: state.commitments,
+          tasks: state.tasks,
+          pinned_blocks: state.pinnedBlocks,
+          task_id: taskId,
+          algorithm: state.activeSolver || "SCORED_GREEDY",
+        });
+        if (Array.isArray(res?.updated_tasks)) state.tasks = res.updated_tasks;
+        if (Array.isArray(res?.updated_pinned_blocks)) state.pinnedBlocks = res.updated_pinned_blocks;
+        invalidateSolverCaches();
+        if (res?.schedule) {
+          state.currentSchedule = res.schedule;
+          state.schedulesBySolver[state.activeSolver] = res.schedule;
+        }
+        await _syncAfterFallbackMutation(`🗑️ Đã xóa "${taskObj?.title || taskId}".`);
+      } catch (err) {
+        popUndoSnapshot(state);
+        showToast(`Lỗi xóa công việc: ${err.message}`, "danger");
+      }
+    });
+  });
+
+  container.querySelectorAll("[data-list-delete-fixed]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const eventId = btn.getAttribute("data-list-delete-fixed");
+      if (!eventId) return;
+      const evObj = (state.commitments.fixed_events || []).find((e) => (e.event_id || e.id) === eventId);
+      if (typeof callbacks?.onDeleteFixedEvent === "function") {
+        callbacks.onDeleteFixedEvent(eventId, evObj);
+        return;
+      }
+      pushUndoSnapshot(state, `Xóa lịch cố định "${evObj?.title || eventId}"`);
+      try {
+        const res = await api.deleteFixedEvent({
+          workspace_id: state.workspaceId,
+          commitments: state.commitments,
+          tasks: state.tasks,
+          pinned_blocks: state.pinnedBlocks,
+          event_id: eventId,
+          algorithm: state.activeSolver || "SCORED_GREEDY",
+        });
+        if (res?.updated_commitments) state.commitments = res.updated_commitments;
+        invalidateSolverCaches();
+        if (res?.schedule) {
+          state.currentSchedule = res.schedule;
+          state.schedulesBySolver[state.activeSolver] = res.schedule;
+        }
+        if (_inlineEditingFixedId === eventId) _inlineEditingFixedId = null;
+        await _syncAfterFallbackMutation(`🗑️ Đã xóa lịch cố định "${evObj?.title || eventId}".`);
+      } catch (err) {
+        popUndoSnapshot(state);
+        showToast(`Lỗi xóa lịch cố định: ${err.message}`, "danger");
+      }
+    });
+  });
+
+  container.querySelectorAll("[data-list-edit-fixed]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const eventId = btn.getAttribute("data-list-edit-fixed");
+      if (!eventId) return;
+      const evObj = (state.commitments.fixed_events || []).find((e) => (e.event_id || e.id) === eventId);
+      if (typeof callbacks?.onEditFixedEvent === "function") {
+        callbacks.onEditFixedEvent(eventId, evObj);
+        return;
+      }
+      _inlineEditingFixedId = eventId;
+      renderListView(container, callbacks);
+    });
+  });
+
+  container.querySelectorAll("[data-cancel-inline-fixed]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      _inlineEditingFixedId = null;
+      renderListView(container, callbacks);
+    });
+  });
+
+  container.querySelectorAll("[data-inline-fixed-form]").forEach((form) => {
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const eventId = form.getAttribute("data-inline-fixed-form");
+      const existing = (state.commitments.fixed_events || []).find((ev) => (ev.event_id || ev.id) === eventId);
+      if (!existing) return;
+      const title = form.querySelector('[name="title"]')?.value.trim();
+      const startTime = form.querySelector('[name="start_time"]')?.value;
+      const endTime = form.querySelector('[name="end_time"]')?.value;
+      if (!title || !startTime || !endTime || startTime >= endTime) {
+        showToast("Giờ kết thúc phải lớn hơn giờ bắt đầu.", "danger");
+        return;
+      }
+      const updatedEvent = {
+        ...existing,
+        event_id: existing.event_id || eventId,
+        title,
+        start_time: startTime,
+        end_time: endTime,
+      };
+      if (typeof callbacks?.onUpsertFixedEvent === "function") {
+        _inlineEditingFixedId = null;
+        callbacks.onUpsertFixedEvent(updatedEvent);
+        return;
+      }
+      pushUndoSnapshot(state, `Cập nhật lịch cố định "${title}"`);
+      try {
+        const res = await api.upsertFixedEvent({
+          workspace_id: state.workspaceId,
+          commitments: state.commitments,
+          tasks: state.tasks,
+          pinned_blocks: state.pinnedBlocks,
+          event: updatedEvent,
+          algorithm: state.activeSolver || "SCORED_GREEDY",
+        });
+        if (res?.updated_commitments) state.commitments = res.updated_commitments;
+        invalidateSolverCaches();
+        if (res?.schedule) {
+          state.currentSchedule = res.schedule;
+          state.schedulesBySolver[state.activeSolver] = res.schedule;
+        }
+        _inlineEditingFixedId = null;
+        await _syncAfterFallbackMutation(`✏️ Đã cập nhật lịch cố định "${title}".`);
+      } catch (err) {
+        popUndoSnapshot(state);
+        showToast(`Lỗi cập nhật lịch cố định: ${err.message}`, "danger");
+      }
+    });
+  });
 }

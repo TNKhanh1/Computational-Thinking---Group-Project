@@ -7,21 +7,55 @@
  *  - Toast Notifications
  */
 
-import { state } from "./state.js";
+import { api } from "./api.js";
+import { invalidateSolverCaches, serializeWorkspaceState, state } from "./state.js";
+import { popUndoSnapshot, pushUndoSnapshot } from "./undo-history.js";
 import { CATEGORY_LABELS, LOAD_LABELS, USER_LOAD_LABELS, WEEKDAYS_EN, esc, formatDeadlineCountdown, humanizeWeekdaysVi, resolveNowSlot } from "./utils.js";
 
-export function showToast(message, tone = "ok") {
+export function showToast(message, tone = "ok", options = {}) {
   const stack = document.getElementById("toastStack");
   if (!stack) return;
+  const opts = options && typeof options === "object" ? options : {};
+  const hasUndo = typeof opts.onUndo === "function";
+  const undoLabel = String(opts.undoLabel || "↩ Hoàn tác");
+  const durationMs = Number(opts.durationMs) > 0 ? Number(opts.durationMs) : hasUndo ? 6500 : 3600;
+
   const el = document.createElement("div");
   el.className = `toast ${tone}`;
-  el.innerHTML = `<span>${esc(message)}</span>`;
+  el.innerHTML = `
+    <span>${esc(message)}</span>
+    ${
+      hasUndo
+        ? `<button type="button" class="btn btn-sm toast-undo-btn" data-toast-undo style="margin-left:10px;padding:2px 9px;min-height:26px;font-size:12px;">${esc(undoLabel)}</button>`
+        : ""
+    }
+  `;
   stack.appendChild(el);
-  setTimeout(() => {
+
+  let dismissed = false;
+  const dismiss = () => {
+    if (dismissed) return;
+    dismissed = true;
     el.style.opacity = "0";
     el.style.transition = "opacity 220ms ease";
     setTimeout(() => el.remove(), 240);
-  }, 3600);
+  };
+
+  const timerId = setTimeout(dismiss, durationMs);
+
+  if (hasUndo) {
+    const undoBtn = el.querySelector("[data-toast-undo]");
+    undoBtn?.addEventListener("click", async () => {
+      if (dismissed) return;
+      clearTimeout(timerId);
+      undoBtn.disabled = true;
+      try {
+        await opts.onUndo();
+      } finally {
+        dismiss();
+      }
+    });
+  }
 }
 
 export function renderTestSuitePopover(popoverEl, callbacks) {
@@ -368,12 +402,55 @@ export function renderBlockInspectorModal(modalEl, block, focusSection, callback
     </div>
 
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;padding-top:8px;border-top:1px solid var(--p-line);">
-      <button type="button" class="btn" id="btnModalTogglePin">${isPinned ? "Bỏ ghim cố định" : isDev ? "Ghim cố định giờ này (PINNED)" : "Ghim cố định khung giờ này"}</button>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <button type="button" class="btn" id="btnModalTogglePin">${isPinned ? "Bỏ ghim cố định" : isDev ? "Ghim cố định giờ này (PINNED)" : "Ghim cố định khung giờ này"}</button>
+        <button type="button" class="btn btn-danger btn-sm" id="btnModalDeleteTask" data-delete-task-id="${esc(block.task_id)}">🗑️ Xóa công việc này</button>
+      </div>
       <button type="button" class="btn btn-ghost" id="btnCloseBlockModalFooter">Đóng</button>
     </div>
   `;
 
   body.querySelector("#btnModalTogglePin").addEventListener("click", () => callbacks.onTogglePin(block.block_id));
+  body.querySelector("#btnModalDeleteTask")?.addEventListener("click", async () => {
+    if (typeof callbacks?.onDeleteTask === "function") {
+      callbacks.onDeleteTask(block.task_id, block);
+      return;
+    }
+    const label = `Xóa công việc "${block.title || block.task_id}"`;
+    pushUndoSnapshot(state, label);
+    try {
+      const res = await api.deleteTask({
+        workspace_id: state.workspaceId,
+        commitments: state.commitments,
+        tasks: state.tasks,
+        pinned_blocks: state.pinnedBlocks,
+        task_id: block.task_id,
+        algorithm: state.activeSolver || "SCORED_GREEDY",
+      });
+      if (Array.isArray(res?.updated_tasks)) state.tasks = res.updated_tasks;
+      if (Array.isArray(res?.updated_pinned_blocks)) state.pinnedBlocks = res.updated_pinned_blocks;
+      invalidateSolverCaches();
+      if (res?.schedule) {
+        state.currentSchedule = res.schedule;
+        state.schedulesBySolver[state.activeSolver] = res.schedule;
+      }
+      callbacks?.onClose?.();
+      await api.saveState(serializeWorkspaceState(state), state.workspaceId).catch(() => null);
+      callbacks?.onSelectSolver?.(state.activeSolver, false);
+      showToast(`🗑️ Đã xóa "${block.title || block.task_id}".`, "ok", {
+        onUndo: async () => {
+          const restored = popUndoSnapshot(state);
+          if (!restored) return;
+          await api.saveState(serializeWorkspaceState(state), state.workspaceId).catch(() => null);
+          callbacks?.onSelectSolver?.(state.activeSolver, false);
+          showToast(`↩ Đã hoàn tác: ${restored.actionLabel}`, "ok");
+        },
+      });
+    } catch (err) {
+      popUndoSnapshot(state);
+      showToast(`Không thể xóa công việc: ${err.message}`, "danger");
+    }
+  });
   body.querySelector("#btnSubmitCheckin").addEventListener("click", () => {
     const actualMin = Number(body.querySelector("#inpActualMin").value) || block.duration_min;
     callbacks.onCheckinBlock(block, actualMin);
