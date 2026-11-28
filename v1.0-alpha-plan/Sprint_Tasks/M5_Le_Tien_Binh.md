@@ -57,7 +57,7 @@ python -B -m pytest -c environments/pyproject.toml v1.0-alpha-plan/Testing_Syste
 ---
 
 ## 3. Checklist Cá Nhân (Tick `[x]` trên nhánh của bạn)
-- [ ] Xây dựng `smartschedule/core/cross_week_adapter.py` (học hệ số đệm Bayes–EWMA theo môn $\in [1.00, 1.60]$ + học lại nhịp sinh học/nhịp tách phiên từ hành vi tuần trước — gửi `M4` Trọng Tiến kiểm định bằng Claude Plan).
-- [ ] Tạo `smartschedule/api/chat/disruption_chat.py` nối câu báo bận đột xuất vào `LocalRepairEngine` (`LOCAL_INSERTION`, giữ ổn định $\ge 90\%$).
-- [ ] Bổ sung `build_empty_current_week_profile()` trong `controller.py` và mở đủ các API (`init-real-week`, CRUD lẻ, `adapt-next-week`, `simulation/multi-week`) trong `app.py`.
-- [ ] Viết test `tests/logical/test_disruption_and_cross_week_adapter.py` và chạy xanh `clean_runner.py --pass` + `Testing_System/tests`.
+- [x] Xây dựng `smartschedule/core/cross_week_adapter.py` (học hệ số đệm Bayes–EWMA theo môn $\in [1.00, 1.60]$ + học lại nhịp sinh học/nhịp tách phiên từ hành vi tuần trước — gửi `M4` Trọng Tiến kiểm định bằng Claude Plan).
+- [x] Tạo `smartschedule/api/chat/disruption_chat.py` nối câu báo bận đột xuất vào `LocalRepairEngine` (`LOCAL_INSERTION`, giữ ổn định $\ge 90\%$).
+- [x] Bổ sung `build_empty_current_week_profile()` trong `controller.py` và mở đủ các API (`init-real-week`, CRUD lẻ, `adapt-next-week`, `simulation/multi-week`) trong `app.py`.
+- [x] Viết test `tests/logical/test_disruption_and_cross_week_adapter.py` và chạy xanh `clean_runner.py --pass` + `Testing_System/tests`.

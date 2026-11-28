@@ -4,8 +4,10 @@ Routes solve requests across EDF, LST, WSPT, SCORED_GREEDY (Pattern 3+4+7), Back
 Local Repair (M4), Estimate Buffer (Feature 001 + Presentation2 COGNITIVE_LOAD), and Overload Triage (Feature 002).
 """
 
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple, Type
 
+from smartschedule.core.config import ALPHA_HEAVY_DEFAULT, ALPHA_LIGHT_DEFAULT
 from smartschedule.core.estimate_buffer import buffer_reason, multiplier_for_habit, multiplier_for_load
 from smartschedule.core.grid_manager import TimeGridManager
 from smartschedule.core.models import (
@@ -13,13 +15,22 @@ from smartschedule.core.models import (
     DisruptionEvent,
     ScheduleBlock,
     ScheduleOutput,
+    SleepSchedule,
     Task,
 )
 from smartschedule.core.overload_triage import OverloadTriageEngine
 from smartschedule.core.solvers.base_solver import BaseScheduler
 from smartschedule.core.solvers.local_repair import LocalRepairEngine
 from smartschedule.core.solvers.registry import SOLVER_REGISTRY, resolve_solver
-from smartschedule.core.utils import SLOTS_PER_WEEK, day_time_to_slot, iso_to_slot, round_up_to_15, slot_to_day_time, slot_to_iso
+from smartschedule.core.utils import (
+    SLOTS_PER_WEEK,
+    day_time_to_slot,
+    iso_to_slot,
+    parse_time_to_slot_offset,
+    round_up_to_15,
+    slot_to_day_time,
+    slot_to_iso,
+)
 
 
 class ScheduleController:
@@ -97,24 +108,189 @@ class ScheduleController:
         OverloadTriageEngine.enrich_schedule_overload(out, profile, buffered_tasks)
         return out, grid
 
+    @classmethod
+    def solve_adaptive(
+        cls,
+        profile: CommitmentsProfile,
+        tasks: List[Task],
+        algorithm: Optional[str] = None,
+        pinned_blocks: Optional[List[ScheduleBlock]] = None,
+    ) -> Tuple[ScheduleOutput, TimeGridManager, bool]:
+        """
+        Production-grade adaptive solver routing (Pattern P11 / Fix M-7):
+        Defaults to `SCORED_GREEDY` and automatically escalates to `HYBRID_ALNS` when
+        tasks remain unplaced under non-overloaded capacity, while keeping `solve_schedule`
+        100% unchanged for deterministic benchmark suites.
+        """
+        req_algo = (algorithm or "SCORED_GREEDY").strip().upper()
+        out, grid = cls.solve_schedule(
+            profile=profile,
+            tasks=tasks,
+            algorithm=req_algo,
+            pinned_blocks=pinned_blocks,
+        )
+        escalated = False
+        is_hard_capacity_overload = (
+            out.overload is not None
+            and getattr(out.overload, "error_type", "") == "CAPACITY_SHORTAGE"
+            and int(getattr(out.overload, "shortage_minutes", 0) or 0) > 120
+        )
+        if (
+            req_algo == "SCORED_GREEDY"
+            and out.summary.tasks_unplaced > 0
+            and "HYBRID_ALNS" in cls.SOLVER_REGISTRY
+            and not is_hard_capacity_overload
+        ):
+            alns_out, alns_grid = cls.solve_schedule(
+                profile=profile,
+                tasks=tasks,
+                algorithm="HYBRID_ALNS",
+                pinned_blocks=pinned_blocks,
+            )
+            if (
+                alns_out.summary.tasks_unplaced < out.summary.tasks_unplaced
+                or alns_out.summary.deadline_satisfaction_rate > out.summary.deadline_satisfaction_rate
+            ):
+                out, grid, escalated = alns_out, alns_grid, True
+        return out, grid, escalated
+
+    @classmethod
+    def build_empty_current_week_profile(
+        cls,
+        student_id: str = "STUDENT_USER",
+        daily_start_time: str = "23:30",
+        daily_end_time: str = "06:30",
+        focus_preference: str = "BALANCED",
+        estimate_habit: Optional[str] = "SOMETIMES",
+        reference_dt: Optional[datetime] = None,
+    ) -> CommitmentsProfile:
+        """
+        Build a clean, empty current-week CommitmentsProfile anchored to local Monday 00:00:00+07:00
+        without touching `data/presets/*` (enforces biological >= 6h sleep floor, Pattern P6).
+        """
+        tz_vn = timezone(timedelta(hours=7))
+        now_dt = reference_dt.astimezone(tz_vn) if reference_dt is not None else datetime.now(tz_vn)
+        monday_dt = (now_dt - timedelta(days=now_dt.weekday())).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+
+        s_slot = parse_time_to_slot_offset(daily_start_time, is_end_or_deadline=False)
+        e_slot = parse_time_to_slot_offset(daily_end_time, is_end_or_deadline=False)
+        sleep_min = ((e_slot - s_slot) % 96) * 15
+        if sleep_min == 0:
+            sleep_min = 24 * 60
+        if sleep_min < 360:
+            raise ValueError(
+                f"Thời lượng giấc ngủ ({sleep_min} phút) thấp hơn mức an toàn sinh học tối thiểu 6 tiếng (360 phút)."
+            )
+
+        return CommitmentsProfile(
+            student_id=student_id,
+            planning_week_start=monday_dt.isoformat(),
+            now=now_dt.replace(second=0, microsecond=0).isoformat(),
+            sleep_schedule=SleepSchedule(
+                daily_start_time=daily_start_time,
+                daily_end_time=daily_end_time,
+                is_hard_lock=True,
+            ),
+            fixed_events=[],
+            estimate_habit=estimate_habit,
+            focus_preference=focus_preference,
+            buffer_mode="COGNITIVE_LOAD",
+            personal_habits=[],
+        )
+
+    @classmethod
+    def inspect_repair_ergonomics(
+        cls,
+        profile: CommitmentsProfile,
+        repair_out: Any,
+    ) -> Dict[str, Any]:
+        """
+        Post-check moved blocks after `LocalRepairEngine` (`LOCAL_INSERTION`, Pattern P8)
+        to detect whether any heavy (`load >= 3`) block landed in an energy trough (`E <= 1.25`).
+        """
+        energy_prof = profile.get_energy_profile()
+        moved_ids = {
+            ch.block_id
+            for ch in (getattr(repair_out, "changes", None) or [])
+            if getattr(ch, "status", "") == "MOVED"
+        }
+        blocks = getattr(getattr(repair_out, "schedule", None), "blocks", None) or []
+        low_energy_heavy_moves: List[Dict[str, Any]] = []
+
+        for blk in blocks:
+            if blk.block_id not in moved_ids:
+                continue
+            load = blk.cognitive_load if blk.cognitive_load is not None else 2
+            span = max(1, blk.end_slot - blk.start_slot)
+            avg_e = sum(energy_prof.level_for_slot(s) for s in range(blk.start_slot, blk.end_slot)) / float(span)
+            if load >= 3 and avg_e <= 1.25:
+                low_energy_heavy_moves.append(
+                    {
+                        "block_id": blk.block_id,
+                        "task_id": blk.task_id,
+                        "title": blk.title,
+                        "day": blk.day,
+                        "start_time": blk.start_time,
+                        "end_time": blk.end_time,
+                        "avg_energy": round(avg_e, 2),
+                    }
+                )
+
+        unplaced_list = getattr(getattr(repair_out, "schedule", None), "unplaced_tasks", None) or []
+        return {
+            "has_ergonomic_degradation": len(low_energy_heavy_moves) > 0,
+            "low_energy_heavy_moves": low_energy_heavy_moves,
+            "unplaced_count": len(unplaced_list),
+        }
+
     # ------------------------------------------------------------------
     # Pattern 1 / Feature 001 — Estimate buffer (HABIT + COGNITIVE_LOAD)
     # ------------------------------------------------------------------
+    @staticmethod
+    def _has_custom_task_cognitive_buffer(t: Task, profile: CommitmentsProfile) -> bool:
+        """Detect per-task calibrated category buffers (`CrossWeekPreferenceAdapter`, Fix M-1)."""
+        if str(getattr(t, "buffer_mode", "HABIT")).strip().upper() != "COGNITIVE_LOAD":
+            return False
+        fields_set = getattr(t, "model_fields_set", set()) or set()
+        if "alpha_light" in fields_set or "alpha_heavy" in fields_set:
+            return True
+        prof_l = float(getattr(profile, "alpha_light", ALPHA_LIGHT_DEFAULT))
+        prof_h = float(getattr(profile, "alpha_heavy", ALPHA_HEAVY_DEFAULT))
+        return (
+            abs(float(t.alpha_light) - ALPHA_LIGHT_DEFAULT) > 1e-6
+            or abs(float(t.alpha_heavy) - ALPHA_HEAVY_DEFAULT) > 1e-6
+            or abs(float(t.alpha_light) - prof_l) > 1e-6
+            or abs(float(t.alpha_heavy) - prof_h) > 1e-6
+        )
+
     @classmethod
     def apply_estimate_buffer(cls, profile: CommitmentsProfile, tasks: List[Task]) -> List[Task]:
         """
-        Return copies of `tasks` with duration buffer settings derived from `profile`:
+        Return copies of `tasks` with duration buffer settings derived from `profile`
+        while strictly preserving per-task category-calibrated `alpha_light`/`alpha_heavy` (Fix M-1):
           * buffer_mode == 'COGNITIVE_LOAD': sets α_light (1.20) / α_heavy (1.35) + RoundUp_15.
           * buffer_mode == 'HABIT' (default): Feature 001 (`RARELY` / `SOMETIMES` / `OFTEN`), V0 unchanged if None.
         """
         buf_mode = getattr(profile, "buffer_mode", "HABIT")
         if buf_mode == "COGNITIVE_LOAD":
-            a_light = getattr(profile, "alpha_light", 1.20)
-            a_heavy = getattr(profile, "alpha_heavy", 1.35)
+            a_light = getattr(profile, "alpha_light", ALPHA_LIGHT_DEFAULT)
+            a_heavy = getattr(profile, "alpha_heavy", ALPHA_HEAVY_DEFAULT)
             out_tasks: List[Task] = []
             for t in tasks:
                 if str(getattr(t, "buffer_mode", "HABIT")).strip().upper() == "NONE":
                     out_tasks.append(t.model_copy(update={"buffer_mode": "NONE", "buffer_multiplier": 1.0}, deep=True))
+                elif cls._has_custom_task_cognitive_buffer(t, profile):
+                    t_pres = t.model_copy(
+                        update={
+                            "buffer_mode": "COGNITIVE_LOAD",
+                            "buffer_multiplier": multiplier_for_load(t.cognitive_load, t.alpha_light, t.alpha_heavy),
+                        },
+                        deep=True,
+                    )
+                    t_pres.model_fields_set.update({"buffer_mode", "alpha_light", "alpha_heavy", "buffer_multiplier"})
+                    out_tasks.append(t_pres)
                 else:
                     out_tasks.append(
                         t.model_copy(
@@ -130,15 +306,25 @@ class ScheduleController:
             return out_tasks
 
         habit = getattr(profile, "estimate_habit", None)
-        if not habit:
-            return list(tasks)
-        multiplier = multiplier_for_habit(habit)
         out_tasks = []
         for t in tasks:
             if str(getattr(t, "buffer_mode", "HABIT")).strip().upper() == "NONE":
                 out_tasks.append(t.model_copy(update={"buffer_mode": "NONE", "buffer_multiplier": 1.0}, deep=True))
-            else:
+            elif cls._has_custom_task_cognitive_buffer(t, profile):
+                t_pres = t.model_copy(
+                    update={
+                        "buffer_mode": "COGNITIVE_LOAD",
+                        "buffer_multiplier": multiplier_for_load(t.cognitive_load, t.alpha_light, t.alpha_heavy),
+                    },
+                    deep=True,
+                )
+                t_pres.model_fields_set.update({"buffer_mode", "alpha_light", "alpha_heavy", "buffer_multiplier"})
+                out_tasks.append(t_pres)
+            elif habit:
+                multiplier = multiplier_for_habit(habit)
                 out_tasks.append(t.model_copy(update={"buffer_mode": "HABIT", "buffer_multiplier": multiplier}, deep=True))
+            else:
+                out_tasks.append(t)
         return out_tasks
 
     @classmethod
@@ -148,7 +334,10 @@ class ScheduleController:
         """Attach an ESTIMATE_BUFFER reason to every block whose planned time was increased."""
         habit = getattr(profile, "estimate_habit", None)
         buf_mode = getattr(profile, "buffer_mode", "HABIT")
-        if not habit and buf_mode != "COGNITIVE_LOAD":
+        has_task_cog = any(
+            str(getattr(t, "buffer_mode", "")).strip().upper() == "COGNITIVE_LOAD" for t in buffered_tasks
+        )
+        if not habit and buf_mode != "COGNITIVE_LOAD" and not has_task_cog:
             return
         task_map = {t.task_id: t for t in buffered_tasks}
         for block in out.blocks:
