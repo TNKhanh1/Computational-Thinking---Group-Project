@@ -30,6 +30,8 @@ Không nhánh nào sửa `smartschedule/ui/*` hay `core/solvers/*`. Hai nhánh k
 | `clean_runner.py --pass` | `223/225` (2 lỗi giống trên) |
 | **Sau khi sửa B1–B3** (kèm router M4) — toàn bộ `tests/` | `270 passed, 1 xfailed` (xfail = B5) |
 | **Sau khi sửa B1–B3** — `clean_runner.py --pass` | `264/265`, `0 Failed` |
+| **Sau khi sửa B4, B5, B8** — toàn bộ `tests/` | `274 passed` (không còn xfail) |
+| **Sau khi sửa B4, B5, B8** — `clean_runner.py --pass` | `268/268` |
 
 ## 3. Cổng kiểm định 5 bất biến
 
@@ -43,7 +45,7 @@ Không nhánh nào sửa `smartschedule/ui/*` hay `core/solvers/*`. Hai nhánh k
 
 ---
 
-## 4. Lỗi Backend (cần M5/M7 sửa; riêng B1–B3 M4 đã sửa ngày 28/11 theo yêu cầu của Tiến)
+## 4. Lỗi Backend (cần M5/M7 sửa; riêng B1–B5 và B8 M4 đã sửa ngày 28/11 theo yêu cầu của Tiến)
 
 **B1 — [Nghiêm trọng] Sai tên khóa sự cố lặp giữa M5 ↔ M7.** `app.py` (`_build_default_multiweek_benchmark_scenario`) truyền `chronic_disruption_window`, nhưng `InSilicoStudentSimulator` chỉ đọc `recurring_disruptions` / `recurring_disruption` / `chronic_disruption` → sự cố Thứ 5 19:30–21:00 **bị bỏ qua im lặng**. Hiện `converged=True` chỉ vì không có sự cố. Khi sửa khóa (seed 42): W1 `83.8` → W4 `75.8` on-time value → `converged=False`. Nguyên nhân phụ: vùng đệm cần ≥ 2 lần va chạm, lần đầu xảy ra ở W3, nên vùng đệm chỉ thêm sau W4 — không kịp trong 4 tuần. *Sửa:* M7 nhận thêm khóa `chronic_disruption_window`; M5 xem lại ngưỡng `CHRONIC_DISRUPTION_MIN_COUNT` hoặc số tuần mô phỏng.
 
@@ -61,13 +63,19 @@ Không nhánh nào sửa `smartschedule/ui/*` hay `core/solvers/*`. Hai nhánh k
 
 **B4 — [Trung bình] Sự cố "một lần" bị lưu thành lịch cố định hằng tuần.** `handle_disruption_chat_turn` thêm `FixedEvent(category="DISRUPTION", day_of_week="Thursday")`. `FixedEvent` lặp mỗi tuần, và `adapt_preferences_for_next_week` chỉ xóa `ADVISORY_BUFFER` → sự cố đột xuất bị khóa mãi sang các tuần sau, đồng thời chặn luôn vùng đệm (B1) vì slot đã bị chiếm.
 
+> ✅ **Đã sửa (M4, 28/11):** `cross_week_adapter.py` thêm hằng `ONE_WEEK_FIXED_EVENT_CATEGORIES = {ADVISORY_BUFFER, DISRUPTION}` và bỏ cả hai loại khi sang tuần mới. Trong tuần hiện tại sự cố vẫn khóa slot như cũ. Tín hiệu lặp lại vẫn còn trong `disruption_logs`, nên vùng bận mãn tính vẫn được học, và vùng đệm không còn bị chặn bởi sự cố cũ nằm trên cùng slot. Test: `test_b4_one_off_disruption_is_not_carried_into_next_week`.
+
 **B5 — [Trung bình] Chặn nhầm lệnh xóa.** `is_disruption_intent("Hủy lịch họp CLB thứ 5") == True` → thay vì xóa lịch, hệ thống **thêm** một khung bận. `_LIFECYCLE_EXCLUSION_RE` chỉ có `huy bai|huy cong viec`, thiếu `huy lich`, và chỉ khớp ở đầu câu (`^`). Vì `app.py` chặn trước `handlers.py` nên router M4 không thể sửa được (M5 sở hữu `app.py`).
+
+> ✅ **Đã sửa (M4, 28/11):** `_LIFECYCLE_EXCLUSION_RE` nhận cả lời dẫn ("mình muốn / giúp mình …") và `huy bo` / `huy|bo + đối tượng` (`lich, buoi, cuoc hop, bai, viec, task, su kien, cong viec, deadline, mon`). Thêm `_DELETE_ANYWHERE_RE` để bắt cụm xóa ở giữa câu ("Thứ 5 hủy lịch họp CLB nhé"), trừ khi có tín hiệu khẩn cấp mạnh. `huy` đứng một mình **không** đủ vì đó cũng là tên người ("Huy rủ mình họp khẩn…" vẫn là báo bận). Test `xfail` cũ đã gỡ đánh dấu và pass qua HTTP: `/api/chat/turn` trả `DELETE_ITEM`.
 
 **B6 — [Thấp] α riêng từng task "dính" sau khi serialize.** `_has_custom_task_cognitive_buffer` coi `"alpha_light" in model_fields_set` là α tùy chỉnh. Mọi task đi qua `model_dump()` → `model_validate()` (M5 tự lưu `tasks` kiểu này) đều có field này → với task `COGNITIVE_LOAD`, hiệu chỉnh α cấp hồ sơ (P2 `calibration.py`) bị bỏ qua.
 
 **B7 — [Thấp] Đọc đề nhầm thời lượng.** `_EXPLICIT_HOURS/MINUTES_RE` cộng mọi cụm "N phút/giờ" trong đoạn: "thuyết trình **10 phút**" → mốc Báo cáo ước tính `15` phút. File `.pdf` hỏng vẫn trả `suggested_total_min=60` (từ text rác) → có thể bật cảnh báo `USER_VS_DOC_UNDERESTIMATE` sai.
 
 **B8 — [Thấp] "Tối nay bận…" vẫn hỏi lại ngày.** `extract_disruption_fields("Tối nay mình bận đột xuất họp nhóm 19h-21h")` không nhận "tối nay" là hôm nay → `NEEDS_CLARIFICATION` hỏi "ngày nào"; tiêu đề giữ nguyên cả câu ("Tối nay mình bận đột xuất họp nhóm").
+
+> ✅ **Đã sửa (M4, 28/11):** thêm `_SAME_DAY_PERIOD_RE` (`sáng|trưa|chiều|tối|đêm nay`, `tonight`, `this morning/afternoon/evening`) → ngày hôm nay theo `profile.now`, đứng sau ngày ghi rõ ("tối mai" vẫn là ngày mai). Tiêu đề bỏ cụm "tối nay" và đảo "bận đột xuất họp nhóm" → "Họp nhóm đột xuất". Không sửa `clause_condenser.py` (M2). Test: `test_b8_same_day_period_resolves_to_today_and_title_is_clean`.
 
 ---
 
@@ -93,10 +101,12 @@ Hai nhánh **đúng về logic toán học** (bất biến 1, 2, 3, 5 đạt). �
 
 **Cập nhật 28/11:** B1–B3 đã sửa (xem từng mục), nên **cả 5 bất biến đều đạt** và toàn bộ test xanh. Còn mở: B4–B8 và U1–U6. Lưu ý cho thuyết trình: chỉ nên trình bày "Tuần 4 tốt hơn Tuần 1" như một kết quả **trên nhóm sinh viên** (`n_students ≥ 10`); với 1 sinh viên, kết quả phụ thuộc vào seed.
 
+**Cập nhật 28/11 (lần 2):** đã sửa thêm B4, B5, B8 (file M5: `disruption_chat.py`, `cross_week_adapter.py`). Backend còn mở: B6 (M5), B7 (M7). UI: U1–U6.
+
 ## 7. Phần việc M4 đã làm trên nhánh này
 
 - `smartschedule/nlp/intent_classifier.py` — danh sách quyết định tất định (`~0.06 ms`/lượt): xóa luôn thắng báo bận, chuỗi "xong A rồi mới B" không bị hiểu là "đã xong A".
 - `smartschedule/api/chat/lifecycle_intents.py` — `DELETE_ITEM`, `COMPLETE_TASK` (ghi A/E vào `completion_logs`), `QUERY_SCHEDULE`, `ADAPT_NEXT_WEEK` (xem trước → áp dụng, LoA-4), `BATCH_ADD_TASKS`, `LINK_DEPENDENCY` (DFS 3 màu dạng lặp, chặn vòng lặp), đối chiếu đề bài `USER_VS_DOC_UNDERESTIMATE`.
 - `smartschedule/api/chat/handlers.py` — import an toàn M5/M7/M3 (`try/except ImportError` + `inspect.signature`), chuẩn hóa `selected_algorithm` khi chuyển sang M5 (chặn U1 trên luồng của router), thêm `pattern_rules` P10/P13/P14 vào `thinking_summary`.
-- `tests/logical/test_chat_lifecycle_and_grounding.py` — `36` test + `1` `xfail(strict)` ghi lại B5 (tự báo đỏ khi M5 sửa xong để gỡ đánh dấu).
+- `tests/logical/test_chat_lifecycle_and_grounding.py` — `40` test, tính cả tham số (test B5 qua HTTP đã hết `xfail` sau khi sửa B5) — trước đó `xfail(strict)` (tự báo đỏ khi M5 sửa xong để gỡ đánh dấu).
 - **Giới hạn:** qua HTTP, câu "hủy lịch …" vẫn bị `app.py` chặn trước router (B5) — chỉ M5 sửa được.

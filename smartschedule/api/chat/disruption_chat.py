@@ -43,8 +43,22 @@ _RECURRING_EXCLUSION_RE = re.compile(
     r"lap\s*lai|thoi\s*khoa\s*bieu|co\s*dinh|daily|weekly|every\s*week|every\s*day)\b"
 )
 
+_DELETE_OBJECT = r"(?:lich|buoi|cuoc\s+hop|bai|viec|task|su\s*kien|cong\s*viec|deadline|mon)"
+
+# Lifecycle verbs at clause start (optionally after "mình muốn / giúp mình ..."): never a new busy slot.
+# `huy` alone is not enough (it is also a given name: "Huy rủ mình họp khẩn ..."), so it needs `bo` or an object.
 _LIFECYCLE_EXCLUSION_RE = re.compile(
-    r"^\s*(?:xoa|huy\s+bai|huy\s+cong\s*viec|lam\s*xong|da\s*xong|hoan\s*thanh|doi\s*deadline|gia\s*han)\b"
+    r"^\s*(?:(?:minh|toi|em|cho\s+minh|giup\s+minh|hay)\s+)?(?:muon\s+|can\s+)?"
+    r"(?:xoa|go\s*bo|loai\s*bo|huy\s*bo|huy\s+" + _DELETE_OBJECT + r"|bo\s+" + _DELETE_OBJECT + r"|"
+    r"lam\s*xong|da\s*xong|hoan\s*thanh|doi\s*deadline|gia\s*han|delete|remove)\b"
+)
+
+# Same delete phrases anywhere in the sentence ("Thứ 5 hủy lịch họp CLB nhé"); overridden by a strong emergency cue.
+_DELETE_ANYWHERE_RE = re.compile(r"\b(?:xoa|go\s*bo|huy\s*bo|huy)\s+(?:lich|buoi|cuoc\s+hop|su\s*kien|task|cong\s*viec)\b")
+
+# Same-day period anchors that `_resolve_day_token` does not cover ("tối nay", "chiều nay", "tonight").
+_SAME_DAY_PERIOD_RE = re.compile(
+    r"\b(?:sang|trua|chieu|toi|dem)\s+nay\b|\btonight\b|\bthis\s+(?:morning|afternoon|evening)\b"
 )
 
 _STRONG_DISRUPTION_RE = re.compile(
@@ -92,6 +106,8 @@ def is_disruption_intent(
         return False
 
     has_strong_emergency = bool(_STRONG_DISRUPTION_RE.search(norm))
+    if _DELETE_ANYWHERE_RE.search(norm) and not has_strong_emergency:
+        return False
     if _RECURRING_EXCLUSION_RE.search(norm) and not has_strong_emergency:
         return False
     if _STUDY_TASK_CUE_RE.search(norm) and not has_strong_emergency:
@@ -213,6 +229,7 @@ def _clean_disruption_title(raw_text: str) -> str:
 
     # Strip explicit time ranges, start clocks, durations, and temporal weekday/period anchors
     strip_patterns = (
+        r"\b(?:buổi\s+|buoi\s+)?(?:sáng|sang|trưa|trua|chiều|chieu|tối|toi|đêm|dem)\s+nay\b|\btonight\b",
         r"\b(?:từ|tu|from)\s+\d{1,2}\s*(?::|h|giờ|gio)?\s*(?:\d{1,2}|rưỡi|ruoi)?\s*(?:am|pm|sáng|sang|trưa|trua|chiều|chieu|tối|toi|đêm|dem)?\s*(?:-|–|—|đến|den|tới|toi|to)\s*(?:\d{1,2}\s*(?::|h|giờ|gio)?\s*(?:\d{1,2}|rưỡi|ruoi)?\s*(?:am|pm|sáng|sang|trưa|trua|chiều|chieu|tối|toi|đêm|dem)?|nửa\s*đêm|nua\s*dem)\b",
         r"\b\d{1,2}\s*(?::|h|giờ|gio)\s*(?:\d{1,2}|rưỡi|ruoi)?\s*(?:am|pm|sáng|sang|trưa|trua|chiều|chieu|tối|toi|đêm|dem)?\s*(?:-|–|—|đến|den|tới|toi|to)\s*\d{1,2}\s*(?::|h|giờ|gio)?\s*(?:\d{1,2}|rưỡi|ruoi)?\s*(?:am|pm|sáng|sang|trưa|trua|chiều|chieu|tối|toi|đêm|dem)?\b",
         r"\b(?:lúc|luc|vào|vao)\s*\d{1,2}\s*(?::|h|giờ|gio)\s*(?:\d{1,2}|rưỡi|ruoi)?\s*(?:am|pm|sáng|sang|trưa|trua|chiều|chieu|tối|toi|đêm|dem)?\b",
@@ -229,6 +246,14 @@ def _clean_disruption_title(raw_text: str) -> str:
         work,
         flags=re.IGNORECASE,
     )
+    # "bận đột xuất họp nhóm" -> "họp nhóm đột xuất" (keep the urgency cue, put the activity first)
+    m_urgent = re.match(
+        r"^\s*(?:bị\s+|bi\s+|có\s+|co\s+)?(?:bận\s+|ban\s+|kẹt\s+|ket\s+)(đột\s*xuất|dot\s*xuat)\s+(?=(?:họp|hop|việc|viec|lịch|lich|khám|kham|đi|di))",
+        work,
+        flags=re.IGNORECASE,
+    )
+    if m_urgent:
+        work = f"{work[m_urgent.end():].rstrip(' ,;:-.')} {m_urgent.group(1)}"
     work = re.sub(
         r"^\s*(?:bị\s+|bi\s+|có\s+|co\s+)?(?:bận\s+|ban\s+|kẹt\s+|ket\s+)(?=(?:họp|hop|việc|viec|lịch|lich|khám|kham|đi|di))",
         "",
@@ -271,7 +296,8 @@ def extract_disruption_fields(
     now_day = _resolve_now_weekday(profile)
 
     now_d, now_s, now_e = _resolve_immediate_now_window(norm, profile)
-    day_of_week = _resolve_day_token(prompt, now_day) or now_d or draft.get("day_of_week")
+    same_day = now_day if _SAME_DAY_PERIOD_RE.search(norm) else None
+    day_of_week = _resolve_day_token(prompt, now_day) or same_day or now_d or draft.get("day_of_week")
 
     s_time, e_time = _extract_time_range(norm)
     s_time, e_time = _adjust_pm_from_context(s_time, e_time, norm_raw)

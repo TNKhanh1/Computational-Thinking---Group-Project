@@ -390,9 +390,11 @@ def test_router_contract_keys_present_for_every_status() -> None:
         assert res["execution_time_ms"] < 10_000
 
 
-@pytest.mark.xfail(strict=True, reason="Bug B5 (M5 app.py): /api/chat/turn routes 'hủy lịch ...' to disruption before handlers.py")
 def test_http_delete_fixed_event_reaches_router() -> None:
+    """B5 regression: app.py's disruption intercept must let 'hủy lịch ...' through to the M4 router."""
     client = TestClient(app)
     r = client.post("/api/chat/turn", json={"prompt": "Hủy lịch họp CLB thứ 5", "commitments": _commitments(), "tasks": _tasks(), "auto_save": False})
     assert r.status_code == 200
-    assert r.json()["intent"] == "DELETE_ITEM"
+    body = r.json()
+    assert body["intent"] == "DELETE_ITEM"
+    assert not any(fe.get("category") == "DISRUPTION" for fe in body["updated_commitments"]["fixed_events"])

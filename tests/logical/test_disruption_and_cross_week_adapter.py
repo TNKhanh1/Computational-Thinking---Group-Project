@@ -805,3 +805,71 @@ def test_multi_week_simulation_dynamic_m7_simulator_hookup(
     assert body["converged"] is True
     assert body["weeks_summary"][-1]["on_time_value_pct"] > body["weeks_summary"][0]["on_time_value_pct"]
 
+
+
+# ===========================================================================
+# GROUP F: M4 verification regressions (B4, B5, B8 — M4_Verification_Notes.md)
+# ===========================================================================
+
+def test_b5_delete_and_cancel_phrases_never_become_disruptions():
+    for prompt in (
+        "Hủy lịch họp CLB thứ 5",
+        "Mình muốn hủy lịch họp CLB thứ 5",
+        "Thứ 5 hủy lịch họp CLB nhé",
+        "Xóa giúp mình lịch họp nhóm",
+        "Bỏ lịch họp nhóm tối thứ 6",
+    ):
+        assert is_disruption_intent(prompt) is False, prompt
+    # "Huy" is also a given name; a strong emergency cue still wins over a cancelled study session.
+    assert is_disruption_intent("Huy rủ mình họp khẩn 19h-21h tối nay") is True
+    assert is_disruption_intent("Bận đột xuất họp CLB, hủy buổi tự học tối nay 19h-21h") is True
+
+
+def test_b8_same_day_period_resolves_to_today_and_title_is_clean():
+    ref = datetime(2026, 11, 26, 15, 0, tzinfo=timezone(timedelta(hours=7)))  # Thursday 15:00
+    prof = ScheduleController.build_empty_current_week_profile(reference_dt=ref)
+
+    f_tonight = extract_disruption_fields("Tối nay mình bận đột xuất họp nhóm 19h-21h", prof)
+    assert f_tonight["missing_fields"] == []
+    assert f_tonight["day_of_week"] == "Thursday"
+    assert (f_tonight["start_time"], f_tonight["end_time"]) == ("19:00", "21:00")
+    assert f_tonight["title"] == "Họp nhóm đột xuất"
+
+    f_afternoon = extract_disruption_fields("Chiều nay cúp điện đột xuất 16h-18h", prof)
+    assert f_afternoon["day_of_week"] == "Thursday"
+    assert "tối nay" not in f_afternoon["title"].lower() and "chiều nay" not in f_afternoon["title"].lower()
+
+    # An explicit weekday still wins over the same-day anchor.
+    assert extract_disruption_fields("Họp CLB đột xuất tối mai 19h-21h", prof)["day_of_week"] == "Friday"
+
+
+def test_b4_one_off_disruption_is_not_carried_into_next_week(monday_profile: CommitmentsProfile):
+    profile = monday_profile.model_copy(update={"focus_preference": "EVENING"}, deep=True)
+    profile.fixed_events.extend(
+        [
+            FixedEvent(event_id="CLASS_1", title="Giải tích", day_of_week="Tuesday", start_time="07:30", end_time="09:30"),
+            FixedEvent(
+                event_id="DISR_ONE",
+                title="Họp CLB đột xuất",
+                day_of_week="Thursday",
+                start_time="19:30",
+                end_time="21:00",
+                category="DISRUPTION",
+            ),
+        ]
+    )
+    tasks = [Task(task_id="T_THU", title="Evening Study", duration_min=60, cognitive_load=3, deadline_day="Saturday")]
+
+    # One occurrence only: the event belongs to this week and must vanish next week.
+    res_once = adapt_preferences_for_next_week(profile, tasks, timeline_logs=[{"disruption_slot_window": "Thursday 19:30-21:00"}])
+    cats_once = [fe.category for fe in res_once["adapted_profile"].fixed_events]
+    assert "DISRUPTION" not in cats_once
+    assert any(fe.event_id == "CLASS_1" for fe in res_once["adapted_profile"].fixed_events)
+    assert res_once["chronic_disruption_zones"] == []
+
+    # Two occurrences (from logs): chronic zone is still learned, and the advisory buffer is no longer
+    # blocked by the stale one-off DISRUPTION event sitting on the same slots.
+    logs_twice = [{"disruption_slot_window": "Thursday 19:30-21:00"}] * 2
+    res_twice = adapt_preferences_for_next_week(profile, tasks, timeline_logs=logs_twice)
+    assert "DISRUPTION" not in [fe.category for fe in res_twice["adapted_profile"].fixed_events]
+    assert [z["action"] for z in res_twice["chronic_disruption_zones"]] == ["ADVISORY_BUFFER_ADDED"]

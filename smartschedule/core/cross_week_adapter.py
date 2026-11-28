@@ -31,6 +31,8 @@ from smartschedule.core.utils import parse_time_to_slot_offset
 
 LAMBDA_CATEGORY_EWMA: float = 0.30
 KAPPA_EMPIRICAL_BAYES: float = 3.0
+# FixedEvent categories valid for the current week only; never carried into Week t+1.
+ONE_WEEK_FIXED_EVENT_CATEGORIES = frozenset({"ADVISORY_BUFFER", "DISRUPTION"})
 RATIO_CLIP_MIN: float = 0.50
 RATIO_CLIP_MAX: float = 2.50
 ALPHA_SAFE_MIN: float = 1.00
@@ -338,9 +340,13 @@ def adapt_preferences_for_next_week(
     ordered_logs = _ensure_chronological_order(timeline_logs)
 
     adapted_profile = profile.model_copy(deep=True)
-    # Remove previously auto-injected ADVISORY_BUFFER events so multi-week re-runs stay idempotent
+    # Remove previously auto-injected ADVISORY_BUFFER events so multi-week re-runs stay idempotent, and drop
+    # one-off DISRUPTION events (P8 chat repair) which belong to the week they happened in only. Their signal is
+    # kept in `disruption_logs` / timeline logs, so chronic-zone detection below still sees them.
     adapted_profile.fixed_events = [
-        fe for fe in adapted_profile.fixed_events if str(fe.category or "").strip().upper() != "ADVISORY_BUFFER"
+        fe
+        for fe in adapted_profile.fixed_events
+        if str(fe.category or "").strip().upper() not in ONE_WEEK_FIXED_EVENT_CATEGORIES
     ]
     raw_tasks_copy: List[Task] = [t.model_copy(deep=True) for t in (next_tasks or [])]
     preference_shifts: List[Dict[str, Any]] = []
