@@ -2,6 +2,93 @@
  * Central Application State for SmartSchedule UI (Chat-First + Developer Mode).
  */
 
+export const MAX_PERSISTED_CHAT_MESSAGES = 30;
+
+function _chatStorageKey(workspaceId = "default") {
+  return `smartschedule_chat_history_v1_${String(workspaceId || "default")}`;
+}
+
+function _safeLocalStorageGet(key) {
+  try {
+    if (typeof localStorage === "undefined") return null;
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function _safeLocalStorageSet(key, value) {
+  try {
+    if (typeof localStorage === "undefined") return;
+    localStorage.setItem(key, value);
+  } catch {
+    // Ignore storage quota or private browsing errors
+  }
+}
+
+function _safeLocalStorageRemove(key) {
+  try {
+    if (typeof localStorage === "undefined") return;
+    localStorage.removeItem(key);
+  } catch {
+    // Ignore restricted storage errors
+  }
+}
+
+/**
+ * Trim and sanitize chat messages for workspace & F5 persistence (max 30 latest messages).
+ */
+export function trimChatMessages(messages, maxCount = MAX_PERSISTED_CHAT_MESSAGES) {
+  if (!Array.isArray(messages)) return [];
+  const limit = Math.max(1, Number(maxCount) || MAX_PERSISTED_CHAT_MESSAGES);
+  return messages.slice(-limit).map((m) => {
+    const clean = {
+      id: String(m?.id || `msg_${Date.now()}`),
+      role: m?.role === "user" ? "user" : "assistant",
+      text: String(m?.text || ""),
+    };
+    if (Array.isArray(m?.quickChips) && m.quickChips.length) clean.quickChips = m.quickChips;
+    if (Array.isArray(m?.postActions) && m.postActions.length) clean.postActions = m.postActions;
+    if (m?.edgeCase) clean.edgeCase = m.edgeCase;
+    if (m?.remainingEstimation) clean.remainingEstimation = m.remainingEstimation;
+    if (m?.thinkingSummary) clean.thinkingSummary = m.thinkingSummary;
+    if (m?.finalizedMessage) clean.finalizedMessage = String(m.finalizedMessage);
+    if (m?.tracedTaskId) clean.tracedTaskId = m.tracedTaskId;
+    if (Array.isArray(m?.attachments) && m.attachments.length) {
+      clean.attachments = m.attachments.map((a) => ({
+        filename: String(a?.filename || "file"),
+        size: Number(a?.size || 0),
+      }));
+    }
+    if (m?.icsImport) clean.icsImport = m.icsImport;
+    if (m?.conflict) clean.conflict = m.conflict;
+    if (m?.attachmentDigest) clean.attachmentDigest = m.attachmentDigest;
+    if (m?.adaptation) clean.adaptation = m.adaptation;
+    return clean;
+  });
+}
+
+export function loadChatHistoryFromStorage(workspaceId = "default") {
+  const raw = _safeLocalStorageGet(_chatStorageKey(workspaceId));
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return trimChatMessages(parsed, MAX_PERSISTED_CHAT_MESSAGES);
+  } catch {
+    return [];
+  }
+}
+
+export function saveChatHistoryToStorage(messages, workspaceId = "default") {
+  const trimmed = trimChatMessages(messages, MAX_PERSISTED_CHAT_MESSAGES);
+  _safeLocalStorageSet(_chatStorageKey(workspaceId), JSON.stringify(trimmed));
+  return trimmed;
+}
+
+export function clearChatHistoryStorage(workspaceId = "default") {
+  _safeLocalStorageRemove(_chatStorageKey(workspaceId));
+}
+
 export const state = {
   // Active workspace data
   workspaceId: "default",
@@ -50,13 +137,15 @@ export const state = {
   copilotCollapsed: false,
   developerMode: false,
   devPanelOpen: false,
-  theme: localStorage.getItem("smartschedule_theme") || "botanical", // botanical | light | dark
+  theme: _safeLocalStorageGet("smartschedule_theme") || "botanical", // botanical | light | dark
   inputTab: "tasks", // tasks | commitments | profile
   editingTaskId: null,
   editingFixedEventId: null,
 
   // Chat-First Assistant & Synchronized Calendar Copilot State
-  chatMessages: [], // shared transcript across #viewChat and #calendarCopilotDrawer
+  chatMessages: loadChatHistoryFromStorage("default"), // persisted across F5 (latest 30 msgs)
+  pendingAttachments: [], // staged .txt/.md/.pdf files [{ filename, content, size }]
+  pendingIcsImport: null, // latest parsed .ics preview awaiting apply
   chatModeHint: "AUTO", // AUTO | ADD_RECURRING | ADD_TASK | MODIFY_HIDDEN | ADJUST_DEADLINE
   pendingChatDraft: null,
   lastMutatedTaskId: null,
@@ -107,6 +196,41 @@ export function invalidateSolverCaches() {
   state.benchmarkData = null;
   state.weightsData = null;
   state.overloadPreview = null;
+}
+
+export function serializeWorkspaceState(targetState = state) {
+  const trimmedChat = trimChatMessages(targetState.chatMessages, MAX_PERSISTED_CHAT_MESSAGES);
+  saveChatHistoryToStorage(trimmedChat, targetState.workspaceId);
+  return {
+    suiteLabel: targetState.suiteLabel,
+    commitments: targetState.commitments,
+    tasks: targetState.tasks,
+    pinnedBlocks: targetState.pinnedBlocks,
+    completedBlocks: targetState.completedBlocks,
+    activeSolver: targetState.activeSolver,
+    chatMessages: trimmedChat,
+  };
+}
+
+export function hydrateWorkspaceState(savedObj, targetState = state) {
+  if (!savedObj || typeof savedObj !== "object") return targetState;
+  if (savedObj.commitments) targetState.commitments = savedObj.commitments;
+  if (Array.isArray(savedObj.tasks)) targetState.tasks = savedObj.tasks;
+  targetState.pinnedBlocks = savedObj.pinnedBlocks || savedObj.pinned_blocks || [];
+  targetState.completedBlocks = savedObj.completedBlocks || {};
+  targetState.activeSolver = savedObj.activeSolver || savedObj.algorithm || "SCORED_GREEDY";
+  if (savedObj.suiteLabel) targetState.suiteLabel = savedObj.suiteLabel;
+
+  if (Array.isArray(savedObj.chatMessages) && savedObj.chatMessages.length > 0) {
+    targetState.chatMessages = trimChatMessages(savedObj.chatMessages, MAX_PERSISTED_CHAT_MESSAGES);
+    saveChatHistoryToStorage(targetState.chatMessages, targetState.workspaceId);
+  } else {
+    const cached = loadChatHistoryFromStorage(targetState.workspaceId);
+    if (cached.length > 0) {
+      targetState.chatMessages = cached;
+    }
+  }
+  return targetState;
 }
 
 export function buildApiPayload(algorithmOverride = null) {

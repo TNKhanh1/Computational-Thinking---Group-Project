@@ -94,8 +94,50 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
+  sendChatTurn: (payload) =>
+    request("/api/chat/turn", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
   completeTask: (payload) =>
     request("/api/tasks/complete", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  deleteTask: (payload) =>
+    request("/api/tasks/delete", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  upsertFixedEvent: (payload) =>
+    request("/api/fixed-events/upsert", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  deleteFixedEvent: (payload) =>
+    request("/api/fixed-events/delete", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  initRealWeek: (payload = {}) =>
+    request("/api/workspace/init-real-week", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  adaptNextWeek: (payload = {}) =>
+    request("/api/workspace/adapt-next-week", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  simulateMultiWeek: (payload = {}) =>
+    request("/api/simulation/multi-week", {
       method: "POST",
       body: JSON.stringify(payload),
     }),
@@ -106,7 +148,7 @@ export const api = {
   importIcs: (content) =>
     request("/api/import/ics", {
       method: "POST",
-      body: JSON.stringify({ content }),
+      body: JSON.stringify(typeof content === "string" ? { content } : content),
     }),
 
   exportFile: async (fmt, payload) => {
