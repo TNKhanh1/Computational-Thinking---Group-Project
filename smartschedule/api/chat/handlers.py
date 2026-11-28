@@ -6,17 +6,44 @@ Routes user turns cleanly across:
   - ADJUST_DEADLINE (Deadline update + remaining-time/habit/EWMA buffer recalculation)
   - ADD_RECURRING (Fixed daily/weekly event with multi-turn slot filling)
   - ADD_TASK (Merged Online Context Model + Clause-Level Title Condenser + cross-day bounds)
+  - v1.0-alpha M4 grounded router (`nlp/intent_classifier.py` + `api/chat/lifecycle_intents.py`):
+    DELETE_ITEM, COMPLETE_TASK, QUERY_SCHEDULE, ADAPT_NEXT_WEEK (M5), BATCH_ADD_TASKS,
+    LINK_DEPENDENCY (P10 DAG + cycle guard), attachment cross-check (M7, P14a),
+    DISRUPTION_REPAIR (-> M5) and UPDATE_PROFILE_HABIT (-> M3).
+
+Plug-ins owned by other members are imported fault-tolerantly so this router passes its tests
+whatever the merge order of `M3` / `M5` / `M7` is.
 """
 
 from __future__ import annotations
 
+import functools
+import inspect
 import re
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from smartschedule.api.chat.edge_cases import (
     analyze_schedule_edge_cases,
     compute_remaining_and_habit_buffer,
+)
+from smartschedule.api.chat.lifecycle_intents import (
+    P10_RULE,
+    P14A_RULE,
+    ChatTurnContext,
+    build_milestone_tasks,
+    detect_doc_choice,
+    digest_attachments,
+    doc_conflict_response,
+    find_dependency_cycle,
+    cycle_clarification,
+    handle_adapt_next_week,
+    handle_batch_add_tasks,
+    handle_complete_task,
+    handle_delete_item,
+    handle_link_dependency,
+    handle_query_schedule,
+    is_doc_underestimate,
 )
 from smartschedule.api.chat.thinking_stage import build_post_actions, build_thinking_summary
 from smartschedule.core.controller import ScheduleController
@@ -41,7 +68,70 @@ from smartschedule.nlp.clause_condenser import (
     _resolve_now_weekday,
 )
 from smartschedule.nlp.context_router import parse_context_with_online_model
+from smartschedule.nlp.intent_classifier import IntentResult, classify_intent
 from smartschedule.nlp.parser_controller import WEEKDAYS, _strip_accents
+
+# ---------------------------------------------------------------------------
+# Fault-tolerant plug-ins (M5 / M7 / M3). Each is optional: when absent the
+# router degrades to the v0.9 behaviour instead of failing to import.
+# ---------------------------------------------------------------------------
+try:  # M5 — conversational LOCAL_INSERTION repair (Pattern P8)
+    from smartschedule.api.chat.disruption_chat import (  # type: ignore
+        handle_disruption_chat_turn as _m5_disruption_turn,
+        is_disruption_intent as _m5_is_disruption,
+    )
+except ImportError:  # pragma: no cover - exercised only on branches without M5
+    _m5_disruption_turn = None
+    _m5_is_disruption = None
+
+try:  # M5 — cross-week preference adaptation (Pattern P13)
+    from smartschedule.core.cross_week_adapter import adapt_preferences_for_next_week as _m5_adapt  # type: ignore
+except ImportError:  # pragma: no cover
+    _m5_adapt = None
+
+try:  # M7 — DocumentConstraintDigest (Pattern P14a)
+    from smartschedule.nlp.doc_attachment_parser import parse_document_constraint_digest as _m7_parse_doc  # type: ignore
+except ImportError:  # pragma: no cover
+    _m7_parse_doc = None
+
+try:  # M3 — sleep / chronotype / habit chat
+    from smartschedule.api.chat.profile_habit_chat import (  # type: ignore
+        handle_profile_or_habit_turn as _m3_profile_turn,
+        is_profile_or_habit_intent as _m3_is_profile,
+    )
+except ImportError:
+    _m3_profile_turn = None
+    _m3_is_profile = None
+
+
+def _call_with_supported_kwargs(fn: Callable[..., Any], **kwargs: Any) -> Any:
+    """Call `fn` passing only the keyword arguments its signature accepts (merge-order safety)."""
+    try:
+        params = inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        return fn(**kwargs)
+    if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()):
+        return fn(**kwargs)
+    return fn(**{k: v for k, v in kwargs.items() if k in params})
+
+
+def _build_thinking_summary_compat(*, pattern_rules: Optional[List[Dict[str, str]]] = None, has_dag: bool = False, **base: Any) -> Dict[str, Any]:
+    """M2 may or may not have added `pattern_rules` / `has_dag` yet; inject them afterwards if not."""
+    summary = _call_with_supported_kwargs(build_thinking_summary, pattern_rules=pattern_rules, has_dag=has_dag, **base)
+    if pattern_rules and not summary.get("pattern_rules"):
+        summary["pattern_rules"] = list(pattern_rules)
+    return summary
+
+
+def _normalize_delegated_response(res: Dict[str, Any], fallback_algorithm: str) -> Dict[str, Any]:
+    """Keep `thinking_summary.selected_algorithm` a real solver key (UI stores it as `activeSolver`)."""
+    ts = res.get("thinking_summary")
+    if isinstance(ts, dict):
+        sel = str(ts.get("selected_algorithm") or "")
+        if sel and sel not in ScheduleController.SOLVER_REGISTRY:
+            ts["repair_engine"] = sel
+            ts["selected_algorithm"] = fallback_algorithm if fallback_algorithm in ScheduleController.SOLVER_REGISTRY else "SCORED_GREEDY"
+    return res
 
 
 def _detect_intent(
@@ -114,6 +204,10 @@ def _finalize_solve_and_package(
     t0: float,
     traced_task: Optional[Dict[str, Any]] = None,
     remaining_estimation: Optional[Dict[str, Any]] = None,
+    pattern_rules: Optional[List[Dict[str, str]]] = None,
+    has_dag: bool = False,
+    quick_chips: Optional[List[Dict[str, str]]] = None,
+    extra_fields: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     task_models = [Task.model_validate(t) for t in tasks_raw]
     pinned_models = [ScheduleBlock.model_validate(pb) for pb in pinned_raw]
@@ -190,7 +284,7 @@ def _finalize_solve_and_package(
         )
 
     total_ms = round((time.perf_counter() - t0) * 1000.0, 2)
-    thinking_summary = build_thinking_summary(
+    thinking_summary = _build_thinking_summary_compat(
         intent=intent,
         context_note_vi=context_note_vi,
         chosen_solver=eff_algo,
@@ -199,9 +293,11 @@ def _finalize_solve_and_package(
         peak_match_pct=float(insights.get("peak_match_rate_pct", 100.0)),
         tasks_placed=int(out.summary.tasks_placed),
         tasks_total=int(out.summary.total_tasks_requested),
+        pattern_rules=pattern_rules,
+        has_dag=has_dag,
     )
 
-    return {
+    response = {
         "status": "APPLIED",
         "intent": intent,
         "finalized": edge_case is None or edge_case.get("type") != "DEADLOCK",
@@ -214,7 +310,7 @@ def _finalize_solve_and_package(
         "thinking_summary": thinking_summary,
         "pending_draft": None,
         "missing_fields": [],
-        "quick_chips": [],
+        "quick_chips": list(quick_chips or []),
         "mutated_task_id": mutated_task_id,
         "traced_task": traced_task,
         "remaining_estimation": remaining_estimation,
@@ -226,6 +322,9 @@ def _finalize_solve_and_package(
         "schedule": sched_dict,
         "execution_time_ms": total_ms,
     }
+    if extra_fields:
+        response.update(extra_fields)
+    return response
 
 
 def process_chat_turn(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -285,7 +384,89 @@ def process_chat_turn(payload: Dict[str, Any]) -> Dict[str, Any]:
             "execution_time_ms": round((time.perf_counter() - t0) * 1000.0, 2),
         }
 
-    intent = _detect_intent(prompt, mode_hint, pending_draft, tasks_raw, last_task_id, profile)
+    routing: IntentResult = classify_intent(
+        prompt,
+        mode_hint=mode_hint,
+        pending_draft=pending_draft,
+        tasks=tasks_raw,
+        last_task_id=last_task_id,
+        legacy_detector=lambda: _detect_intent(prompt, "AUTO", None, tasks_raw, last_task_id, profile),
+        disruption_detector=(lambda p: bool(_m5_is_disruption(p))) if _m5_is_disruption else None,
+        profile_detector=(lambda p: bool(_m3_is_profile(p))) if _m3_is_profile else None,
+    )
+    intent = routing.intent
+
+    if intent in ("QUERY_SCHEDULE", "ADAPT_NEXT_WEEK") and not saved_state:
+        try:
+            saved_state = (load_workspace_state(workspace_id) or {}).get("state") or {}
+        except Exception:
+            saved_state = {}
+
+    ctx = ChatTurnContext(
+        prompt=prompt,
+        profile=profile,
+        tasks_raw=tasks_raw,
+        pinned_raw=pinned_raw,
+        completed_blocks=completed_blocks,
+        algorithm=algorithm,
+        workspace_id=workspace_id,
+        auto_save=auto_save,
+        now_day=now_day,
+        t0=t0,
+        last_task_id=last_task_id,
+        pending_draft=pending_draft,
+        payload=payload,
+        saved_state=saved_state,
+    )
+    finalize = functools.partial(
+        _finalize_solve_and_package,
+        algorithm=algorithm,
+        workspace_id=workspace_id,
+        auto_save=auto_save,
+        t0=t0,
+    )
+
+    if intent == "DISRUPTION_REPAIR":
+        if _m5_disruption_turn is not None:
+            delegated = dict(payload)
+            delegated["workspace_id"] = workspace_id
+            delegated.setdefault("commitments", profile.model_dump(mode="json"))
+            delegated.setdefault("tasks", tasks_raw)
+            return _normalize_delegated_response(_m5_disruption_turn(delegated), algorithm)
+        intent = _detect_intent(prompt, "AUTO", None, tasks_raw, last_task_id, profile)
+    if intent == "UPDATE_PROFILE_HABIT":
+        if _m3_profile_turn is not None:
+            return _normalize_delegated_response(
+                _call_with_supported_kwargs(
+                    _m3_profile_turn,
+                    prompt=prompt,
+                    profile=profile,
+                    tasks_raw=tasks_raw,
+                    pinned_raw=pinned_raw,
+                    completed_blocks=completed_blocks,
+                    algorithm=algorithm,
+                    workspace_id=workspace_id,
+                    auto_save=auto_save,
+                ),
+                algorithm,
+            )
+        intent = _detect_intent(prompt, "AUTO", None, tasks_raw, last_task_id, profile)
+    if intent == "DELETE_ITEM":
+        return handle_delete_item(ctx, finalize)
+    if intent == "COMPLETE_TASK":
+        return handle_complete_task(ctx, finalize)
+    if intent == "QUERY_SCHEDULE":
+        return handle_query_schedule(ctx)
+    if intent == "ADAPT_NEXT_WEEK":
+        return handle_adapt_next_week(
+            ctx,
+            finalize,
+            (lambda prof, tks, logs: _m5_adapt(prof, tks, logs)) if _m5_adapt else None,
+        )
+    if intent == "LINK_DEPENDENCY":
+        return handle_link_dependency(ctx, finalize, routing)
+    if intent == "BATCH_ADD_TASKS":
+        return handle_batch_add_tasks(ctx, finalize, routing)
 
     if intent == "MODIFY_HIDDEN":
         trace = resolve_target_task_from_prompt(prompt, tasks_raw, last_task_id=last_task_id)
@@ -576,24 +757,80 @@ def process_chat_turn(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     # ADD_TASK (Merged Online Context Model + Clause-Level Title Condenser)
     draft = dict(pending_draft or {"intent": "ADD_TASK"})
-    cross_win = _extract_cross_day_window(norm_prompt, now_day)
-    s_time, e_time = (None, None) if cross_win else _extract_time_range(norm_prompt)
-    dur_min, dur_inferred = _extract_flexible_duration_min(norm_prompt)
-    dl_day, day_inferred = _OFFLINE_NL.extract_deadline_day(norm_prompt, now_day)
-    dl_time, time_inferred, _, _ = _OFFLINE_NL.extract_clock_time(norm_prompt)
-    title_parsed = _clean_conversational_title(prompt)
-    cat, prio, cog_load = _OFFLINE_NL.extract_category_priority_load(prompt.lower(), norm_prompt)
-    hidden = extract_hidden_criteria_updates(prompt, focus_preference=profile.focus_preference)
+    draft["intent"] = "ADD_TASK"
+
+    # (P14a) Resume a USER_VS_DOC_UNDERESTIMATE clarification
+    resume_keep = False
+    if draft.get("doc_conflict"):
+        choice = detect_doc_choice(norm_prompt)
+        digest_saved = draft.get("attachment_digest") or {}
+        if choice == "USE_DOC" and digest_saved:
+            ms_tasks, created_ids = build_milestone_tasks(tasks_raw, draft, digest_saved, now_day)
+            return finalize(
+                intent="ADD_TASK",
+                profile=profile,
+                tasks_raw=ms_tasks,
+                pinned_raw=pinned_raw,
+                completed_blocks=completed_blocks,
+                mutated_task_id=created_ids[-1] if created_ids else None,
+                context_note_vi=(
+                    f"Biên dịch đề bài `{digest_saved.get('filename')}` thành `{len(created_ids)}` mốc "
+                    f"(tổng `{digest_saved.get('suggested_total_min')}p`) và nối `depends_on` theo thứ tự (P14a + P10)."
+                ),
+                reply_vi=(
+                    f"Đã tạo `{len(created_ids)}` phần việc theo đề bài cho **{draft.get('title')}** "
+                    f"(tổng khoảng {digest_saved.get('suggested_total_min')} phút)."
+                ),
+                pattern_rules=[P14A_RULE, P10_RULE],
+                has_dag=True,
+                extra_fields={"created_task_ids": created_ids},
+            )
+        if choice == "KEEP_USER":
+            resume_keep = True
+            draft.pop("doc_conflict", None)
+            draft.pop("attachment_digest", None)
+            draft["doc_checked"] = True
+        else:
+            return doc_conflict_response(ctx, draft, digest_saved, int(draft.get("duration_min") or 0))
+
+    # (P10) Parse only the dependent clause when the prompt names an existing prerequisite
+    parse_prompt = prompt
+    if routing.prerequisite is not None and routing.prerequisite_task_id:
+        parse_prompt = routing.prerequisite.dependent_text
+        deps_now = [str(d) for d in (draft.get("depends_on") or [])]
+        if routing.prerequisite_task_id not in deps_now:
+            deps_now.append(str(routing.prerequisite_task_id))
+        draft["depends_on"] = deps_now
+    if resume_keep:
+        parse_prompt = ""
+    parse_norm = _strip_accents(parse_prompt).lower()
+
+    cross_win = _extract_cross_day_window(parse_norm, now_day)
+    s_time, e_time = (None, None) if cross_win else _extract_time_range(parse_norm)
+    dur_min, dur_inferred = _extract_flexible_duration_min(parse_norm)
+    dl_day, day_inferred = _OFFLINE_NL.extract_deadline_day(parse_norm, now_day)
+    dl_time, time_inferred, _, _ = _OFFLINE_NL.extract_clock_time(parse_norm)
+    title_parsed = _clean_conversational_title(parse_prompt) if parse_prompt else ""
+    cat, prio, cog_load = _OFFLINE_NL.extract_category_priority_load(parse_prompt.lower(), parse_norm)
+    hidden = (
+        extract_hidden_criteria_updates(parse_prompt, focus_preference=profile.focus_preference)
+        if parse_prompt
+        else {"has_hidden_updates": False, "updates": {}, "summary_vi": []}
+    )
 
     online_ctx = (
         parse_context_with_online_model(
-            prompt,
+            parse_prompt,
             now_day,
             api_key_override=str(payload.get("gemini_api_key") or "").strip() or None,
         )
-        if not pending_draft
+        if not pending_draft and parse_prompt
         else None
     )
+    if online_ctx and online_ctx.get("prerequisite_hint") and not draft.get("depends_on"):
+        hint_trace = resolve_target_task_from_prompt(str(online_ctx["prerequisite_hint"]), tasks_raw)
+        if hint_trace.get("matched") and float(hint_trace.get("confidence") or 0.0) >= 0.60:
+            draft["depends_on"] = [str(hint_trace["task_id"])]
 
     if online_ctx:
         if online_ctx.get("concise_title"):
@@ -656,12 +893,32 @@ def process_chat_turn(payload: Dict[str, Any]) -> Dict[str, Any]:
             draft["deadline_day"] = dl_day
         if not time_inferred and dl_time and not (s_time and e_time):
             draft["deadline_time"] = dl_time
+        if parse_prompt and parse_prompt != prompt and not draft.get("deadline_day"):
+            # "Làm B sau khi xong A trước thứ 6": the deadline sits inside the prerequisite clause
+            full_day, full_day_inf = _OFFLINE_NL.extract_deadline_day(norm_prompt, now_day)
+            if not full_day_inf and full_day:
+                draft["deadline_day"] = full_day
 
     draft.setdefault("category", cat)
     draft.setdefault("priority", prio)
     draft.setdefault("cognitive_load", cog_load)
     for k, v in hidden["updates"].items():
         draft[k] = v
+
+    # (P14a) Cross-check the typed duration against an attached assignment spec (M7 digest)
+    if not draft.get("doc_checked") and payload.get("attachments"):
+        digest = digest_attachments(payload.get("attachments"), _m7_parse_doc)
+        if digest:
+            draft["doc_checked"] = True
+            user_min = int(draft["duration_min"]) if draft.get("has_time_bounds") and draft.get("duration_min") else None
+            if user_min is None:
+                draft["duration_min"] = int(digest["suggested_total_min"])
+                draft["priority"] = max(int(draft.get("priority") or 3), int(digest["suggested_priority"]))
+                draft["cognitive_load"] = max(int(draft.get("cognitive_load") or 2), int(digest["suggested_load"]))
+                draft["doc_autofilled_from"] = digest["filename"]
+            elif is_doc_underestimate(user_min, digest):
+                draft.setdefault("title", title_parsed or digest["filename"])
+                return doc_conflict_response(ctx, draft, digest, user_min)
 
     missing = []
     if not draft.get("title"):
@@ -776,9 +1033,24 @@ def process_chat_turn(payload: Dict[str, Any]) -> Dict[str, Any]:
         start_after=start_after_iso,
         buffer_mode=buf_mode,
         buffer_multiplier=float(draft.get("buffer_multiplier") or 1.0),
+        depends_on=[str(d) for d in (draft.get("depends_on") or [])],
     )
     enriched_new = enrich_task_trace_metadata(task_obj.model_dump(mode="json"))
+    for prereq_id in list(task_obj.depends_on):
+        cycle = find_dependency_cycle(tasks_raw + [enriched_new], new_tid, prereq_id)
+        if cycle is not None:
+            return cycle_clarification(ctx, "ADD_TASK", cycle, tasks_raw + [enriched_new])
     tasks_raw.append(enriched_new)
+
+    rules_used: List[Dict[str, str]] = []
+    extra_notes: List[str] = []
+    if task_obj.depends_on:
+        rules_used.append(P10_RULE)
+        prereq_titles = [str(t.get("title")) for t in tasks_raw if t.get("task_id") in task_obj.depends_on]
+        extra_notes.append(f"Việc này chỉ bắt đầu sau khi xong {', '.join(f'**{p}**' for p in prereq_titles)}.")
+    if draft.get("doc_autofilled_from"):
+        rules_used.append(P14A_RULE)
+        extra_notes.append(f"Thời lượng lấy theo đề bài đính kèm `{draft['doc_autofilled_from']}`.")
 
     day_vi = _WEEKDAY_VI_MAP.get(str(target_day), str(target_day))
     if has_explicit_window:
@@ -821,7 +1093,7 @@ def process_chat_turn(payload: Dict[str, Any]) -> Dict[str, Any]:
         auto_save=auto_save,
         mutated_task_id=new_tid,
         context_note_vi=context_note,
-        reply_vi=f"Đã lên lịch cho **{task_obj.title}** ({time_desc}).",
+        reply_vi=" ".join([f"Đã lên lịch cho **{task_obj.title}** ({time_desc})."] + extra_notes),
         traced_task={
             "task_id": new_tid,
             "title": task_obj.title,
@@ -829,4 +1101,6 @@ def process_chat_turn(payload: Dict[str, Any]) -> Dict[str, Any]:
             "keyword_hashes": enriched_new["keyword_hashes"],
         },
         t0=t0,
+        pattern_rules=rules_used or None,
+        has_dag=bool(task_obj.depends_on),
     )

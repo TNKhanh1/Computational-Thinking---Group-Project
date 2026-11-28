@@ -57,6 +57,8 @@ Không nhánh nào sửa `smartschedule/ui/*` hay `core/solvers/*`. Hai nhánh k
 
 **B7 — [Thấp] Đọc đề nhầm thời lượng.** `_EXPLICIT_HOURS/MINUTES_RE` cộng mọi cụm "N phút/giờ" trong đoạn: "thuyết trình **10 phút**" → mốc Báo cáo ước tính `15` phút. File `.pdf` hỏng vẫn trả `suggested_total_min=60` (từ text rác) → có thể bật cảnh báo `USER_VS_DOC_UNDERESTIMATE` sai.
 
+**B8 — [Thấp] "Tối nay bận…" vẫn hỏi lại ngày.** `extract_disruption_fields("Tối nay mình bận đột xuất họp nhóm 19h-21h")` không nhận "tối nay" là hôm nay → `NEEDS_CLARIFICATION` hỏi "ngày nào"; tiêu đề giữ nguyên cả câu ("Tối nay mình bận đột xuất họp nhóm").
+
 ---
 
 ## 5. Lỗi UI ↔ API (để Tiến kiểm tra giao diện sau)
@@ -67,6 +69,10 @@ Không nhánh nào sửa `smartschedule/ui/*` hay `core/solvers/*`. Hai nhánh k
 
 **U3 — 6 endpoint mới chưa có lời gọi nào trong UI** (`init-real-week`, `tasks/delete`, `fixed-events/*`, `adapt-next-week`, `simulation/multi-week`). Đây là phần việc của M1/M6, không phải lỗi; ghi lại để đối chiếu khi họ nối.
 
+**U5 — Thẻ cảnh báo sau khi sửa lịch đột xuất bị gắn nhãn sai.** `disruption_chat` trả `edge_case = {"has_edge_case", "severity": "WARNING", "code": "POST_DISRUPTION_OVERLOAD", "message_vi"}` — **không có `type`**. `chat-assistant.js:_renderEdgeCaseCard` chỉ phân biệt `type === "DEADLOCK"`, nên quá tải sau sự cố hiện tiêu đề *"⚠️ Cảnh báo lịch trình dày đặc"* và không có nút gỡ rối (`suggestions` rỗng). *Kiểm tra:* báo bận đột xuất vào một ngày đã kín lịch.
+
+**U6 — Phản hồi mới của router M4 cần UI hiển thị (M6).** `status="INFO_ONLY"` (truy vấn lịch, xem trước thích nghi) trả `schedule=None` → `app.js` không vẽ lại lịch (đúng ý đồ). Các khóa mới `conflict` (`USER_VS_DOC_UNDERESTIMATE` / `CIRCULAR_DEPENDENCY`), `attachment_digest`, `adaptation`, `created_task_ids` hiện UI **chưa đọc**; chip vẫn hoạt động vì nằm trong `quick_chips`. *Kiểm tra:* đính kèm đề bài + gõ thời lượng quá ngắn → phải thấy 2 chip lựa chọn.
+
 **U4 — Chip "Hủy báo bận" khi đang hỏi bổ sung.** Chip gửi `"Hủy thao tác"`, khớp `_CANCEL_DRAFT_RE` → trả `status="CANCELLED"`, `schedule=None`. `app.js` đã xử lý `CANCELLED` (reset `chatModeHint`) → **OK**, chỉ cần xác nhận bằng mắt rằng bong bóng chat hiển thị đúng.
 
 ---
@@ -74,3 +80,11 @@ Không nhánh nào sửa `smartschedule/ui/*` hay `core/solvers/*`. Hai nhánh k
 ## 6. Kết luận
 
 Hai nhánh **đúng về logic toán học** (bất biến 1, 2, 3, 5 đạt). Đã gộp vào `verification` để M4 làm tiếp `handlers.py`. **Chưa đạt cổng kiểm định** cho tới khi M5/M7 xử lý B1–B3; B4, B5 nên sửa trước khi chấm mù Chủ Nhật.
+
+## 7. Phần việc M4 đã làm trên nhánh này
+
+- `smartschedule/nlp/intent_classifier.py` — danh sách quyết định tất định (`~0.06 ms`/lượt): xóa luôn thắng báo bận, chuỗi "xong A rồi mới B" không bị hiểu là "đã xong A".
+- `smartschedule/api/chat/lifecycle_intents.py` — `DELETE_ITEM`, `COMPLETE_TASK` (ghi A/E vào `completion_logs`), `QUERY_SCHEDULE`, `ADAPT_NEXT_WEEK` (xem trước → áp dụng, LoA-4), `BATCH_ADD_TASKS`, `LINK_DEPENDENCY` (DFS 3 màu dạng lặp, chặn vòng lặp), đối chiếu đề bài `USER_VS_DOC_UNDERESTIMATE`.
+- `smartschedule/api/chat/handlers.py` — import an toàn M5/M7/M3 (`try/except ImportError` + `inspect.signature`), chuẩn hóa `selected_algorithm` khi chuyển sang M5 (chặn U1 trên luồng của router), thêm `pattern_rules` P10/P13/P14 vào `thinking_summary`.
+- `tests/logical/test_chat_lifecycle_and_grounding.py` — `36` test + `1` `xfail(strict)` ghi lại B5 (tự báo đỏ khi M5 sửa xong để gỡ đánh dấu).
+- **Giới hạn:** qua HTTP, câu "hủy lịch …" vẫn bị `app.py` chặn trước router (B5) — chỉ M5 sửa được.
